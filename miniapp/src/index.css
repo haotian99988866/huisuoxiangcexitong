@@ -1,3 +1,227 @@
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, sans-serif; background: #fefefe; color: #222; }
-a { text-decoration: none; color: inherit; }
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --primary: #d4a574;
+  --primary-light: #f5e8da;
+  --secondary: #6b7280;
+  --accent: #f8bbd0;
+  --bg: #faf7f2;
+  --card: #ffffff;
+  --text: #2d2d2d;
+  --text-light: #8a8a8a;
+  --shadow: 0 4px 20px rgba(212, 165, 116, 0.12);
+  --radius: 16px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #faf7f2 0%, #f8f0e6 100%);
+  min-height: 100vh;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.container {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+}
+
+/* 头部样式 */
+.header {
+  text-align: center;
+  margin-bottom: 32px;
+  padding-top: 10px;
+}
+
+.header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 1px;
+  background: linear-gradient(90deg, #8b5a2b, #d4a574);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header p {
+  color: var(--text-light);
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+/* 会所卡片 */
+.venue-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(212, 165, 116, 0.15);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.venue-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(212, 165, 116, 0.2);
+}
+
+.venue-card__name {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+
+.venue-card__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 15px;
+}
+
+.venue-card__icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.venue-card__label {
+  color: var(--text-light);
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.venue-card__value {
+  color: var(--text);
+}
+
+/* 按钮通用 */
+.btn {
+  display: block;
+  text-align: center;
+  padding: 14px 20px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 16px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: linear-gradient(90deg, #b8860b, #d4a574);
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: scale(1.02);
+}
+
+.btn-success {
+  background: linear-gradient(90deg, #2f855a, #48bb78);
+  color: white;
+}
+
+.btn-outline {
+  background: white;
+  border: 2px solid var(--primary);
+  color: var(--primary);
+}
+
+/* 加载状态 */
+.loading {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-light);
+  font-size: 15px;
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--primary-light);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 详情页 */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  color: var(--primary);
+  font-size: 15px;
+  margin-bottom: 20px;
+  font-weight: 500;
+}
+
+.detail-card {
+  background: white;
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+
+.detail-card h3 {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+/* 技师卡片 */
+.tech-card {
+  background: white;
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+
+.tech-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.tech-card__name {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.status-on {
+  background: #f0fff4;
+  color: #2f855a;
+}
+
+.status-off {
+  background: #f7fafc;
+  color: #718096;
+}

@@ -15,22 +15,52 @@ export default function VenueDetail() {
     return () => window.removeEventListener('message', fn)
   }, [id])
 
-  if (!v) return <div style={{padding:'20px'}}>加载中...</div>
+  if (!v) return <div className="container loading"><div className="spinner"></div><p>加载中...</p></div>
 
   return (
-    <div style={{padding:'20px', maxWidth:'480px', margin:'0 auto'}}>
-      <Link to="/" style={{color:'#007bff'}}>← 返回列表</Link>
-      <h1 style={{fontSize:'22px', fontWeight:'bold', margin:'15px 0'}}>{v.name}</h1>
-      <div style={{background:'#fff', borderRadius:'12px', padding:'15px', marginBottom:'10px'}}>
-        <p style={{marginBottom:'8px'}}><b>📍 地址：</b>{v.address}</p>
-        <p style={{marginBottom:'8px'}}><b>🕐 营业时间：</b>{v.business_hours}</p>
-        <p style={{marginBottom:'8px'}}><b>📞 电话：</b>{v.phone}</p>
+    <div className="container">
+      <Link to="/" className="back-link">← 返回会所列表</Link>
+      
+      <h1 style={{fontSize:24, fontWeight:700, marginBottom:24}}>{v.name}</h1>
+      
+      <div className="detail-card">
+        <div className="venue-card__row">
+          <span className="venue-card__icon">📍</span>
+          <div>
+            <div className="venue-card__label">详细地址</div>
+            <div className="venue-card__value">{v.address}</div>
+          </div>
+        </div>
+
+        <div className="venue-card__row">
+          <span className="venue-card__icon">🕐</span>
+          <div>
+            <div className="venue-card__label">营业时间</div>
+            <div className="venue-card__value">{v.business_hours}</div>
+          </div>
+        </div>
+
+        <div className="venue-card__row">
+          <span className="venue-card__icon">📞</span>
+          <div>
+            <div className="venue-card__label">咨询热线</div>
+            <div className="venue-card__value">{v.phone}</div>
+          </div>
+        </div>
       </div>
-      <div style={{background:'#fff', borderRadius:'12px', padding:'15px'}}>
-        <h3 style={{fontWeight:'bold', marginBottom:'8px'}}>📋 介绍</h3>
-        <p>{v.description || '暂无介绍'}</p>
+
+      <div className="detail-card">
+        <h3>📋 会所介绍</h3>
+        <p style={{color:'#4a4a4a', lineHeight:1.8}}>{v.description || '暂无介绍'}</p>
       </div>
-      <a href={`tel:${v.phone}`} style={{display:'block', textAlign:'center', background:'#28a745', color:'#fff', borderRadius:'10px', padding:'12px', marginTop:'20px', fontWeight:'bold'}}>📞 立即致电</a>
+
+      <Link to={`/venue/${id}/technicians`} className="btn btn-outline" style={{marginBottom:12}}>
+        👩‍⚕️ 查看技师团队
+      </Link>
+
+      <a href={`tel:${v.phone}`} className="btn btn-success">
+        📞 立即致电预约
+      </a>
     </div>
   )
 }

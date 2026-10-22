@@ -17,16 +17,50 @@ export default function VenueList() {
   }, [])
 
   return (
-    <div style={{padding:'20px', maxWidth:'480px', margin:'0 auto'}}>
-      <h1 style={{fontSize:'22px', fontWeight:'bold', margin:'20px 0'}}>🏪 会所一览</h1>
-      {list.length === 0 ? <p>加载中...</p> : list.map(v => (
-        <Link key={v.id} to={`/venue/${v.id}`} style={{display:'block', border:'1px solid #eee', borderRadius:'12px', padding:'15px', marginBottom:'10px', background:'#fff'}}>
-          <h3 style={{fontWeight:'bold'}}>{v.name}</h3>
-          <p style={{fontSize:'14px', color:'#666', margin:'4px 0'}}>📍 {v.address}</p>
-          <p style={{fontSize:'14px'}}>🕐 {v.business_hours}</p>
-          <p style={{fontSize:'14px'}}>📞 {v.phone}</p>
-        </Link>
-      ))}
+    <div className="container">
+      <div className="header">
+        <h1>🏪 会所一览</h1>
+        <p>精选品质 · 舒适体验</p>
+      </div>
+
+      {list.length === 0 ? (
+        <div className="loading">
+          <div className="spinner"></div>
+          <p>正在加载...</p>
+        </div>
+      ) : (
+        list.map(v => (
+          <Link key={v.id} to={`/venue/${v.id}`}>
+            <div className="venue-card">
+              <h2 className="venue-card__name">{v.name}</h2>
+              
+              <div className="venue-card__row">
+                <span className="venue-card__icon">📍</span>
+                <div>
+                  <div className="venue-card__label">地址</div>
+                  <div className="venue-card__value">{v.address}</div>
+                </div>
+              </div>
+
+              <div className="venue-card__row">
+                <span className="venue-card__icon">🕐</span>
+                <div>
+                  <div className="venue-card__label">营业时间</div>
+                  <div className="venue-card__value">{v.business_hours}</div>
+                </div>
+              </div>
+
+              <div className="venue-card__row">
+                <span className="venue-card__icon">📞</span>
+                <div>
+                  <div className="venue-card__label">联系我们</div>
+                  <div className="venue-card__value">{v.phone}</div>
+                </div>
+              </div>
+            </div>
+          </Link>
+        ))
+      )}
     </div>
   )
 }
