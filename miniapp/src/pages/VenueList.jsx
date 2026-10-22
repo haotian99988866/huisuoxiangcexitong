@@ -16,7 +16,6 @@ export default function VenueList() {
         setLoading(false)
         return
       }
-
       const data = e.data.payload?.list || e.data.payload?.venues || e.data.payload
       if (Array.isArray(data)) {
         setList(data)
@@ -52,6 +51,7 @@ export default function VenueList() {
 
   const onDutyCount = selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
+  const dutyShiftToday = selectedVenue?.duty_shift_today
   const serviceItems = selectedVenue?.service_items || []
 
   // 按项目分类分组
@@ -103,13 +103,9 @@ export default function VenueList() {
             }}
           >
             {loading ? (
-              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
-                加载中...
-              </div>
+              <option value="">加载中...</option>
             ) : error ? (
-              <div role="alert" style={{ textAlign: 'center', padding: '60px 20px', color: '#c53030' }}>
-                {error}
-              </div>
+              <option value="">{error}</option>
             ) : filteredOptions.length === 0 ? (
               <option value="">无匹配会所</option>
             ) : (
@@ -151,7 +147,15 @@ export default function VenueList() {
         />
       </div>
 
-      {filteredOptions.length === 0 ? (
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
+          加载中...
+        </div>
+      ) : error ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#c53030' }}>
+          {error}
+        </div>
+      ) : filteredOptions.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
           <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔍</div>
           <p>未找到匹配会所</p>
@@ -173,8 +177,8 @@ export default function VenueList() {
             </div>
           )}
 
-          {/* 全体技师工号 */}
-          {technicianList.length > 0 && (
+          {/* 今日在岗技师 / 未发布提示 */}
+          {technicianList.length > 0 ? (
             <div style={{
               marginBottom: '20px',
               background: '#fff',
@@ -187,7 +191,12 @@ export default function VenueList() {
                 margin: '0 0 12px 0',
                 fontWeight: 600
               }}>
-                👥 在岗技师 ({technicianList.length}人)
+                👥 今日在岗技师 ({technicianList.length}人)
+                {dutyShiftToday && (
+                  <span style={{ fontSize: '12px', color: '#666', marginLeft: '8px' }}>
+                    （{dutyShiftToday}）
+                  </span>
+                )}
               </h3>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 {technicianList.map((code, i) => (
@@ -203,23 +212,35 @@ export default function VenueList() {
                 ))}
               </div>
             </div>
+          ) : (
+            <div style={{
+              marginBottom: '20px',
+              background: '#fff9e6',
+              borderRadius: '12px',
+              padding: '20px 16px',
+              textAlign: 'center',
+              color: '#b7791f'
+            }}>
+              ⚠️ 今日出勤尚未发布
+            </div>
           )}
 
-          {/* 服务项目 */}
+          {/* 服务项目 - 按固定顺序展示 */}
           {Object.keys(serviceGroups).length > 0 && (
             <div style={{ marginBottom: '24px' }}>
-              {Object.entries(serviceGroups).map(([catKey, cat]) => (
-                <div key={catKey} style={{ marginBottom: '18px' }}>
+              {/* 小项 */}
+              {serviceGroups.small && (
+                <div style={{ marginBottom: '18px' }}>
                   <h3 style={{
                     fontSize: '15px',
                     color: '#b7791f',
                     margin: '0 0 10px 0',
                     fontWeight: 600
                   }}>
-                    {cat.name}
+                    ⭐️ 小项
                   </h3>
                   <div style={{ display: 'grid', gap: '8px' }}>
-                    {cat.items.map(item => (
+                    {serviceGroups.small.items.map(item => (
                       <div key={item.id} style={{
                         background: '#fff',
                         borderRadius: '10px',
@@ -240,7 +261,7 @@ export default function VenueList() {
                             flexShrink: 0,
                             marginLeft: '8px'
                           }}>
-                            {item.price ? `$${item.price}` : item.duration || '面议'}
+                            {item.price != null ? `$${Number(item.price).toFixed(2)}` : item.duration || '面议'}
                           </div>
                         </div>
                         {item.description && (
@@ -257,7 +278,215 @@ export default function VenueList() {
                     ))}
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* 中项 */}
+              {serviceGroups.medium && (
+                <div style={{ marginBottom: '18px' }}>
+                  <h3 style={{
+                    fontSize: '15px',
+                    color: '#b7791f',
+                    margin: '0 0 10px 0',
+                    fontWeight: 600
+                  }}>
+                    ⭐️ 中项
+                  </h3>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {serviceGroups.medium.items.map(item => (
+                      <div key={item.id} style={{
+                        background: '#fff',
+                        borderRadius: '10px',
+                        padding: '14px 16px'
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start'
+                        }}>
+                          <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
+                            {item.name}
+                          </div>
+                          <div style={{
+                            fontSize: '15px',
+                            fontWeight: 700,
+                            color: '#c53030',
+                            flexShrink: 0,
+                            marginLeft: '8px'
+                          }}>
+                            {item.price != null ? `$${Number(item.price).toFixed(2)}` : item.duration || '面议'}
+                          </div>
+                        </div>
+                        {item.description && (
+                          <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                            {item.description}
+                          </div>
+                        )}
+                        {item.price && (
+                          <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>
+                            ⏱ {item.duration}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 高项 */}
+              {serviceGroups.high && (
+                <div style={{ marginBottom: '18px' }}>
+                  <h3 style={{
+                    fontSize: '15px',
+                    color: '#b7791f',
+                    margin: '0 0 10px 0',
+                    fontWeight: 600
+                  }}>
+                    ⭐️ 高项
+                  </h3>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {serviceGroups.high.items.map(item => (
+                      <div key={item.id} style={{
+                        background: '#fff',
+                        borderRadius: '10px',
+                        padding: '14px 16px'
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start'
+                        }}>
+                          <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
+                            {item.name}
+                          </div>
+                          <div style={{
+                            fontSize: '15px',
+                            fontWeight: 700,
+                            color: '#c53030',
+                            flexShrink: 0,
+                            marginLeft: '8px'
+                          }}>
+                            {item.price != null ? `$${Number(item.price).toFixed(2)}` : item.duration || '面议'}
+                          </div>
+                        </div>
+                        {item.description && (
+                          <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                            {item.description}
+                          </div>
+                        )}
+                        {item.price && (
+                          <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>
+                            ⏱ {item.duration}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 中医/按摩 */}
+              {serviceGroups.tcm && (
+                <div style={{ marginBottom: '18px' }}>
+                  <h3 style={{
+                    fontSize: '15px',
+                    color: '#b7791f',
+                    margin: '0 0 10px 0',
+                    fontWeight: 600
+                  }}>
+                    🤩 中医按摩
+                  </h3>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {serviceGroups.tcm.items.map(item => (
+                      <div key={item.id} style={{
+                        background: '#fff',
+                        borderRadius: '10px',
+                        padding: '14px 16px'
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start'
+                        }}>
+                          <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
+                            {item.name}
+                          </div>
+                          <div style={{
+                            fontSize: '15px',
+                            fontWeight: 700,
+                            color: '#c53030',
+                            flexShrink: 0,
+                            marginLeft: '8px'
+                          }}>
+                            {item.price != null ? `$${Number(item.price).toFixed(2)}` : item.duration || '面议'}
+                          </div>
+                        </div>
+                        {item.description && (
+                          <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                            {item.description}
+                          </div>
+                        )}
+                        {item.price && (
+                          <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>
+                            ⏱ {item.duration}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 修脚 */}
+              {serviceGroups.pedicure && (
+                <div style={{ marginBottom: '18px' }}>
+                  <h3 style={{
+                    fontSize: '15px',
+                    color: '#b7791f',
+                    margin: '0 0 10px 0',
+                    fontWeight: 600
+                  }}>
+                    🌸 修脚师
+                  </h3>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {serviceGroups.pedicure.items.map(item => (
+                      <div key={item.id} style={{
+                        background: '#fff',
+                        borderRadius: '10px',
+                        padding: '14px 16px'
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start'
+                        }}>
+                          <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
+                            {item.name}
+                          </div>
+                          <div style={{
+                            fontSize: '15px',
+                            fontWeight: 700,
+                            color: '#c53030',
+                            flexShrink: 0,
+                            marginLeft: '8px'
+                          }}>
+                            {item.price != null ? `$${Number(item.price).toFixed(2)}` : item.duration || '面议'}
+                          </div>
+                        </div>
+                        {item.description && (
+                          <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                            {item.description}
+                          </div>
+                        )}
+                        {item.price && (
+                          <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>
+                            ⏱ {item.duration}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

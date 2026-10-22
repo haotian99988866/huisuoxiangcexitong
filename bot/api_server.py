@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import date
 
 import pymysql
 from dotenv import load_dotenv
@@ -83,8 +84,29 @@ def webhook():
                 """
             )
             venues = [parse_venue(venue) for venue in cur.fetchall()]
+            today = date.today()
 
             for venue in venues:
+                cur.execute(
+                    """
+                    SELECT technician_codes, duty_shift
+                    FROM attendance_daily
+                    WHERE venue_id = %s AND duty_date = %s
+                    ORDER BY FIELD(duty_shift, '晚班', '早班')
+                    LIMIT 1
+                    """,
+                    (venue["id"], today),
+                )
+                attendance = cur.fetchone()
+                codes = attendance["technician_codes"] if attendance else None
+                venue["technician_list"] = [
+                    code.strip() for code in codes.split(",") if code.strip()
+                ] if codes else []
+                venue["duty_shift_today"] = (
+                    attendance["duty_shift"] if attendance else None
+                )
+                venue["on_duty_count"] = len(venue["technician_list"])
+
                 cur.execute(
                     """
                     SELECT id, category, category_name, name, description,
