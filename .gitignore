@@ -1,0 +1,24 @@
+# Python
+bot/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+!.env.example
+
+# Node
+miniapp/node_modules/
+miniapp/dist/
+miniapp/.vite
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
