@@ -5,15 +5,27 @@ import { sendData } from '../utils/twa'
 export default function VenueDetail() {
   const { id } = useParams()
   const [v, setV] = useState(null)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    sendData({ action: 'get_venue_detail', id })
+    setV(null)
+    setError('')
     const fn = e => {
-      if (e.data?.type === 'bot_response') setV(e.data.payload)
+      if (e.data?.type !== 'bot_response') return
+      if (e.data.payload?.error) {
+        setError(e.data.payload.error)
+        return
+      }
+      setV(e.data.payload)
     }
     window.addEventListener('message', fn)
+    sendData({ action: 'get_venue_detail', id })
     return () => window.removeEventListener('message', fn)
   }, [id])
+
+  if (error) {
+    return <div className="container loading"><p>{error}</p><Link to="/">返回会所列表</Link></div>
+  }
 
   if (!v) return <div className="container loading"><div className="spinner"></div><p>加载中...</p></div>
 
@@ -28,7 +40,7 @@ export default function VenueDetail() {
           <span className="venue-card__icon">📍</span>
           <div>
             <div className="venue-card__label">详细地址</div>
-            <div className="venue-card__value">{v.address}</div>
+            <div className="venue-card__value">{v.address || '暂无地址'}</div>
           </div>
         </div>
 
@@ -36,7 +48,7 @@ export default function VenueDetail() {
           <span className="venue-card__icon">🕐</span>
           <div>
             <div className="venue-card__label">营业时间</div>
-            <div className="venue-card__value">{v.business_hours}</div>
+            <div className="venue-card__value">{v.business_hours || '暂无营业时间'}</div>
           </div>
         </div>
 
@@ -44,7 +56,7 @@ export default function VenueDetail() {
           <span className="venue-card__icon">📞</span>
           <div>
             <div className="venue-card__label">咨询热线</div>
-            <div className="venue-card__value">{v.phone}</div>
+            <div className="venue-card__value">{v.phone || '暂无电话'}</div>
           </div>
         </div>
       </div>
@@ -58,7 +70,7 @@ export default function VenueDetail() {
         👩‍⚕️ 查看技师团队
       </Link>
 
-      <a href={`tel:${v.phone}`} className="btn btn-success">
+      <a href={v.phone ? `tel:${v.phone}` : undefined} className="btn btn-success">
         📞 立即致电预约
       </a>
     </div>

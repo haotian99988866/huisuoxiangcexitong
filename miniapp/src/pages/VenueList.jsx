@@ -5,26 +5,27 @@ export default function VenueList() {
   const [list, setList] = useState([])
   const [selectedId, setSelectedId] = useState('')
   const [searchTag, setSearchTag] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    sendData({ action: 'get_venues' })
     const fn = (e) => {
-      console.log("收到数据:", e.data)
-      let data = null
-      if (e.data?.type === 'bot_response' && e.data.payload) {
-        data = e.data.payload.list || e.data.payload.venues || e.data.payload
+      if (e.data?.type !== 'bot_response') return
+      if (e.data.payload?.error) {
+        setError(e.data.payload.error)
+        setLoading(false)
+        return
       }
-      if (!data && e.data?.venues) {
-        data = e.data.venues
-      }
-      if (Array.isArray(data) && data.length > 0) {
+
+      const data = e.data.payload?.list || e.data.payload?.venues || e.data.payload
+      if (Array.isArray(data)) {
         setList(data)
-        if (!selectedId) {
-          setSelectedId(String(data[0].id))
-        }
+        setSelectedId(currentId => currentId || (data[0] ? String(data[0].id) : ''))
       }
+      setLoading(false)
     }
     window.addEventListener('message', fn)
+    sendData({ action: 'get_venues' })
     return () => window.removeEventListener('message', fn)
   }, [])
 
@@ -101,7 +102,15 @@ export default function VenueList() {
               background: '#fff'
             }}
           >
-            {filteredOptions.length === 0 ? (
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
+                加载中...
+              </div>
+            ) : error ? (
+              <div role="alert" style={{ textAlign: 'center', padding: '60px 20px', color: '#c53030' }}>
+                {error}
+              </div>
+            ) : filteredOptions.length === 0 ? (
               <option value="">无匹配会所</option>
             ) : (
               filteredOptions.map(v => (
