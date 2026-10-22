@@ -1,272 +1,190 @@
-好！直接在项目根目录创建 `README.md`，完整记录项目介绍、目录结构、启动步骤、常见问题👇
+# 会所信息展示与 Telegram 频道机器人
 
----
+本项目包含 React/Vite 前端、Flask API、Telegram 频道机器人和 MySQL 数据库，用于展示会所资料、服务项目及技师信息，并从指定频道接收带标签的图片来更新会所封面。
 
-## 📄 创建文件
-路径：`D:\project\huisuoxiangcexitong\README.md`
 
-复制下面全部内容保存进去：
+## 项目结构
 
-```markdown
-# 会所管理系统
-
-前后端分离的 Telegram Mini App，用于会所信息展示与管理。
-
-## 📁 项目结构
-```
-huisuoxiangcexitong/
-├── bot/                          # 后端服务
-│   ├── .env                     # 数据库配置
-│   ├── database.py              # 数据库连接与初始化
-│   ├── main.py                  # FastAPI 主服务与接口
-│   └── venv/                    # Python 虚拟环境
-├── miniapp/                     # 前端应用
+```text
+.
+├── bot/
+│   ├── api_server.py          # Flask API，生产运行使用 Waitress
+│   ├── main.py                # Telegram 频道照片监听机器人
+│   ├── db.py                  # MySQL 连接
+│   ├── database.py            # 旧 PostgreSQL 初始化脚本，当前流程未使用
+│   ├── requirements.txt       # Python 依赖
+│   └── config/
+│       └── channels.py        # 频道、会所、主标签和搜索词配置
+├── miniapp/
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── VenueList.jsx    # 会所列表页
-│   │   │   └── VenueDetail.jsx  # 会所详情页
-│   │   ├── utils/
-│   │   │   └── twa.js           # 请求封装
-│   │   ├── App.jsx              # 路由配置
-│   │   ├── main.jsx             # React 入口
-│   │   └── index.css            # 全局样式
-│   ├── index.html
+│   │   │   ├── VenueList.jsx
+│   │   │   ├── VenueDetail.jsx
+│   │   │   └── TechnicianList.jsx
+│   │   ├── utils/twa.js       # 前端 API 请求
+│   │   └── App.jsx            # 页面路由
 │   ├── package.json
-│   └── vite.config.js
-└── README.md                     # 项目说明文档
+│   └── vite.config.js         # 开发环境 /api 代理
+└── README.md
 ```
 
-## 🗄️ 数据库配置
-文件：`bot/.env`
+## 当前功能
+
+- 会所列表、搜索标签、封面图片展示。
+- 会所服务项目和技师工号展示。
+- 会所详情和技师列表 API。
+- Telegram 机器人监听配置中的 10 个频道；带有对应主标签的图片会写入 `venue_photos`，并更新会所封面。
+- 数据存储使用 MySQL，默认数据库名为 `venue_db`。
+
+### 当前数据模型
+
+- `venues`：会所资料；`technician_codes` 存放逗号分隔的技师工号。
+- `venue_photos`：频道图片及消息记录。
+- `technicians`：独立技师记录。
+- `service_items`：会所服务项目及价格。
+
+前端“今日出勤”数量目前根据 `technician_codes` 计算；技师团队列表则读取 `technicians` 表，两者是不同数据来源。当前数据库没有会所介绍字段，因此详情 API 暂时返回空介绍。
+
+## 本地开发（Windows）
+
+### 准备环境变量
+
+在 `bot/.env` 配置以下变量。不要将实际令牌或密码提交到 Git：
+
 ```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=telegram_venue
-DB_USER=postgres
-DB_PASS=Aa112211
-```
-> 请将 `DB_PASS` 改为你的 PostgreSQL 实际密码
+TELEGRAM_BOT_TOKEN=替换为机器人令牌
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=应用专用数据库用户
+DB_PASSWORD=数据库密码
+DB_NAME=venue_db
 
-### 数据库准备
-```bash
-# 登录 PostgreSQL
-psql -U postgres
+# 可选：跨域来源，仅在前后端不同源部署时配置
+CORS_ORIGINS=https://你的前端域名
 
-# 创建数据库
-CREATE DATABASE telegram_venue;
-
-# 退出
-\q
+# 可选：API 监听配置；本机反向代理部署通常保持默认值
+API_HOST=127.0.0.1
+API_PORT=8000
 ```
 
-## 🚀 后端启动
+确保 MySQL 服务正在运行，并已创建数据库及所需表。机器人和 API 共享 `bot/.env` 中的 MySQL 配置。
 
-### 1. 进入目录
-```bash
-cd D:\project\huisuoxiangcexitong\bot
+### 安装依赖
+
+在仓库根目录打开 PowerShell：
+
+```powershell
+cd .\bot
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-### 2. 激活虚拟环境（Windows）
-```bash
-venv\Scripts\activate
-```
+另开一个终端安装前端依赖：
 
-### 3. 安装依赖
-```bash
-pip install fastapi uvicorn psycopg2-binary python-dotenv
-```
-
-### 4. 启动服务
-```bash
-python main.py
-```
-
-**成功输出：**
-```
-✅ 数据库就绪
-✅ 后端：http://127.0.0.1:8000
-INFO:     Uvicorn running on http://127.0.0.1:8000
-```
-
-### 5. 接口测试
-```bash
-curl -X POST http://127.0.0.1:8000/webhook \
-  -H "Content-Type: application/json" \
-  -d '{"action":"get_venues"}'
-```
-
-## 🚀 前端启动
-
-### 1. 进入目录
-```bash
-cd D:\project\huisuoxiangcexitong\miniapp
-```
-
-### 2. 安装依赖（首次）
-```bash
+```powershell
+cd .\miniapp
 npm install
 ```
 
-### 3. 启动开发服务
-```bash
+### 启动服务
+
+分别在三个终端窗口运行以下命令，并保持终端开启。
+
+**窗口 1：Telegram 机器人**
+
+```powershell
+cd .\bot
+.\venv\Scripts\Activate.ps1
+python .\main.py
+```
+
+**窗口 2：后端 API**
+
+```powershell
+cd .\bot
+.\venv\Scripts\Activate.ps1
+python .\api_server.py
+```
+
+API 默认由 Waitress 监听 `127.0.0.1:8000`。
+
+**窗口 3：前端**
+
+```powershell
+cd .\miniapp
 npm run dev
 ```
 
-**成功输出：**
-```
-  VITE v5.x.x  ready in xxx ms
+在浏览器打开 `http://localhost:5173/`。Vite 会将 `/api/*` 请求代理到 `http://127.0.0.1:8000/*`。
 
-  ➜  Local:   http://localhost:5173/
-```
+## API
 
-### 4. 访问应用
-浏览器打开：**http://localhost:5173**
+所有请求均为 `POST /webhook`，请求和响应使用 JSON。
 
-## 🔧 常用命令汇总
+| `action` | 请求字段 | 返回内容 |
+|---|---|---|
+| `get_venues` | 无 | `{ "venues": [...] }`，包含服务项目及技师工号 |
+| `get_venue_detail` | `id` | 会所详情 |
+| `get_technicians` | `venue_id` | `{ "list": [...] }` |
 
-| 操作 | 命令 |
-|---|---|
-| 后端启动 | `cd bot && python main.py` |
-| 前端启动 | `cd miniapp && npm run dev` |
-| 前端构建 | `cd miniapp && npm run build` |
-| 停止服务 | `Ctrl + C` |
+本地调用示例：
 
-## ⚠️ 常见问题
-
-### 后端启动失败 — 数据库连接失败
-- 检查 PostgreSQL 服务是否启动 → `Win+R` → `services.msc` → 确认 PostgreSQL 已运行
-- 核对 `.env` 中 `DB_PASS` 密码是否正确
-- 确认数据库 `telegram_venue` 已创建
-
-### 前端一直显示「加载中...」
-- 确认后端已正常启动在 8000 端口
-- 检查 `twa.js` 中请求地址为 `http://127.0.0.1:8000/webhook`
-- F12 查看控制台报错，确认无跨域（CORS）错误
-
-### 端口被占用
-```bash
-# 查看占用进程
-netstat -ano | findstr :8000
-
-# 结束进程（PID 为上面查到的数字）
-taskkill /PID 进程号 /F
+```powershell
+$body = @{ action = "get_venues" } | ConvertTo-Json
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/webhook" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
 ```
 
-## 📝 开发说明
-- 前端代码修改自动刷新，无需重启
-- 后端代码修改需按 `Ctrl+C` 停止后重新 `python main.py`
-- 新增页面在 `src/pages/` 创建，并在 `App.jsx` 配置路由
+## 构建前端
 
-## ✅ 当前功能清单
-- [x] 会所列表展示
-- [x] 会所详情页
-- [x] 前后端联调
-- [ ] 技师管理模块
-- [ ] 管理员后台
-- [ ] Telegram Bot 接入
+```powershell
+cd .\miniapp
+npm run build
 ```
 
----
+构建产物位于 `miniapp/dist/`，可由 Nginx、Caddy 或其他静态文件服务器托管。
 
-保存好后，以后启动项目直接看这个文档就行！接下来想做哪个功能继续告诉我👇
-机器人token：8966653726:AAE6MVjOODdSc7lilOyQz2ICaXXny34GyqU
+## 服务器部署要点
 
-频道1：
-- 频道ID：-1002324026180
-- 会所名称：名玺水汇按摩
-- 主标签：名玺水汇按摩
-- 搜索关键词：名玺，名玺水汇，按摩，中医，中医理疗，肩颈按摩，采耳，修脚，水汇，万达，同济，金贝2，海悦
+1. 在服务器安装 Python、Node.js 和 MySQL；创建数据库及表，并配置 `bot/.env`。为应用创建权限受限的数据库账号，不要在服务器上使用 MySQL `root` 账号运行应用。
+2. 安装后端依赖：`python -m pip install -r requirements.txt`。
+3. 使用进程管理器运行 `python api_server.py` 和 `python main.py`，并配置服务异常重启及日志管理。
+4. 由 Nginx/Caddy 提供 HTTPS 和静态前端文件，并将 `/api/` 反向代理到 `http://127.0.0.1:8000/`。前端需要配置 SPA 路由回退到 `index.html`。
+5. 默认 API 仅监听本机回环地址，适用于同机反向代理。若必须跨主机访问，才将 `API_HOST` 配为 `0.0.0.0`，并通过防火墙限制来源。
+6. 前后端同域部署时通常不需要放宽 CORS；分域部署时，将精确的前端 HTTPS 来源填入 `CORS_ORIGINS`。
+7. `VITE_API_BASE_URL` 是前端构建时变量；同域部署使用默认 `/api`，分域部署时在构建前设置为完整 API 前缀，例如 `https://api.example.com`。
 
-频道2：
-- 频道ID：-1002323001411
-- 会所名称：名玺水汇会所
-- 主标签：名玺水汇会所
-- 搜索关键词：名玺，名玺水汇，会所，莞式服务，半价，水汇，万达，同济，金贝2，海悦
+> 当前 API 未实现登录或访问令牌校验。不要在未增加访问控制和限流的情况下，将 API 直接暴露到公网。
 
-频道3：
-- 频道ID： -1002442225595
-- 会所名称：名玺水汇KTV
-- 主标签：名玺水汇KTV
-- 搜索关键词：名玺，名玺水汇，会所，DJ，裸玩，水汇，万达，同济，金贝2，海悦
+## 数据库和机器人注意事项
 
-频道4：
-- 频道ID： -1002219327758
-- 会所名称：凯迪/大浪淘沙会所
-- 主标签：凯迪/大浪淘沙会所
-- 搜索关键词：凯迪，大浪，水汇，会所，莞式服务，海豚，蓝色海湾，南海
+- 机器人仅处理配置频道中的图片消息；图片说明需要包含该频道对应的主标签。
+- 请先确认机器人账号已加入需要监听的频道，并具备读取消息及发送回复的权限。
+- `bot/database.py` 是旧 PostgreSQL 脚本；当前 `bot/db.py` 和 `bot/api_server.py` 使用 MySQL。
+- 数据库备份、迁移和恢复应在服务器上线前另行配置。
 
-频道5：
-- 频道ID： -1002242032486
-- 会所名称：大西洋/五象会所
-- 主标签：大西洋/五象会所
-- 搜索关键词：五象，大西洋，会所，莞式服务，双狮
+## 配置与秘密管理
 
+- 本地开发的 Telegram 令牌和数据库密码保存在 `bot/.env`；该文件已被 `.gitignore` 排除，不会被 Git 跟踪。请勿把真实凭据放进 README、源代码、截图或提交记录。
+- 服务器部署时优先使用云厂商 Secret Manager；没有该服务时，通过服务器环境变量或权限受限的秘密文件注入，不要把本机 `.env` 上传到公开仓库。
+- `bot/.env` 已包含当前项目所需的环境变量。新环境请按“本地开发”章节的模板配置自己的值。
+- 旧凭据曾出现在 README 和聊天中，建议在 Telegram BotFather 轮换机器人令牌，并更改数据库密码；轮换后只更新 `bot/.env` 和服务器秘密配置，不要把新值贴到 README。
 
-频道6：
-- 频道ID： -1002242001555
-- 会所名称：帝豪会所
-- 主标签：帝豪会所
-- 搜索关键词：帝豪，会所，莞式服务，红灯笼
+频道 ID 是机器人运行配置，不是认证凭据；具体频道及标签以 `bot/config/channels.py` 为准。当前频道配置如下：
 
-频道7：
-- 频道ID：-1002219602447
-- 会所名称：西港170💲外送
-- 主标签：西港170💲外送
-- 搜索关键词：170，越南，外送，酒店，90分钟，包夜
-
-频道8：
-- 频道ID：-1002257887031
-- 会所名称：西港180💲外送
-- 主标签：西港180💲外送
-- 搜索关键词：180，越南，外送，酒店，90分钟，包夜
-
-频道9：
-- 频道ID：-1002433638615
-- 会所名称：西港160💲外送
-- 主标签：西港160💲外送
-- 搜索关键词：160，越南，外送，酒店，90分钟，包夜
-
-频道10：
-- 频道ID：-1003900469567
-- 会所名称：小苹果/红苹果外送
-- 主标签：小苹果/红苹果外送
-- 搜索关键词：小苹果，红苹果，苹果，越南，外送，酒店，90分钟，包夜
-
- 数据库信息
-主机：127.0.0.1
-端口：3306
-用户名：root
-密码：Aa112211
-库名：venue_db
-
-
-下面是精简版，只保留启动步骤👇
-
----
-
-# 启动说明
-
-打开 **3 个终端窗口**，分别执行：
-
-### 窗口 1 — 机器人
-```bash
-cd bot
-python main.py
-```
-提示：`🤖 机器人启动 — 监听会所频道模式`
-
-### 窗口 2 — 后端接口
-```bash
-cd bot
-python api_server.py
-```
-提示：`🚀 后端 API 启动：http://127.0.0.1:8000`
-
-### 窗口 3 — 前端页面
-```bash
-cd miniapp
-npm run dev
-```
-访问：**http://localhost:5173/**
-
-> ⚠️ 三个窗口保持打开，全部运行才正常工作。
+| 频道 ID | 会所 | 主标签 |
+|---|---|---|
+| `-1002324026180` | 名玺水汇按摩 | `名玺水汇按摩` |
+| `-1002323001411` | 名玺水汇会所 | `名玺水汇会所` |
+| `-1002442225595` | 名玺水汇KTV | `名玺水汇KTV` |
+| `-1002219327758` | 凯迪/大浪淘沙会所 | `凯迪/大浪淘沙会所` |
+| `-1002242032486` | 大西洋/五象会所 | `大西洋/五象会所` |
+| `-1002242001555` | 帝豪会所 | `帝豪会所` |
+| `-1002219602447` | 西港170💲外送 | `西港170💲外送` |
+| `-1002257887031` | 西港180💲外送 | `西港180💲外送` |
+| `-1002433638615` | 西港160💲外送 | `西港160💲外送` |
+| `-1003900469567` | 小苹果/红苹果外送 | `小苹果/红苹果外送` |
