@@ -82,7 +82,9 @@ def save_daily_attendance(venue_id: int, text: str):
             """
             INSERT INTO attendance_daily (venue_id, duty_date, duty_shift, technician_codes)
             VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE technician_codes = VALUES(technician_codes)
+            ON DUPLICATE KEY UPDATE
+                technician_codes = VALUES(technician_codes),
+                created_at = CURRENT_TIMESTAMP
             """,
             (
                 venue_id,

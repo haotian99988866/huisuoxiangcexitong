@@ -1,12 +1,16 @@
 import logging
+from io import BytesIO
 import os
 from datetime import date
 
 import pymysql
+import requests
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
+from PIL import Image, UnidentifiedImageError
 from waitress import serve
+from urllib.parse import quote
 
 load_dotenv()
 
@@ -19,7 +23,13 @@ cors_origins = [
     for origin in os.getenv("CORS_ORIGINS", ",".join(default_cors_origins)).split(",")
     if origin.strip()
 ]
-CORS(app, resources={r"/webhook": {"origins": cors_origins}})
+CORS(
+    app,
+    resources={
+        r"/webhook": {"origins": cors_origins},
+        r"/photos/*": {"origins": cors_origins},
+    },
+)
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
@@ -46,6 +56,89 @@ def parse_venue(venue):
     venue["on_duty_count"] = len(venue["technician_list"])
     venue["description"] = None
     return venue
+
+
+@app.get("/photos/<int:photo_id>/image")
+def technician_photo_image(photo_id):
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT p.file_id
+            FROM technician_photos p
+            WHERE p.id = %s AND p.status = 'matched'
+                  AND p.technician_code IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM attendance_daily a
+                      WHERE a.venue_id = p.venue_id
+                            AND a.duty_date = p.duty_date
+                            AND FIND_IN_SET(p.technician_code, a.technician_codes) > 0
+                  )
+            """,
+            (photo_id,),
+        )
+        photo = cur.fetchone()
+    except pymysql.MySQLError:
+        logger.exception("Failed to look up technician photo %s", photo_id)
+        return jsonify({"error": "Database request failed"}), 500
+    finally:
+        if cur is not None:
+            cur.close()
+        if conn is not None:
+            conn.close()
+
+    if photo is None:
+        return jsonify({"error": "Photo not found"}), 404
+
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return jsonify({"error": "Photo service is not configured"}), 503
+
+    try:
+        file_response = requests.get(
+            f"https://api.telegram.org/bot{token}/getFile",
+            params={"file_id": photo["file_id"]},
+            timeout=(5, 15),
+        )
+        file_response.raise_for_status()
+        file_info = file_response.json()
+        if not file_info.get("ok") or not file_info.get("result", {}).get("file_path"):
+            logger.error("Telegram did not return a file path for photo %s", photo_id)
+            return jsonify({"error": "Photo is unavailable"}), 502
+
+        file_path = file_info["result"]["file_path"]
+        image_response = requests.get(
+            f"https://api.telegram.org/file/bot{token}/{quote(file_path, safe='/')}",
+            timeout=(5, 30),
+        )
+        image_response.raise_for_status()
+    except requests.RequestException as exc:
+        logger.error(
+            "Failed to retrieve Telegram photo %s (%s)",
+            photo_id,
+            type(exc).__name__,
+        )
+        return jsonify({"error": "Photo service is temporarily unavailable"}), 502
+
+    try:
+        with Image.open(BytesIO(image_response.content)) as image:
+            content_type = Image.MIME.get(image.format)
+            image.verify()
+    except (UnidentifiedImageError, OSError):
+        logger.error("Telegram returned invalid image data for photo %s", photo_id)
+        return jsonify({"error": "Stored file is not an image"}), 502
+    if content_type is None:
+        logger.error("Unsupported Telegram image format for photo %s", photo_id)
+        return jsonify({"error": "Unsupported photo format"}), 502
+
+    response = Response(image_response.content, mimetype=content_type)
+    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @app.post("/webhook")
@@ -89,7 +182,7 @@ def webhook():
             for venue in venues:
                 cur.execute(
                     """
-                    SELECT technician_codes, duty_shift
+                    SELECT duty_date, technician_codes, duty_shift
                     FROM attendance_daily
                     WHERE venue_id = %s AND duty_date = %s
                     ORDER BY FIELD(duty_shift, '晚班', '早班')
@@ -106,6 +199,27 @@ def webhook():
                     attendance["duty_shift"] if attendance else None
                 )
                 venue["on_duty_count"] = len(venue["technician_list"])
+                venue["technician_photos"] = {}
+                if attendance:
+                    cur.execute(
+                        """
+                        SELECT id, technician_code
+                        FROM technician_photos
+                        WHERE venue_id = %s AND duty_date = %s
+                              AND status = 'matched'
+                              AND FIND_IN_SET(technician_code, %s) > 0
+                        ORDER BY id
+                        """,
+                        (
+                            venue["id"],
+                            attendance["duty_date"],
+                            attendance["technician_codes"],
+                        ),
+                    )
+                    for photo in cur.fetchall():
+                        venue["technician_photos"].setdefault(
+                            photo["technician_code"], []
+                        ).append(photo["id"])
 
                 cur.execute(
                     """

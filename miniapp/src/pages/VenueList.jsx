@@ -1,12 +1,17 @@
 import { useEffect, useState, useMemo } from 'react'
-import { sendData } from '../utils/twa'
+import { API_BASE_URL, sendData } from '../utils/twa'
 
 export default function VenueList() {
   const [list, setList] = useState([])
   const [selectedId, setSelectedId] = useState('')
+  const [expandedTechnicianCode, setExpandedTechnicianCode] = useState('')
   const [searchTag, setSearchTag] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    setExpandedTechnicianCode('')
+  }, [selectedId])
 
   useEffect(() => {
     const fn = (e) => {
@@ -199,18 +204,57 @@ export default function VenueList() {
                 )}
               </h3>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {technicianList.map((code, i) => (
-                  <span key={i} style={{
-                    padding: '6px 12px',
-                    background: '#f0f7f4',
-                    borderRadius: '16px',
-                    fontSize: '14px',
-                    color: '#2c7a56'
-                  }}>
-                    {code}
-                  </span>
-                ))}
+                {technicianList.map(code => {
+                  const photoIds = selectedVenue.technician_photos?.[code] || []
+                  const expanded = expandedTechnicianCode === code
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setExpandedTechnicianCode(expanded ? '' : code)}
+                      aria-expanded={expanded}
+                      style={{
+                        padding: '6px 12px',
+                        border: 0,
+                        background: expanded ? '#d8eee4' : '#f0f7f4',
+                        borderRadius: '16px',
+                        fontSize: '14px',
+                        color: '#2c7a56',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {code}{photoIds.length > 0 ? ` · ${photoIds.length}张照片` : ''}
+                    </button>
+                  )
+                })}
               </div>
+              {expandedTechnicianCode && (
+                <div style={{ marginTop: '12px' }}>
+                  {(selectedVenue.technician_photos?.[expandedTechnicianCode] || []).length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {selectedVenue.technician_photos[expandedTechnicianCode].map(photoId => (
+                        <img
+                          key={photoId}
+                          src={`${API_BASE_URL}/photos/${photoId}/image`}
+                          alt={`工号 ${expandedTechnicianCode} 的照片`}
+                          loading="lazy"
+                          style={{
+                            width: '96px',
+                            height: '120px',
+                            objectFit: 'cover',
+                            borderRadius: '8px',
+                            background: '#f2f2f2'
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '13px', color: '#888' }}>
+                      工号 {expandedTechnicianCode} 暂无已确认照片
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div style={{

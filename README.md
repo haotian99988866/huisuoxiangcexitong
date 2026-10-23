@@ -10,9 +10,12 @@
 ├── bot/
 │   ├── api_server.py          # Flask API，生产运行使用 Waitress
 │   ├── main.py                # Telegram 频道照片监听机器人
+│   ├── technician_photo_ocr.py # 本地 OCR、自动匹配及人工确认
+│   ├── review_technician_photos.py # 待核对照片 CLI
 │   ├── db.py                  # MySQL 连接
 │   ├── database.py            # 旧 PostgreSQL 初始化脚本，当前流程未使用
 │   ├── requirements.txt       # Python 依赖
+│   ├── migrations/            # MySQL 表结构迁移
 │   └── config/
 │       └── channels.py        # 频道、会所、主标签和搜索词配置
 ├── miniapp/
@@ -34,6 +37,9 @@
 - 会所服务项目和技师工号展示。
 - 会所详情和技师列表 API。
 - Telegram 机器人监听配置中的 10 个频道；带有对应主标签的图片会写入 `venue_photos`，并更新会所封面。
+- 机器人在本地 OCR 频道照片中的纯数字工号；唯一、高置信度且属于当日出勤名单的照片会自动关联，其他照片待人工核对。
+- 匹配时忽略工号的前导零（例如照片上的 `21` 可匹配出勤名单中的 `021`）；如名单中同时存在两种写法，则保留人工核对。
+- 前端可点击今日工号查看已自动匹配或人工确认的照片；待核对照片不会通过公开 API 展示。
 - 数据存储使用 MySQL，默认数据库名为 `venue_db`。
 
 ### 当前数据模型
@@ -42,6 +48,7 @@
 - `venue_photos`：频道图片及消息记录。
 - `technicians`：独立技师记录。
 - `service_items`：会所服务项目及价格。
+- `technician_photos`：照片 OCR 结果、出勤日期、候选工号及审核状态；Telegram `file_id` 只由后端使用。
 
 前端“今日出勤”数量目前根据 `technician_codes` 计算；技师团队列表则读取 `technicians` 表，两者是不同数据来源。当前数据库没有会所介绍字段，因此详情 API 暂时返回空介绍。
 
@@ -68,6 +75,13 @@ API_PORT=8000
 ```
 
 确保 MySQL 服务正在运行，并已创建数据库及所需表。机器人和 API 共享 `bot/.env` 中的 MySQL 配置。
+
+应用技师照片表迁移（在仓库根目录执行）：
+
+```powershell
+Get-Content -Raw .\bot\migrations\002_technician_photos.sql | mysql -u root -p venue_db
+Get-Content -Raw .\bot\migrations\003_technician_photo_ocr_error.sql | mysql -u root -p venue_db
+```
 
 ### 安装依赖
 
@@ -163,6 +177,10 @@ npm run build
 ## 数据库和机器人注意事项
 
 - 机器人仅处理配置频道中的图片消息；图片说明需要包含该频道对应的主标签。
+- 技师照片 OCR 在运行机器人本机执行，不会将照片发送给 OCR 第三方服务。照片按出勤公告中的日期归档；若照片先于公告，公告保存后会自动尝试补匹配。
+- 只有 OCR 唯一识别出高置信度工号且工号在对应出勤名单中的照片会自动公开；其他照片需人工核对。待核对照片默认不显示在小程序。
+- 查看待核对项目：`cd .\bot; .\venv\Scripts\python.exe .\review_technician_photos.py list`。人工确认：`.\venv\Scripts\python.exe .\review_technician_photos.py approve <照片ID> <工号>`。只能确认该日期出勤名单中的工号。
+- 首次运行 OCR 时需要联网下载识别模型；模型保存在 Python 环境中，不会上传照片。
 - 请先确认机器人账号已加入需要监听的频道，并具备读取消息及发送回复的权限。
 - `bot/database.py` 是旧 PostgreSQL 脚本；当前 `bot/db.py` 和 `bot/api_server.py` 使用 MySQL。
 - 数据库备份、迁移和恢复应在服务器上线前另行配置。

@@ -1,12 +1,22 @@
 import os
 import re
+import logging
+from datetime import datetime
+
+import pymysql
+import requests
 import telebot
 from dotenv import load_dotenv
 from db import get_conn
 from config.channels import LISTEN_CHANNELS, TAG_ALIASES
-from attendance_parser import save_daily_attendance  # 出勤解析模块
+from attendance_parser import parse_attendance_text, save_daily_attendance
+from technician_photo_ocr import (
+    match_pending_technician_photos,
+    save_technician_photo,
+)
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -52,52 +62,98 @@ def handle_photo_message(message):
     print(f"解析标签: {tags}")
     print(f"需要匹配: [{primary_tag}]")
 
-    if primary_tag not in tags:
-        print(f"❌ 主标签不匹配，跳过")
-        return
-
-    # 生成照片链接
     file_id = message.photo[-1].file_id
     chat_numeric = chat_id_str.replace('-100', '').replace('-', '')
     photo_link = f"https://t.me/c/{chat_numeric}/{message.message_id}"
 
-    try:
+    if primary_tag in tags:
         conn = get_conn()
-        cur = conn.cursor()
+        cur = None
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO venue_photos
+                    (venue_id, file_id, photo_link, caption, tags, channel_id, msg_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    venue_config["venue_id"],
+                    file_id,
+                    photo_link,
+                    caption,
+                    ",".join(tags),
+                    chat_id_str,
+                    message.message_id,
+                ),
+            )
+            cur.execute(
+                "UPDATE venues SET cover_image = %s WHERE id = %s",
+                (photo_link, venue_config["venue_id"]),
+            )
+            conn.commit()
+        except pymysql.MySQLError:
+            conn.rollback()
+            logger.exception(
+                "Failed to update venue cover for message %s", message.message_id
+            )
+            raise
+        finally:
+            if cur is not None:
+                cur.close()
+            conn.close()
 
-        # 保存照片记录
-        cur.execute("""
-            INSERT INTO venue_photos (venue_id, file_id, photo_link, caption, tags, channel_id, msg_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (
-            venue_config["venue_id"],
-            file_id,
-            photo_link,
-            caption,
-            ",".join(tags),
-            chat_id_str,
-            message.message_id
-        ))
+        try:
+            bot.send_message(
+                message.chat.id,
+                f"✅ 已更新【{venue_config['venue_name']}】封面\n链接：{photo_link}",
+            )
+        except telebot.apihelper.ApiTelegramException:
+            logger.error(
+                "Failed to confirm venue cover update for message %s",
+                message.message_id,
+            )
 
-        # 更新封面
-        cur.execute("""
-            UPDATE venues SET cover_image = %s WHERE id = %s
-        """, (photo_link, venue_config["venue_id"]))
+        return
 
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        print(f"✅ 封面更新成功: {venue_config['venue_name']} -> {photo_link}")
-
-        bot.send_message(
-            message.chat.id,
-            f"✅ 已更新【{venue_config['venue_name']}】\n"
-            f"标签：{' '.join(['#'+t for t in tags])}\n"
-            f"链接：{photo_link}"
+    try:
+        telegram_file = bot.get_file(file_id)
+        image_bytes = bot.download_file(telegram_file.file_path)
+    except (
+        telebot.apihelper.ApiTelegramException,
+        requests.RequestException,
+    ) as exc:
+        logger.error(
+            "Failed to download technician photo %s (%s)",
+            message.message_id,
+            type(exc).__name__,
         )
-    except Exception as e:
-        print(f"❌ 数据库错误: {e}")
+        raise
+
+    try:
+        result = save_technician_photo(
+            venue_config["venue_id"],
+            chat_id_str,
+            message.message_id,
+            file_id,
+            image_bytes,
+            datetime.fromtimestamp(message.date).date(),
+        )
+    except (pymysql.MySQLError, ValueError):
+        logger.exception("Failed to process technician photo %s", message.message_id)
+        raise
+
+    if result["status"] == "matched":
+        print(
+            f"✅ OCR 匹配成功：{venue_config['venue_name']} "
+            f"#{result['technician_code']}，照片记录 {result['id']}"
+        )
+    else:
+        print(
+            f"⚠️ OCR 待人工核对：{venue_config['venue_name']} "
+            f"照片记录 {result['id']}，候选工号："
+            f"{','.join(result['candidate_codes']) or '无'}"
+        )
 
 # ===== 处理纯文字出勤公告（新增） =====
 @bot.message_handler(content_types=['text'])
@@ -130,6 +186,17 @@ def handle_attendance_text(message):
     # 解析并保存出勤
     ok, msg = save_daily_attendance(venue_config["venue_id"], text)
     print(f"出勤同步结果: {msg}")
+    if ok:
+        attendance = parse_attendance_text(text)
+        photo_date = datetime.fromtimestamp(message.date).date()
+        matched_count = match_pending_technician_photos(
+            venue_config["venue_id"],
+            photo_date,
+            attendance["duty_date"],
+            attendance["codes"],
+        )
+        if matched_count:
+            print(f"✅ 出勤名单已补匹配 {matched_count} 张先到照片")
 
     # 回复确认
     bot.send_message(message.chat.id, msg)
