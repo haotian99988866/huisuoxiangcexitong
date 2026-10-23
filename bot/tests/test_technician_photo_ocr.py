@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from technician_photo_ocr import (
     classify_ocr_detections,
+    extract_labeled_technician_code,
     extract_technician_profile,
     match_pending_technician_photos,
     recognize_technician_code,
@@ -45,6 +46,44 @@ class FakeConnection:
 
 
 class ClassifyOcrDetectionsTests(unittest.TestCase):
+    def test_extracts_labeled_code_from_a_following_ocr_line(self):
+        self.assertEqual(
+            extract_labeled_technician_code("大浪淘沙\n工号：\n039\n年龄：20"),
+            "039",
+        )
+
+    def test_extracts_car_model_code_from_a_labeled_ocr_line(self):
+        self.assertEqual(
+            extract_labeled_technician_code("工号：\n车模6666\n年龄：24"),
+            "6666",
+        )
+
+    def test_rejects_ambiguous_labeled_codes(self):
+        self.assertIsNone(
+            extract_labeled_technician_code("工号：039\n编号：109")
+        )
+
+    def test_does_not_extract_unlabeled_numbers(self):
+        self.assertIsNone(extract_labeled_technician_code("年龄：24\n身高：165"))
+
+    def test_extracts_kaidi_photo_details_without_poster_text(self):
+        profile = extract_technician_profile(
+            [
+                "大浪淘沙国际水汇\n工号：\n530\n年龄：24\n身高：\n1,63\n"
+                "体重：\n90斤\n胸围：\n34D(真\n产地：\n越南\n"
+                "特色：\n体贴入微\n3通，3P\n"
+                "09 \"Give a girl the right kind of shoes\"\nMarilyn Monroe"
+            ],
+            "530",
+        )
+
+        self.assertEqual(profile["age"], "24")
+        self.assertEqual(profile["height"], "163")
+        self.assertEqual(profile["weight"], "90斤")
+        self.assertEqual(profile["bust"], "D(真")
+        self.assertEqual(profile["origin"], "越南")
+        self.assertEqual(profile["service_description"], "体贴入微\n3通，3P")
+
     def test_extracts_profile_fields_and_deduplicates_service_description(self):
         profile = extract_technician_profile(
             [

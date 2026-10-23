@@ -20,21 +20,61 @@ _plate_code_pattern = re.compile(r"(?<!\d)(\d{2,4})(?!\d)")
 _labeled_plate_code_pattern = re.compile(
     r"(?:工号|编号)\s*[:：]?\s*(\d{2,4})(?!\d)"
 )
+_labeled_photo_code_pattern = re.compile(r"^\s*(\d{2,4})\s*$")
+_labeled_car_model_code_pattern = re.compile(r"^\s*车模\s*(\d{2,4})\s*$")
 _profile_patterns = {
     "technician_code": re.compile(r"^\s*(?:工号|编号)\s*[:：]?\s*(\d{2,4})(?!\d)"),
     "age": re.compile(r"^\s*年龄\s*[:：]?\s*(\d{1,2})(?:\s*岁)?"),
-    "height": re.compile(r"^\s*身高\s*[:：]?\s*(\d{2,3})(?:\s*cm)?", re.IGNORECASE),
-    "bust": re.compile(r"^\s*胸围\s*[:：]?\s*([A-D](?:\s*\([^)]*\))?)", re.IGNORECASE),
-    "weight": re.compile(r"^\s*体重\s*[:：]?\s*(\d{2,3}\s*(?:kg|公斤)?)", re.IGNORECASE),
-    "origin": re.compile(r"^\s*籍贯\s*[:：]?\s*(.+?)\s*$"),
+    "height": re.compile(
+        r"^\s*身高\s*[:：]?\s*((?:1[.,]\d{2})|\d{2,3})(?:\s*cm)?",
+        re.IGNORECASE,
+    ),
+    "bust": re.compile(
+        r"^\s*胸围\s*[:：]?\s*(?:\d{2}\s*)?([A-D](?:\s*[\(（][^)\）]*[)\）]?)?)",
+        re.IGNORECASE,
+    ),
+    "weight": re.compile(
+        r"^\s*体重\s*[:：]?\s*(\d{2,3}\s*(?:kg|公斤|斤)?)",
+        re.IGNORECASE,
+    ),
+    "origin": re.compile(r"^\s*(?:籍贯|产地)\s*[:：]?\s*(.+?)\s*$"),
 }
 _profile_metadata_line = re.compile(
     r"^\s*(?:名玺水汇|特技名玺|轻度收费|中度收费|重度收费|时间)\b"
 )
+_profile_poster_line = re.compile(
+    r"^\s*(?:ALL ABOUT FASHION|FASHIONSTYLE|(?:0[789]|09)\s*[\"“]|"
+    r"Gianni Versace|Marilyn Monroe|Oscar de la Renta|NOVEM(?:BER|EDED)\b|"
+    r"Style is|Don't be|Don't make|but you decide|by the way|"
+    r"and the way|what you want to express)",
+    re.IGNORECASE,
+)
+_profile_feature_label = re.compile(r"^\s*(?:特色|特点)\s*[:：]?\s*(.*)$")
 
 
 def _normalize_code(code):
     return str(int(code))
+
+
+def extract_labeled_technician_code(ocr_text):
+    lines = (ocr_text or "").splitlines()
+    codes = []
+    for index, line in enumerate(lines):
+        label_index = max(line.find("工号"), line.find("编号"))
+        if label_index < 0:
+            continue
+
+        value = line[label_index + 2:].strip(" \t:：")
+        if not value and index + 1 < len(lines):
+            value = lines[index + 1]
+        match = _labeled_photo_code_pattern.fullmatch(value)
+        if match is None:
+            match = _labeled_car_model_code_pattern.fullmatch(value)
+        if match:
+            codes.append(match.group(1))
+
+    unique_codes = set(codes)
+    return next(iter(unique_codes)) if len(unique_codes) == 1 else None
 
 
 def extract_technician_profile(ocr_texts, technician_code):
@@ -45,25 +85,52 @@ def extract_technician_profile(ocr_texts, technician_code):
     for text in ocr_texts:
         lines = (text or "").splitlines()
         origin_index = None
+        feature_index = None
         for index, line in enumerate(lines):
             stripped_line = line.strip()
+            field_line = stripped_line
+            if (
+                re.fullmatch(r"(?:年龄|身高|胸围|体重|籍贯|产地)\s*[:：]?", stripped_line)
+                and index + 1 < len(lines)
+            ):
+                field_line = f"{stripped_line} {lines[index + 1].strip()}"
             for field, pattern in _profile_patterns.items():
-                match = pattern.search(stripped_line)
+                match = pattern.search(field_line)
                 if match and field not in profile:
-                    profile[field] = match.group(1).strip()
+                    value = match.group(1).strip()
+                    if field == "height" and re.fullmatch(r"1[.,]\d{2}", value):
+                        value = str(int(float(value.replace(",", ".")) * 100))
+                    profile[field] = value
                 if field == "origin" and match:
                     origin_index = index
+            feature_match = _profile_feature_label.match(stripped_line)
+            if feature_match and feature_index is None:
+                feature_index = index
+                feature_value = feature_match.group(1).strip()
+                if feature_value and feature_value not in seen_service_lines:
+                    seen_service_lines.add(feature_value)
+                    service_lines.append(feature_value)
 
-        if origin_index is None:
-            continue
-
-        for line in lines[origin_index + 1:]:
-            service_line = line.strip()
-            if not service_line or _profile_metadata_line.search(service_line):
-                continue
-            if service_line not in seen_service_lines:
-                seen_service_lines.add(service_line)
-                service_lines.append(service_line)
+        if feature_index is not None:
+            for line in lines[feature_index + 1:]:
+                service_line = line.strip()
+                if not service_line or _profile_poster_line.search(service_line):
+                    break
+                if _profile_metadata_line.search(service_line):
+                    continue
+                if service_line not in seen_service_lines:
+                    seen_service_lines.add(service_line)
+                    service_lines.append(service_line)
+        elif origin_index is not None:
+            for line in lines[origin_index + 1:]:
+                service_line = line.strip()
+                if not service_line or _profile_poster_line.search(service_line):
+                    break
+                if _profile_metadata_line.search(service_line):
+                    continue
+                if service_line not in seen_service_lines:
+                    seen_service_lines.add(service_line)
+                    service_lines.append(service_line)
 
     description = "\n".join(service_lines)
     return {

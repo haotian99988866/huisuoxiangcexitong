@@ -11,7 +11,10 @@ from flask_cors import CORS
 from PIL import Image, UnidentifiedImageError
 from waitress import serve
 from urllib.parse import quote
-from technician_photo_ocr import extract_technician_profile
+from technician_photo_ocr import (
+    extract_labeled_technician_code,
+    extract_technician_profile,
+)
 
 load_dotenv()
 
@@ -68,17 +71,17 @@ def technician_photo_image(photo_id):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT p.file_id
+            SELECT p.file_id, p.venue_id, p.status, p.technician_code,
+                   p.ocr_text,
+                   EXISTS (
+                       SELECT 1
+                       FROM attendance_daily a
+                       WHERE a.venue_id = p.venue_id
+                             AND a.duty_date = p.duty_date
+                             AND FIND_IN_SET(p.technician_code, a.technician_codes) > 0
+                   ) AS is_on_roster
             FROM technician_photos p
-            WHERE p.id = %s AND p.status = 'matched'
-                  AND p.technician_code IS NOT NULL
-                  AND EXISTS (
-                      SELECT 1
-                      FROM attendance_daily a
-                      WHERE a.venue_id = p.venue_id
-                            AND a.duty_date = p.duty_date
-                            AND FIND_IN_SET(p.technician_code, a.technician_codes) > 0
-                  )
+            WHERE p.id = %s
             """,
             (photo_id,),
         )
@@ -93,6 +96,19 @@ def technician_photo_image(photo_id):
             conn.close()
 
     if photo is None:
+        return jsonify({"error": "Photo not found"}), 404
+
+    is_matched_roster_photo = (
+        photo["status"] == "matched"
+        and photo["technician_code"] is not None
+        and photo["is_on_roster"]
+    )
+    is_labeled_kaidi_photo = (
+        photo["venue_id"] == 4
+        and photo["status"] in {"matched", "pending_review"}
+        and extract_labeled_technician_code(photo["ocr_text"]) is not None
+    )
+    if not is_matched_roster_photo and not is_labeled_kaidi_photo:
         return jsonify({"error": "Photo not found"}), 404
 
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -226,31 +242,82 @@ def webhook():
                             for group in cur.fetchall()
                         ]
 
-                    cur.execute(
-                        """
-                        SELECT id, technician_code, channel_id, msg_id, ocr_text
-                        FROM technician_photos p
-                        WHERE venue_id = %s AND duty_date = %s AND status = 'matched'
-                              AND NOT EXISTS (
-                                  SELECT 1
-                                  FROM technician_photos earlier
-                                  WHERE earlier.venue_id = p.venue_id
-                                        AND earlier.duty_date = p.duty_date
-                                        AND earlier.file_id = p.file_id
-                                        AND earlier.status = 'matched'
-                                        AND earlier.id < p.id
-                              )
-                        ORDER BY id
-                        """,
-                        (venue["id"], attendance["duty_date"]),
-                    )
+                if attendance or venue["id"] == 4:
+                    if venue["id"] == 4:
+                        cur.execute(
+                            """
+                            SELECT id, technician_code, channel_id, msg_id,
+                                   ocr_text, file_id, status
+                            FROM technician_photos
+                            WHERE venue_id = %s AND duty_date = %s
+                            ORDER BY id
+                            """,
+                            (venue["id"], today),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT id, technician_code, channel_id, msg_id, ocr_text
+                            FROM technician_photos p
+                            WHERE venue_id = %s AND duty_date = %s
+                                  AND status = 'matched'
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM technician_photos earlier
+                                      WHERE earlier.venue_id = p.venue_id
+                                            AND earlier.duty_date = p.duty_date
+                                            AND earlier.file_id = p.file_id
+                                            AND earlier.status = 'matched'
+                                            AND earlier.id < p.id
+                                  )
+                            ORDER BY id
+                            """,
+                            (venue["id"], attendance["duty_date"]),
+                        )
                     profile_texts = {}
+                    seen_file_ids = set()
+                    photo_count = 0
                     for photo in cur.fetchall():
+                        technician_code = photo["technician_code"]
+                        if venue["id"] == 4:
+                            technician_code = technician_code or (
+                                extract_labeled_technician_code(photo["ocr_text"])
+                            )
+                            file_id = photo["file_id"]
+                            if (
+                                technician_code is None
+                                or file_id in seen_file_ids
+                            ):
+                                continue
+                            seen_file_ids.add(file_id)
+                            photo_count += 1
+                            venue["technician_photos"].setdefault(
+                                technician_code, []
+                            ).append(photo["id"])
+                            profile_texts.setdefault(
+                                technician_code, []
+                            ).append(photo["ocr_text"] or "")
+                            channel_id = str(photo["channel_id"])
+                            channel_numeric = (
+                                channel_id[4:]
+                                if channel_id.startswith("-100")
+                                else channel_id.lstrip("-")
+                            )
+                            photo_link = (
+                                f"https://t.me/c/{channel_numeric}/{photo['msg_id']}"
+                            )
+                            venue.setdefault("technician_photo_links", {}).setdefault(
+                                technician_code, []
+                            ).append(photo_link)
+                            continue
+
+                        if technician_code is None:
+                            continue
                         venue["technician_photos"].setdefault(
-                            photo["technician_code"], []
+                            technician_code, []
                         ).append(photo["id"])
                         profile_texts.setdefault(
-                            photo["technician_code"], []
+                            technician_code, []
                         ).append(photo["ocr_text"] or "")
                         channel_id = str(photo["channel_id"])
                         channel_numeric = (
@@ -264,7 +331,12 @@ def webhook():
                         venue.setdefault("technician_photo_links", {}).setdefault(
                             photo["technician_code"], []
                         ).append(photo_link)
-                    if venue["id"] == 2:
+                    if venue["id"] == 4:
+                        venue["on_duty_count"] = photo_count
+                        venue["technician_list"] = list(
+                            venue["technician_photos"]
+                        )
+                    if venue["id"] in {2, 4}:
                         venue["technician_profiles"] = {
                             technician_code: extract_technician_profile(
                                 texts,
