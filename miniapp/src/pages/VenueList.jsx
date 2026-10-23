@@ -12,6 +12,26 @@ const photoViewerButtonStyle = {
   cursor: 'pointer'
 }
 
+const attendancePanelStyle = {
+  marginBottom: '20px',
+  background: '#fff',
+  borderRadius: '12px',
+  padding: '16px'
+}
+
+const greenSectionHeadingStyle = {
+  fontSize: '15px',
+  color: '#2f855a',
+  margin: 0,
+  fontWeight: 600
+}
+
+const technicianGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
+  gap: '8px'
+}
+
 const mingxiBoardPrices = [
   { board: '1号牌', member: 269, half: 139 },
   { board: '2号牌', member: 299, half: 149 },
@@ -35,6 +55,19 @@ const kaidiTechnicianCategories = [
   { name: '2牌', codes: [], price: 339 },
   { name: '车模', codes: ['6666', '7777'], price: 369 },
   { name: '日韩', codes: [] }
+]
+
+const atlanticTechnicianCategories = [
+  { name: '至尊', price: 99 },
+  { name: '佳丽', price: 139 },
+  { name: '车模', price: 169 },
+  { name: '皇贵妃', price: 199 },
+  { name: '皇后', price: 229 },
+  { name: '1牌', codes: ['100', '199', '150'], price: 269 },
+  { name: '3牌', price: 299 },
+  { name: '0牌', price: 329 },
+  { name: '豹子', price: 359 },
+  { name: '日韩', price: 499 }
 ]
 
 export default function VenueList() {
@@ -165,6 +198,13 @@ export default function VenueList() {
     return [...new Set([...category.codes, ...photoCodes])]
   }
 
+  const getAtlanticCategoryCodes = category => {
+    const photoCodes = selectedVenue?.technician_categories
+      ?.find(item => item.group_name === category.name)
+      ?.technician_codes || []
+    return [...new Set([...(category.codes || []), ...photoCodes])]
+  }
+
   const contactManagerUrl = selectedTechnicianCode && selectedVenue
     ? (() => {
         const photoLinks = selectedVenue.technician_photo_links?.[selectedTechnicianCode] || []
@@ -172,7 +212,7 @@ export default function VenueList() {
           '你好，我想咨询这位技师：',
           `会所：${selectedVenue.name}`,
           `工号：${selectedTechnicianCode}`,
-          String(selectedVenue.id) === '4'
+          ['4', '5'].includes(String(selectedVenue.id))
             ? '来源：会所频道照片'
             : `出勤：${dutyShiftToday || '今日在岗'}`,
           ...(technicianServiceCategories.length > 0
@@ -479,7 +519,7 @@ export default function VenueList() {
             }}>
               <span aria-hidden="true">✓</span>
               今日出勤 <strong style={{ fontSize: '15px' }}>{onDutyCount}</strong>{' '}
-              {String(selectedVenue?.id) === '4' ? '张照片' : '人'}
+              {['4', '5'].includes(String(selectedVenue?.id)) ? '张照片' : '人'}
             </div>
           </div>
           </div>
@@ -532,36 +572,64 @@ export default function VenueList() {
       ) : (
         <div>
           {/* 今日在岗技师 / 未发布提示 */}
-          {String(selectedVenue.id) === '4' ? (
-            <div style={{
-              marginBottom: '20px',
-              background: '#fff',
-              borderRadius: '12px',
-              padding: '16px'
-            }}>
-              <h3 style={{
-                fontSize: '15px',
-                color: '#2f855a',
-                margin: 0,
-                fontWeight: 600
-              }}>
+          {['4', '5'].includes(String(selectedVenue.id)) ? (
+            <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
+              <h3 style={greenSectionHeadingStyle}>
                 👥 今日出勤技师 ({onDutyCount}张照片)
               </h3>
+              <h3 style={{
+                ...greenSectionHeadingStyle,
+                marginTop: '16px',
+                marginBottom: '12px'
+              }}>
+                技师分类
+              </h3>
+              {(String(selectedVenue.id) === '5'
+                ? atlanticTechnicianCategories
+                : kaidiTechnicianCategories
+              ).filter(category => (
+                String(selectedVenue.id) !== '5'
+                || getAtlanticCategoryCodes(category).length > 0
+              )).map(category => (
+                <div key={category.name} style={{ marginBottom: '14px' }}>
+                  <h4 style={{
+                    margin: '0 0 8px',
+                    color: '#80643c',
+                    fontSize: '13px',
+                    fontWeight: 600
+                  }}>
+                    {category.name}
+                    {(String(selectedVenue.id) === '5' || category.price != null) && (
+                      <span style={{ marginLeft: '8px', color: '#888', fontWeight: 400 }}>
+                        价格 ${category.price} · 90分钟
+                      </span>
+                    )}
+                  </h4>
+                  {(String(selectedVenue.id) === '5'
+                    ? getAtlanticCategoryCodes(category)
+                    : getKaidiCategoryCodes(category)
+                  ).length > 0 ? (
+                    <div style={technicianGridStyle}>
+                      {(String(selectedVenue.id) === '5'
+                        ? getAtlanticCategoryCodes(category)
+                        : getKaidiCategoryCodes(category)
+                      ).map(renderTechnicianTile)}
+                    </div>
+                  ) : (
+                    <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>
+                      暂无技师工号
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
           ) : technicianList.length > 0 ? (
-            <div style={{
-              marginBottom: '20px',
-              background: '#fff',
-              borderRadius: '12px',
-              padding: '16px'
-            }}>
+            <div style={attendancePanelStyle}>
               <h3 style={{
-                fontSize: '15px',
-                color: '#2f855a',
-                margin: '0 0 12px 0',
-                fontWeight: 600
+                ...greenSectionHeadingStyle,
+                margin: '0 0 12px 0'
               }}>
-                👥 今日在岗技师 ({technicianList.length}人)
+                👥 今日出勤技师 ({technicianList.length}人)
                 {dutyShiftToday && (
                   <span style={{ fontSize: '12px', color: '#666', marginLeft: '8px' }}>
                     （{dutyShiftToday}）
@@ -590,21 +658,13 @@ export default function VenueList() {
                         )
                       })()}
                     </h4>
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
-                      gap: '8px'
-                    }}>
+                    <div style={technicianGridStyle}>
                       {group.technician_codes.map(renderTechnicianTile)}
                     </div>
                   </div>
                 ))
               ) : (
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
-                  gap: '8px'
-                }}>
+                <div style={technicianGridStyle}>
                   {technicianList.map(renderTechnicianTile)}
                 </div>
               )}
@@ -619,54 +679,6 @@ export default function VenueList() {
               color: '#b7791f'
             }}>
               ⚠️ 今日出勤尚未发布
-            </div>
-          )}
-
-          {String(selectedVenue.id) === '4' && (
-            <div style={{
-              marginBottom: '24px',
-              padding: '16px',
-              borderRadius: '12px',
-              background: '#fff'
-            }}>
-              <h3 style={{
-                margin: '0 0 12px',
-                color: '#2f855a',
-                fontSize: '15px',
-                fontWeight: 600
-              }}>
-                技师分类
-              </h3>
-              {kaidiTechnicianCategories.map(category => (
-                <div key={category.name} style={{ marginBottom: '14px' }}>
-                  <h4 style={{
-                    margin: '0 0 8px',
-                    color: '#80643c',
-                    fontSize: '13px',
-                    fontWeight: 600
-                  }}>
-                    {category.name}
-                    {category.price != null && (
-                      <span style={{ marginLeft: '8px', color: '#c53030', fontWeight: 500 }}>
-                        ${category.price} · 90分钟
-                      </span>
-                    )}
-                  </h4>
-                  {getKaidiCategoryCodes(category).length > 0 ? (
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
-                      gap: '8px'
-                    }}>
-                      {getKaidiCategoryCodes(category).map(renderTechnicianTile)}
-                    </div>
-                  ) : (
-                    <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>
-                      暂无技师工号
-                    </p>
-                  )}
-                </div>
-              ))}
             </div>
           )}
 
@@ -890,7 +902,7 @@ export default function VenueList() {
                     ['height', '身高'],
                     ['bust', '胸围'],
                     ['weight', '体重'],
-                    ['origin', String(selectedVenue.id) === '4' ? '产地' : '籍贯']
+                    ['origin', ['4', '5'].includes(String(selectedVenue.id)) ? '产地' : '籍贯']
                   ].filter(([field]) => technicianProfile[field]).map(([field, label]) => (
                     <div
                       key={field}
@@ -946,11 +958,11 @@ export default function VenueList() {
 
             <div style={{ marginBottom: '16px' }}>
               <h3 style={{ margin: '0 0 6px', fontSize: '15px', color: '#444' }}>
-                {String(selectedVenue.id) === '4' ? '照片资料' : '今日出勤'}
+                信息来源
               </h3>
               <div style={{ fontSize: '14px', color: '#666' }}>
-                {String(selectedVenue.id) === '4'
-                  ? '来自会所频道照片'
+                {['4', '5'].includes(String(selectedVenue.id))
+                  ? '会所频道照片'
                   : technicianList.includes(selectedTechnicianCode)
                     ? `在岗${dutyShiftToday ? ` · ${dutyShiftToday}` : ''}`
                     : '不在今日出勤名单'}

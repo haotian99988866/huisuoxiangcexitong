@@ -4,6 +4,7 @@ from unittest.mock import patch
 from technician_photo_ocr import (
     classify_ocr_detections,
     extract_labeled_technician_code,
+    extract_technician_category,
     extract_technician_profile,
     match_pending_technician_photos,
     recognize_technician_code,
@@ -52,16 +53,45 @@ class ClassifyOcrDetectionsTests(unittest.TestCase):
             "039",
         )
 
+    def test_normalizes_ocr_comma_inside_labeled_code(self):
+        self.assertEqual(
+            extract_labeled_technician_code("工号\n1,00\n年龄\n23岁"),
+            "100",
+        )
+
     def test_extracts_car_model_code_from_a_labeled_ocr_line(self):
         self.assertEqual(
             extract_labeled_technician_code("工号：\n车模6666\n年龄：24"),
             "6666",
         )
 
+    def test_extracts_code_from_category_and_number_on_separate_or_same_line(self):
+        self.assertEqual(
+            extract_labeled_technician_code("工号\n皇后520\n身高\n166"),
+            "520",
+        )
+        self.assertEqual(
+            extract_labeled_technician_code("工号至尊919\n年龄23"),
+            "919",
+        )
+        self.assertEqual(
+            extract_labeled_technician_code("工号\n3牌318\n身高\n166"),
+            "318",
+        )
+
     def test_rejects_ambiguous_labeled_codes(self):
         self.assertIsNone(
             extract_labeled_technician_code("工号：039\n编号：109")
         )
+
+    def test_extracts_one_explicit_category_from_photo_text(self):
+        self.assertEqual(
+            extract_technician_category("五象大浪淘沙\n工号：530\n类别：1牌"),
+            "1牌",
+        )
+
+    def test_does_not_guess_when_photo_contains_multiple_categories(self):
+        self.assertIsNone(extract_technician_category("至尊活动\n佳丽活动"))
 
     def test_does_not_extract_unlabeled_numbers(self):
         self.assertIsNone(extract_labeled_technician_code("年龄：24\n身高：165"))
@@ -83,6 +113,18 @@ class ClassifyOcrDetectionsTests(unittest.TestCase):
         self.assertEqual(profile["bust"], "D(真")
         self.assertEqual(profile["origin"], "越南")
         self.assertEqual(profile["service_description"], "体贴入微\n3通，3P")
+
+    def test_extracts_service_description_after_large_feature_label(self):
+        profile = extract_technician_profile(
+            ["产地:越南\n大特色\n服务一流多多\n服务态度好"],
+            "919",
+        )
+
+        self.assertEqual(profile["origin"], "越南")
+        self.assertEqual(
+            profile["service_description"],
+            "服务一流多多\n服务态度好",
+        )
 
     def test_extracts_profile_fields_and_deduplicates_service_description(self):
         profile = extract_technician_profile(

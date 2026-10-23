@@ -13,6 +13,7 @@ from waitress import serve
 from urllib.parse import quote
 from technician_photo_ocr import (
     extract_labeled_technician_code,
+    extract_technician_category,
     extract_technician_profile,
 )
 
@@ -62,6 +63,24 @@ def parse_venue(venue):
     return venue
 
 
+def _underage_technician_codes(photos):
+    underage_codes = set()
+    for photo in photos:
+        technician_code = photo["technician_code"] or (
+            extract_labeled_technician_code(photo["ocr_text"])
+        )
+        if technician_code is None:
+            continue
+        profile = extract_technician_profile(
+            [photo["ocr_text"] or ""],
+            technician_code,
+        )
+        age = profile.get("age")
+        if age and age.isdigit() and int(age) < 18:
+            underage_codes.add(technician_code)
+    return underage_codes
+
+
 @app.get("/photos/<int:photo_id>/image")
 def technician_photo_image(photo_id):
     conn = None
@@ -72,6 +91,7 @@ def technician_photo_image(photo_id):
         cur.execute(
             """
             SELECT p.file_id, p.venue_id, p.status, p.technician_code,
+                   p.duty_date,
                    p.ocr_text,
                    EXISTS (
                        SELECT 1
@@ -86,6 +106,17 @@ def technician_photo_image(photo_id):
             (photo_id,),
         )
         photo = cur.fetchone()
+        underage_codes = set()
+        if photo is not None and photo["venue_id"] == 5:
+            cur.execute(
+                """
+                SELECT technician_code, ocr_text
+                FROM technician_photos
+                WHERE venue_id = %s AND duty_date = %s
+                """,
+                (photo["venue_id"], photo["duty_date"]),
+            )
+            underage_codes = _underage_technician_codes(cur.fetchall())
     except pymysql.MySQLError:
         logger.exception("Failed to look up technician photo %s", photo_id)
         return jsonify({"error": "Database request failed"}), 500
@@ -108,7 +139,20 @@ def technician_photo_image(photo_id):
         and photo["status"] in {"matched", "pending_review"}
         and extract_labeled_technician_code(photo["ocr_text"]) is not None
     )
-    if not is_matched_roster_photo and not is_labeled_kaidi_photo:
+    is_labeled_atlantic_photo = (
+        photo["venue_id"] == 5
+        and photo["status"] in {"matched", "pending_review"}
+        and extract_labeled_technician_code(photo["ocr_text"]) is not None
+        and (
+            photo["technician_code"]
+            or extract_labeled_technician_code(photo["ocr_text"])
+        ) not in underage_codes
+    )
+    if (
+        not is_matched_roster_photo
+        and not is_labeled_kaidi_photo
+        and not is_labeled_atlantic_photo
+    ):
         return jsonify({"error": "Photo not found"}), 404
 
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -219,6 +263,7 @@ def webhook():
                 venue["technician_photos"] = {}
                 venue["technician_profiles"] = {}
                 venue["attendance_groups"] = []
+                venue["technician_categories"] = []
                 if attendance:
                     if venue["id"] == 2:
                         cur.execute(
@@ -242,8 +287,8 @@ def webhook():
                             for group in cur.fetchall()
                         ]
 
-                if attendance or venue["id"] == 4:
-                    if venue["id"] == 4:
+                if attendance or venue["id"] in {4, 5}:
+                    if venue["id"] in {4, 5}:
                         cur.execute(
                             """
                             SELECT id, technician_code, channel_id, msg_id,
@@ -274,29 +319,53 @@ def webhook():
                             """,
                             (venue["id"], attendance["duty_date"]),
                         )
+                    photos = cur.fetchall()
+                    underage_codes = (
+                        _underage_technician_codes(photos)
+                        if venue["id"] == 5
+                        else set()
+                    )
                     profile_texts = {}
                     seen_file_ids = set()
+                    seen_coded_file_ids = set()
                     photo_count = 0
-                    for photo in cur.fetchall():
+                    category_codes = {}
+                    for photo in photos:
                         technician_code = photo["technician_code"]
-                        if venue["id"] == 4:
+                        if venue["id"] in {4, 5}:
                             technician_code = technician_code or (
                                 extract_labeled_technician_code(photo["ocr_text"])
                             )
-                            file_id = photo["file_id"]
                             if (
-                                technician_code is None
-                                or file_id in seen_file_ids
+                                venue["id"] == 5
+                                and technician_code in underage_codes
                             ):
                                 continue
-                            seen_file_ids.add(file_id)
-                            photo_count += 1
+                            file_id = photo["file_id"]
+                            unique_file_id = file_id or f"photo:{photo['id']}"
+                            if unique_file_id not in seen_file_ids:
+                                seen_file_ids.add(unique_file_id)
+                                photo_count += 1
+                            if (
+                                technician_code is None
+                                or unique_file_id in seen_coded_file_ids
+                            ):
+                                continue
+                            seen_coded_file_ids.add(unique_file_id)
                             venue["technician_photos"].setdefault(
                                 technician_code, []
                             ).append(photo["id"])
                             profile_texts.setdefault(
                                 technician_code, []
                             ).append(photo["ocr_text"] or "")
+                            if venue["id"] == 5:
+                                category_name = extract_technician_category(
+                                    photo["ocr_text"]
+                                )
+                                if category_name:
+                                    category_codes.setdefault(
+                                        category_name, []
+                                    ).append(technician_code)
                             channel_id = str(photo["channel_id"])
                             channel_numeric = (
                                 channel_id[4:]
@@ -331,12 +400,20 @@ def webhook():
                         venue.setdefault("technician_photo_links", {}).setdefault(
                             photo["technician_code"], []
                         ).append(photo_link)
-                    if venue["id"] == 4:
+                    if venue["id"] in {4, 5}:
                         venue["on_duty_count"] = photo_count
                         venue["technician_list"] = list(
                             venue["technician_photos"]
                         )
-                    if venue["id"] in {2, 4}:
+                    if venue["id"] == 5:
+                        venue["technician_categories"] = [
+                            {
+                                "group_name": category_name,
+                                "technician_codes": list(dict.fromkeys(codes)),
+                            }
+                            for category_name, codes in category_codes.items()
+                        ]
+                    if venue["id"] in {2, 4, 5}:
                         venue["technician_profiles"] = {
                             technician_code: extract_technician_profile(
                                 texts,

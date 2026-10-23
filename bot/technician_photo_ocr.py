@@ -20,8 +20,24 @@ _plate_code_pattern = re.compile(r"(?<!\d)(\d{2,4})(?!\d)")
 _labeled_plate_code_pattern = re.compile(
     r"(?:工号|编号)\s*[:：]?\s*(\d{2,4})(?!\d)"
 )
-_labeled_photo_code_pattern = re.compile(r"^\s*(\d{2,4})\s*$")
-_labeled_car_model_code_pattern = re.compile(r"^\s*车模\s*(\d{2,4})\s*$")
+_labeled_photo_code_pattern = re.compile(r"^\s*(\d{1,2}[,.]\d{2,3}|\d{2,4})\s*$")
+_technician_categories = (
+    "至尊",
+    "佳丽",
+    "车模",
+    "皇贵妃",
+    "皇后",
+    "1牌",
+    "3牌",
+    "0牌",
+    "豹子",
+    "日韩",
+)
+_labeled_category_code_pattern = re.compile(
+    r"^\s*(?:"
+    + "|".join(re.escape(category) for category in _technician_categories)
+    + r")\s*(\d{2,4})\s*$"
+)
 _profile_patterns = {
     "technician_code": re.compile(r"^\s*(?:工号|编号)\s*[:：]?\s*(\d{2,4})(?!\d)"),
     "age": re.compile(r"^\s*年龄\s*[:：]?\s*(\d{1,2})(?:\s*岁)?"),
@@ -49,7 +65,7 @@ _profile_poster_line = re.compile(
     r"and the way|what you want to express)",
     re.IGNORECASE,
 )
-_profile_feature_label = re.compile(r"^\s*(?:特色|特点)\s*[:：]?\s*(.*)$")
+_profile_feature_label = re.compile(r"^\s*(?:大)?(?:特色|特点)\s*[:：]?\s*(.*)$")
 
 
 def _normalize_code(code):
@@ -69,12 +85,22 @@ def extract_labeled_technician_code(ocr_text):
             value = lines[index + 1]
         match = _labeled_photo_code_pattern.fullmatch(value)
         if match is None:
-            match = _labeled_car_model_code_pattern.fullmatch(value)
+            match = _labeled_category_code_pattern.fullmatch(value)
         if match:
-            codes.append(match.group(1))
+            codes.append(re.sub(r"[,.]", "", match.group(1)))
 
     unique_codes = set(codes)
     return next(iter(unique_codes)) if len(unique_codes) == 1 else None
+
+
+def extract_technician_category(ocr_text):
+    text = ocr_text or ""
+    matched_categories = [
+        category
+        for category in _technician_categories
+        if category.casefold() in text.casefold()
+    ]
+    return matched_categories[0] if len(matched_categories) == 1 else None
 
 
 def extract_technician_profile(ocr_texts, technician_code):
