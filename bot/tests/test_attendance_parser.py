@@ -1,7 +1,7 @@
 import unittest
 from datetime import date
 
-from attendance_parser import parse_attendance_text
+from attendance_parser import parse_attendance_text, parse_plate_attendance_text
 
 
 SAMPLE_ANNOUNCEMENT = """\
@@ -67,6 +67,127 @@ class ParseAttendanceTextTests(unittest.TestCase):
                 "tcm": ["015", "008", "060"],
                 "pedicure": ["035"],
             },
+        )
+
+    def test_parses_plate_roster_and_services(self):
+        announcement = """\
+出勤日期2026年10月 22 日 实时出勤
+俄罗斯：7026
+名玺9号牌
+9牌900 9牌939 9牌969
+名玺8号牌
+8牌872 8牌865
+三通
+9牌969
+8牌
+潮喷
+9牌969 9牌900
+SM
+8牌871 7牌755
+双仪
+9牌969 9牌971
+包夜简介
+凌晨3点前4小时
+"""
+
+        result = parse_plate_attendance_text(announcement)
+
+        self.assertEqual(result["duty_date"], date(2026, 10, 22))
+        self.assertEqual(result["duty_shift"], "实时出勤")
+        self.assertEqual(result["codes"], ["7026", "900", "939", "969", "872", "865"])
+        self.assertEqual(
+            result["attendance_groups"],
+            [
+                {
+                    "group_type": "roster",
+                    "group_name": "俄罗斯",
+                    "technician_codes": ["7026"],
+                },
+                {
+                    "group_type": "roster",
+                    "group_name": "9号牌",
+                    "technician_codes": ["900", "939", "969"],
+                },
+                {
+                    "group_type": "roster",
+                    "group_name": "8号牌",
+                    "technician_codes": ["872", "865"],
+                },
+                {
+                    "group_type": "service",
+                    "group_name": "三通",
+                    "technician_codes": ["969"],
+                },
+                {
+                    "group_type": "service",
+                    "group_name": "潮喷",
+                    "technician_codes": ["969", "900"],
+                },
+                {
+                    "group_type": "service",
+                    "group_name": "SM",
+                    "technician_codes": ["871", "755"],
+                },
+                {
+                    "group_type": "service",
+                    "group_name": "双仪",
+                    "technician_codes": ["969", "971"],
+                },
+            ],
+        )
+
+    def test_parses_date_with_extra_whitespace(self):
+        result = parse_plate_attendance_text(
+            "出勤日期2026年10月  22 日 实时出勤\n9牌969"
+        )
+
+        self.assertEqual(result["duty_date"], date(2026, 10, 22))
+        self.assertEqual(result["codes"], ["969"])
+
+    def test_extracts_service_categories_from_delimited_headings(self):
+        announcement = """\
+出勤日期2026年10月 22 日 实时出勤
+✰🇯🇵名玺日本🇯🇵✰
+✰名玺俄罗斯✰
+俄罗斯：7026
+✰👑名玺牌👑✰
+✰🌸名玺9号牌🌸✰
+9牌900 9牌969
+✰🌸三通🌸✰
+9牌969
+✰✨新分类✨✰
+9牌900
+✰✨包夜简介✨✰
+不解析这里的号码 123
+"""
+
+        result = parse_plate_attendance_text(announcement)
+
+        self.assertEqual(result["codes"], ["7026", "900", "969"])
+        self.assertEqual(
+            result["attendance_groups"],
+            [
+                {
+                    "group_type": "roster",
+                    "group_name": "俄罗斯",
+                    "technician_codes": ["7026"],
+                },
+                {
+                    "group_type": "roster",
+                    "group_name": "9号牌",
+                    "technician_codes": ["900", "969"],
+                },
+                {
+                    "group_type": "service",
+                    "group_name": "三通",
+                    "technician_codes": ["969"],
+                },
+                {
+                    "group_type": "service",
+                    "group_name": "新分类",
+                    "technician_codes": ["900"],
+                },
+            ],
         )
 
     def test_does_not_parse_prices_or_durations_as_technician_codes(self):

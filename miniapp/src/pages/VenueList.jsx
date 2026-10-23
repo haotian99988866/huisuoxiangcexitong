@@ -12,6 +12,18 @@ const photoViewerButtonStyle = {
   cursor: 'pointer'
 }
 
+const mingxiBoardPrices = [
+  { board: '1号牌', member: 269, half: 139 },
+  { board: '2号牌', member: 299, half: 149 },
+  { board: '3号牌', member: 329, half: 169 },
+  { board: '5号牌', member: 369, half: 189 },
+  { board: '6号牌', member: 399, half: 199 },
+  { board: '7号牌', member: 439, half: 219 },
+  { board: '8号牌', member: 469, half: 239 },
+  { board: '9号牌', member: 499, half: 249 },
+  { board: '名玺牌', member: 599, half: 299 }
+]
+
 export default function VenueList() {
   const [list, setList] = useState([])
   const [selectedId, setSelectedId] = useState('')
@@ -20,6 +32,7 @@ export default function VenueList() {
   const [photoZoom, setPhotoZoom] = useState(1)
   const [photoLoadState, setPhotoLoadState] = useState('idle')
   const [photoRetry, setPhotoRetry] = useState(0)
+  const [widePhotos, setWidePhotos] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -64,6 +77,10 @@ export default function VenueList() {
   const dutyShiftToday = selectedVenue?.duty_shift_today
   const serviceItems = selectedVenue?.service_items || []
   const technicianPhotos = selectedVenue?.technician_photos?.[selectedTechnicianCode] || []
+  const technicianProfile = selectedVenue?.technician_profiles?.[selectedTechnicianCode] || {}
+  const attendanceGroups = selectedVenue?.attendance_groups || []
+  const rosterGroups = attendanceGroups.filter(group => group.group_type === 'roster')
+  const attendanceServiceGroups = attendanceGroups.filter(group => group.group_type === 'service')
 
   useEffect(() => {
     if (!selectedTechnicianCode) return undefined
@@ -107,17 +124,22 @@ export default function VenueList() {
 
   const technicianServiceCategories = selectedTechnicianCode
     ? [
+        ...attendanceServiceGroups
+          .filter(group => group.technician_codes.includes(selectedTechnicianCode))
+          .map(group => group.group_name),
+        ...[
         { key: 'small', title: '小项' },
         { key: 'medium', title: '中项' },
         { key: 'high', title: '高项' },
         { key: 'tcm', title: '中医按摩' },
         { key: 'pedicure', title: '修脚' }
-      ]
+        ]
         .filter(({ key }) => serviceGroups[key]?.items.some(item => (
           item.technician_codes?.split(',').map(code => code.trim())
             .includes(selectedTechnicianCode)
         )))
         .map(({ title }) => title)
+      ]
     : []
 
   const contactManagerUrl = selectedTechnicianCode && selectedVenue
@@ -128,7 +150,9 @@ export default function VenueList() {
           `会所：${selectedVenue.name}`,
           `工号：${selectedTechnicianCode}`,
           `出勤：${dutyShiftToday || '今日在岗'}`,
-          `可服务类别：${technicianServiceCategories.join('、') || '暂无类别信息'}`,
+          ...(technicianServiceCategories.length > 0
+            ? [`可服务类别：${technicianServiceCategories.join('、')}`]
+            : []),
           ...(photoLinks.length > 0
             ? ['', '频道照片原帖：', ...photoLinks.map((link, index) => `${index + 1}. ${link}`)]
             : ['技师暂无照片'])
@@ -136,6 +160,47 @@ export default function VenueList() {
         return `https://t.me/haotian99988866?text=${encodeURIComponent(message)}`
       })()
     : 'https://t.me/haotian99988866'
+
+  const renderTechnicianTile = code => {
+    const photoIds = selectedVenue?.technician_photos?.[code] || []
+    return (
+      <button
+        key={code}
+        type="button"
+        onClick={() => setSelectedTechnicianCode(code)}
+        aria-label={`查看技师 ${code} 的详情${photoIds.length > 0 ? `，${photoIds.length}张照片` : '，暂无照片'}`}
+        style={{
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'center',
+          minWidth: 0,
+          minHeight: '72px',
+          aspectRatio: '0.82',
+          padding: '8px 4px',
+          overflow: 'hidden',
+          border: photoIds.length > 0
+            ? '1px solid rgba(60, 45, 35, 0.12)'
+            : '1px solid #dcebe2',
+          borderRadius: '12px',
+          backgroundColor: photoIds.length > 0 ? '#e9e2d9' : '#eaf4ee',
+          backgroundImage: photoIds.length > 0
+            ? `linear-gradient(to top, rgba(20, 20, 20, 0.72), rgba(20, 20, 20, 0.04) 58%), url("${API_BASE_URL}/photos/${photoIds[0]}/image")`
+            : 'linear-gradient(145deg, #f1f8f3, #e4f0e8)',
+          backgroundPosition: 'center',
+          backgroundSize: 'cover',
+          color: photoIds.length > 0 ? '#fff' : '#36734f',
+          fontSize: '14px',
+          fontWeight: 700,
+          textShadow: photoIds.length > 0 ? '0 1px 3px rgba(0, 0, 0, 0.5)' : 'none',
+          cursor: 'pointer',
+          boxShadow: '0 2px 5px rgba(40, 65, 48, 0.08)'
+        }}
+      >
+        <span style={{ position: 'relative', zIndex: 1 }}>{code}</span>
+      </button>
+    )
+  }
 
   const renderServiceItem = item => (
     <div key={item.id} style={{
@@ -461,52 +526,46 @@ export default function VenueList() {
                   </span>
                 )}
               </h3>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
-                gap: '8px'
-              }}>
-                {technicianList.map(code => {
-                  const photoIds = selectedVenue.technician_photos?.[code] || []
-                  return (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => setSelectedTechnicianCode(code)}
-                      aria-label={`查看技师 ${code} 的详情${photoIds.length > 0 ? `，${photoIds.length}张照片` : '，暂无照片'}`}
-                      style={{
-                        position: 'relative',
-                        display: 'flex',
-                        alignItems: 'flex-end',
-                        justifyContent: 'center',
-                        minWidth: 0,
-                        minHeight: '72px',
-                        aspectRatio: '0.82',
-                        padding: '8px 4px',
-                        overflow: 'hidden',
-                        border: photoIds.length > 0
-                          ? '1px solid rgba(60, 45, 35, 0.12)'
-                          : '1px solid #dcebe2',
-                        borderRadius: '12px',
-                        backgroundColor: photoIds.length > 0 ? '#e9e2d9' : '#eaf4ee',
-                        backgroundImage: photoIds.length > 0
-                          ? `linear-gradient(to top, rgba(20, 20, 20, 0.72), rgba(20, 20, 20, 0.04) 58%), url("${API_BASE_URL}/photos/${photoIds[0]}/image")`
-                          : 'linear-gradient(145deg, #f1f8f3, #e4f0e8)',
-                        backgroundPosition: 'center',
-                        backgroundSize: 'cover',
-                        color: photoIds.length > 0 ? '#fff' : '#36734f',
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        textShadow: photoIds.length > 0 ? '0 1px 3px rgba(0, 0, 0, 0.5)' : 'none',
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 5px rgba(40, 65, 48, 0.08)'
-                      }}
-                    >
-                      <span style={{ position: 'relative', zIndex: 1 }}>{code}</span>
-                    </button>
-                  )
-                })}
-              </div>
+              {rosterGroups.length > 0 ? (
+                rosterGroups.map(group => (
+                  <div key={group.group_name} style={{ marginBottom: '14px' }}>
+                    <h4 style={{
+                      margin: '0 0 8px',
+                      color: '#80643c',
+                      fontSize: '13px',
+                      fontWeight: 600
+                    }}>
+                      {group.group_name}
+                      {String(selectedVenue.id) === '2' && (() => {
+                        const boardNumber = group.group_name.match(/(\d+)\s*号牌/)?.[1]
+                        const price = mingxiBoardPrices.find(item => (
+                          item.board === `${boardNumber}号牌`
+                        ))
+                        return price && (
+                          <span style={{ marginLeft: '8px', color: '#888', fontWeight: 400 }}>
+                            会员 ${price.member} / 90分钟 · 半价 ${price.half} / 45分钟
+                          </span>
+                        )
+                      })()}
+                    </h4>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
+                      gap: '8px'
+                    }}>
+                      {group.technician_codes.map(renderTechnicianTile)}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
+                  gap: '8px'
+                }}>
+                  {technicianList.map(renderTechnicianTile)}
+                </div>
+              )}
             </div>
           ) : (
             <div style={{
@@ -522,7 +581,38 @@ export default function VenueList() {
           )}
 
           {/* Services grouped by category */}
-          {Object.keys(serviceGroups).length > 0 && (
+          {attendanceServiceGroups.length > 0 ? (
+            <div style={{
+              marginBottom: '24px',
+              background: '#fff',
+              borderRadius: '12px',
+              padding: '16px'
+            }}>
+              {attendanceServiceGroups.map(group => (
+                <div key={group.group_name} style={{ marginBottom: '14px' }}>
+                  <h3 style={{
+                    margin: '0 0 8px',
+                    color: '#b7791f',
+                    fontSize: '15px',
+                    fontWeight: 600
+                  }}>
+                    {group.group_name}
+                  </h3>
+                  {group.technician_codes.length > 0 ? (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
+                      gap: '8px'
+                    }}>
+                      {group.technician_codes.map(renderTechnicianTile)}
+                    </div>
+                  ) : (
+                    <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>暂无关联技师</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : Object.keys(serviceGroups).length > 0 && (
             <div style={{ marginBottom: '24px' }}>
               {[
                 { key: 'small', title: '⭐️ 小项' },
@@ -603,9 +693,6 @@ export default function VenueList() {
               </button>
             </div>
 
-            <h3 style={{ margin: '0 0 10px', fontSize: '15px', color: '#444' }}>
-              技师照片
-            </h3>
             {(selectedVenue.technician_photos?.[selectedTechnicianCode] || []).length > 0 ? (
               <div style={{
                 display: 'flex',
@@ -639,11 +726,23 @@ export default function VenueList() {
                       src={`${API_BASE_URL}/photos/${photoId}/image`}
                       alt={`工号 ${selectedTechnicianCode} 的第 ${index + 1} 张照片`}
                       loading="lazy"
+                      onLoad={event => {
+                        const image = event.currentTarget
+                        if (image.naturalWidth > image.naturalHeight) {
+                          setWidePhotos(current => (
+                            current[photoId]
+                              ? current
+                              : { ...current, [photoId]: true }
+                          ))
+                        }
+                      }}
                       style={{
                         display: 'block',
-                        width: 'min(48vw, 220px)',
+                        width: widePhotos[photoId]
+                          ? 'min(88vw, 420px)'
+                          : 'min(48vw, 220px)',
                         height: '280px',
-                        objectFit: 'cover'
+                        objectFit: widePhotos[photoId] ? 'contain' : 'cover'
                       }}
                     />
                     <span style={{
@@ -675,6 +774,86 @@ export default function VenueList() {
               </div>
             )}
 
+            {Object.keys(technicianProfile).length > 0 && (
+              <div style={{ marginBottom: '18px' }}>
+                <h3 style={{
+                  margin: '0 0 9px',
+                  paddingLeft: '8px',
+                  borderLeft: '3px solid #4a8b68',
+                  fontSize: '15px',
+                  lineHeight: 1.2,
+                  color: '#34483c'
+                }}>
+                  技师基本信息
+                </h3>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  padding: '4px 12px',
+                  border: '1px solid #e7eee9',
+                  borderRadius: '12px',
+                  background: '#f8faf8'
+                }}>
+                  {[
+                    ['technician_code', '工号'],
+                    ['age', '年龄'],
+                    ['height', '身高'],
+                    ['bust', '胸围'],
+                    ['weight', '体重'],
+                    ['origin', '籍贯']
+                  ].filter(([field]) => technicianProfile[field]).map(([field, label]) => (
+                    <div
+                      key={field}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        gap: '8px',
+                        minWidth: 0,
+                        padding: '9px 2px',
+                        borderBottom: '1px solid #e8eeea'
+                      }}
+                    >
+                      <span style={{
+                        flexShrink: 0,
+                        color: '#829087',
+                        fontSize: '12px'
+                      }}>{label}</span>
+                      <strong style={{
+                        minWidth: 0,
+                        color: '#34483c',
+                        fontSize: '14px',
+                        fontWeight: 650,
+                        overflowWrap: 'anywhere'
+                      }}>
+                        {technicianProfile[field]}
+                        {field === 'height' ? ' cm' : field === 'age' ? ' 岁' : ''}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+                {technicianProfile.service_description && (
+                  <div style={{ marginTop: '14px' }}>
+                    <h3 style={{ margin: '0 0 8px', fontSize: '15px', color: '#444' }}>
+                      服务介绍
+                    </h3>
+                    <p style={{
+                      margin: 0,
+                      padding: '12px',
+                      borderRadius: '10px',
+                      background: '#f7f8f7',
+                      color: '#666',
+                      fontSize: '13px',
+                      lineHeight: 1.7,
+                      whiteSpace: 'pre-wrap',
+                      overflowWrap: 'anywhere'
+                    }}>
+                      {technicianProfile.service_description}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ marginBottom: '16px' }}>
               <h3 style={{ margin: '0 0 6px', fontSize: '15px', color: '#444' }}>
                 今日出勤
@@ -686,11 +865,11 @@ export default function VenueList() {
               </div>
             </div>
 
-            <div>
-              <h3 style={{ margin: '0 0 8px', fontSize: '15px', color: '#444' }}>
-                可服务类别
-              </h3>
-              {technicianServiceCategories.length > 0 ? (
+            {technicianServiceCategories.length > 0 && (
+              <div>
+                <h3 style={{ margin: '0 0 8px', fontSize: '15px', color: '#444' }}>
+                  可服务类别
+                </h3>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                   {technicianServiceCategories.map(category => (
                     <span
@@ -707,10 +886,8 @@ export default function VenueList() {
                     </span>
                   ))}
                 </div>
-              ) : (
-                <div style={{ fontSize: '14px', color: '#888' }}>暂无类别信息</div>
-              )}
-            </div>
+              </div>
+            )}
 
             <a
               href={contactManagerUrl}

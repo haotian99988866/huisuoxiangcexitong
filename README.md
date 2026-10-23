@@ -36,6 +36,8 @@
 - 会所列表、搜索标签、封面图片展示。
 - 会所服务项目和技师工号展示。
 - 每个服务项目可配置其适用技师；点击项目展开技师工号，点击工号查看已确认照片。
+- “名玺水汇会所”频道公告按牌号解析当日技师，并从公告中提取三通、潮喷、SM、双仪等服务分类；技师照片按数字工号自动匹配。
+- 技师详情会从照片 OCR 提取工号、年龄、身高、胸围、体重、籍贯和籍贯字段后的服务介绍；未识别出的资料不会补猜。
 - 会所详情和技师列表 API。
 - Telegram 机器人监听配置中的 10 个频道；带有对应主标签的图片会写入 `venue_photos`，并更新会所封面。
 - 机器人在本地 OCR 频道照片中的纯数字工号；唯一、高置信度且属于当日出勤名单的照片会自动关联，其他照片待人工核对。
@@ -51,6 +53,7 @@
 - `service_items`：会所服务项目及价格。
 - `service_item_technicians`：服务项目与可服务技师工号的多对多关联。
 - `technician_photos`：照片 OCR 结果、出勤日期、候选工号及审核状态；Telegram `file_id` 只由后端使用。
+- `attendance_groups`：保存“名玺水汇会所”按牌号和服务分类解析出的每日技师列表。
 
 前端“今日出勤”数量目前根据 `technician_codes` 计算；技师团队列表则读取 `technicians` 表，两者是不同数据来源。当前数据库没有会所介绍字段，因此详情 API 暂时返回空介绍。
 
@@ -85,6 +88,7 @@ Get-Content -Raw .\bot\migrations\002_technician_photos.sql | mysql -u root -p v
 Get-Content -Raw .\bot\migrations\003_technician_photo_ocr_error.sql | mysql -u root -p venue_db
 Get-Content -Raw .\bot\migrations\004_service_item_technicians.sql | mysql -u root -p venue_db
 Get-Content -Raw .\bot\migrations\005_service_item_technician_duty_date.sql | mysql -u root -p venue_db
+Get-Content -Raw .\bot\migrations\006_attendance_groups.sql | mysql -u root -p venue_db
 ```
 
 Telegram 出勤公告的固定分区会自动同步到该日期对应的服务项目：小项、中项、高项、中医按摩、修脚师分区中的工号会关联到同类别下的项目，且只在公告日期显示。公告中的分区名单视为该类别下所有项目均可服务；重复收到同日期公告时会更新当日对应关系。
@@ -194,6 +198,7 @@ npm run build
 ## 数据库和机器人注意事项
 
 - 机器人仅处理配置频道中的图片消息；图片说明需要包含该频道对应的主标签。
+- “名玺水汇会所”出勤公告使用“9牌969”等格式，页面按牌号分组显示技师，并从“三通、潮喷、SM、双仪”等公告分区提取服务分类。部署此功能前需应用 `006_attendance_groups.sql` 迁移。
 - 技师照片 OCR 在运行机器人本机执行，不会将照片发送给 OCR 第三方服务。照片按出勤公告中的日期归档；若照片先于公告，公告保存后会自动尝试补匹配。
 - 只有 OCR 唯一识别出高置信度工号且工号在对应出勤名单中的照片会自动公开；其他照片需人工核对。待核对照片默认不显示在小程序。
 - 查看待核对项目：`cd .\bot; .\venv\Scripts\python.exe .\review_technician_photos.py list`。人工确认：`.\venv\Scripts\python.exe .\review_technician_photos.py approve <照片ID> <工号>`。只能确认该日期出勤名单中的工号。

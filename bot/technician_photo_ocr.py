@@ -16,10 +16,60 @@ MIN_OCR_CONFIDENCE = 0.7
 _engine = None
 _engine_lock = threading.Lock()
 _code_pattern = re.compile(r"(?<!\d)(\d{2,3})(?!\d)")
+_plate_code_pattern = re.compile(r"(?<!\d)(\d{2,4})(?!\d)")
+_labeled_plate_code_pattern = re.compile(
+    r"(?:工号|编号)\s*[:：]?\s*(\d{2,4})(?!\d)"
+)
+_profile_patterns = {
+    "technician_code": re.compile(r"^\s*(?:工号|编号)\s*[:：]?\s*(\d{2,4})(?!\d)"),
+    "age": re.compile(r"^\s*年龄\s*[:：]?\s*(\d{1,2})(?:\s*岁)?"),
+    "height": re.compile(r"^\s*身高\s*[:：]?\s*(\d{2,3})(?:\s*cm)?", re.IGNORECASE),
+    "bust": re.compile(r"^\s*胸围\s*[:：]?\s*([A-D](?:\s*\([^)]*\))?)", re.IGNORECASE),
+    "weight": re.compile(r"^\s*体重\s*[:：]?\s*(\d{2,3}\s*(?:kg|公斤)?)", re.IGNORECASE),
+    "origin": re.compile(r"^\s*籍贯\s*[:：]?\s*(.+?)\s*$"),
+}
+_profile_metadata_line = re.compile(
+    r"^\s*(?:名玺水汇|特技名玺|轻度收费|中度收费|重度收费|时间)\b"
+)
 
 
 def _normalize_code(code):
     return str(int(code))
+
+
+def extract_technician_profile(ocr_texts, technician_code):
+    profile = {"technician_code": technician_code}
+    service_lines = []
+    seen_service_lines = set()
+
+    for text in ocr_texts:
+        lines = (text or "").splitlines()
+        origin_index = None
+        for index, line in enumerate(lines):
+            stripped_line = line.strip()
+            for field, pattern in _profile_patterns.items():
+                match = pattern.search(stripped_line)
+                if match and field not in profile:
+                    profile[field] = match.group(1).strip()
+                if field == "origin" and match:
+                    origin_index = index
+
+        if origin_index is None:
+            continue
+
+        for line in lines[origin_index + 1:]:
+            service_line = line.strip()
+            if not service_line or _profile_metadata_line.search(service_line):
+                continue
+            if service_line not in seen_service_lines:
+                seen_service_lines.add(service_line)
+                service_lines.append(service_line)
+
+    description = "\n".join(service_lines)
+    return {
+        **profile,
+        "service_description": description[:2000],
+    }
 
 
 def _get_engine():
@@ -31,16 +81,27 @@ def _get_engine():
     return _engine
 
 
-def classify_ocr_detections(detections, roster_codes):
+def classify_ocr_detections(detections, roster_codes, venue_id=None):
     candidates = {}
+    labeled_candidates = {}
     recognized_text = []
+    code_pattern = _plate_code_pattern if venue_id == 2 else _code_pattern
     for detection in detections or []:
         text = str(detection[1]).strip()
         confidence = float(detection[2])
         if text:
             recognized_text.append(text)
-        for code in _code_pattern.findall(text):
+        if venue_id == 2:
+            for code in _labeled_plate_code_pattern.findall(text):
+                labeled_candidates[code] = max(
+                    labeled_candidates.get(code, 0.0),
+                    confidence,
+                )
+        for code in code_pattern.findall(text):
             candidates[code] = max(candidates.get(code, 0.0), confidence)
+
+    if labeled_candidates:
+        candidates = labeled_candidates
 
     roster_by_normalized = {}
     for code in roster_codes:
@@ -84,7 +145,7 @@ def classify_ocr_detections(detections, roster_codes):
     }
 
 
-def recognize_technician_code(image_bytes, roster_codes):
+def recognize_technician_code(image_bytes, roster_codes, venue_id=None):
     try:
         with Image.open(io.BytesIO(image_bytes)) as source:
             image = ImageOps.exif_transpose(source).convert("RGB")
@@ -105,11 +166,11 @@ def recognize_technician_code(image_bytes, roster_codes):
     ) as exc:
         logger.error("Local OCR failed (%s)", type(exc).__name__)
         return {
-            **classify_ocr_detections([], roster_codes),
+            **classify_ocr_detections([], roster_codes, venue_id),
             "ocr_error": type(exc).__name__,
         }
 
-    return classify_ocr_detections(detections, roster_codes)
+    return classify_ocr_detections(detections, roster_codes, venue_id)
 
 
 def save_technician_photo(
@@ -150,7 +211,7 @@ def save_technician_photo(
             if code.strip()
         ]
 
-    recognition = recognize_technician_code(image_bytes, roster_codes)
+    recognition = recognize_technician_code(image_bytes, roster_codes, venue_id)
 
     conn = get_conn()
     cur = None
@@ -213,7 +274,7 @@ def match_pending_technician_photos(
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, candidate_codes, ocr_confidence
+            SELECT id, candidate_codes, ocr_confidence, ocr_text
             FROM technician_photos
             WHERE venue_id = %s AND duty_date = %s
                   AND status = 'pending_review'
@@ -225,6 +286,12 @@ def match_pending_technician_photos(
             candidates = [
                 code for code in photo["candidate_codes"].split(",") if code
             ]
+            if venue_id == 2:
+                labeled_candidates = _labeled_plate_code_pattern.findall(
+                    photo["ocr_text"] or ""
+                )
+                if labeled_candidates:
+                    candidates = list(dict.fromkeys(labeled_candidates))
             technician_code = None
             normalized_candidates = {_normalize_code(code) for code in candidates}
             roster_matches = normalized_candidates.intersection(roster_by_normalized)

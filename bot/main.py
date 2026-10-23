@@ -9,7 +9,12 @@ import telebot
 from dotenv import load_dotenv
 from db import get_conn
 from config.channels import LISTEN_CHANNELS, TAG_ALIASES
-from attendance_parser import parse_attendance_text, save_daily_attendance
+from attendance_parser import (
+    PLATE_CODE_VENUE_ID,
+    parse_attendance_text,
+    parse_plate_attendance_text,
+    save_daily_attendance,
+)
 from technician_photo_ocr import (
     match_pending_technician_photos,
     save_technician_photo,
@@ -187,7 +192,11 @@ def handle_attendance_text(message):
     ok, msg = save_daily_attendance(venue_config["venue_id"], text)
     print(f"出勤同步结果: {msg}")
     if ok:
-        attendance = parse_attendance_text(text)
+        attendance = (
+            parse_plate_attendance_text(text)
+            if venue_config["venue_id"] == PLATE_CODE_VENUE_ID
+            else parse_attendance_text(text)
+        )
         photo_date = datetime.fromtimestamp(message.date).date()
         matched_count = match_pending_technician_photos(
             venue_config["venue_id"],

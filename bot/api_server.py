@@ -11,6 +11,7 @@ from flask_cors import CORS
 from PIL import Image, UnidentifiedImageError
 from waitress import serve
 from urllib.parse import quote
+from technician_photo_ocr import extract_technician_profile
 
 load_dotenv()
 
@@ -200,20 +201,57 @@ def webhook():
                 )
                 venue["on_duty_count"] = len(venue["technician_list"])
                 venue["technician_photos"] = {}
+                venue["technician_profiles"] = {}
+                venue["attendance_groups"] = []
                 if attendance:
+                    if venue["id"] == 2:
+                        cur.execute(
+                            """
+                            SELECT group_type, group_name, technician_codes
+                            FROM attendance_groups
+                            WHERE venue_id = %s AND duty_date = %s
+                            ORDER BY sort_order, id
+                            """,
+                            (venue["id"], attendance["duty_date"]),
+                        )
+                        venue["attendance_groups"] = [
+                            {
+                                **group,
+                                "technician_codes": [
+                                    code.strip()
+                                    for code in (group["technician_codes"] or "").split(",")
+                                    if code.strip()
+                                ],
+                            }
+                            for group in cur.fetchall()
+                        ]
+
                     cur.execute(
                         """
-                        SELECT id, technician_code, channel_id, msg_id
-                        FROM technician_photos
+                        SELECT id, technician_code, channel_id, msg_id, ocr_text
+                        FROM technician_photos p
                         WHERE venue_id = %s AND duty_date = %s AND status = 'matched'
+                              AND NOT EXISTS (
+                                  SELECT 1
+                                  FROM technician_photos earlier
+                                  WHERE earlier.venue_id = p.venue_id
+                                        AND earlier.duty_date = p.duty_date
+                                        AND earlier.file_id = p.file_id
+                                        AND earlier.status = 'matched'
+                                        AND earlier.id < p.id
+                              )
                         ORDER BY id
                         """,
                         (venue["id"], attendance["duty_date"]),
                     )
+                    profile_texts = {}
                     for photo in cur.fetchall():
                         venue["technician_photos"].setdefault(
                             photo["technician_code"], []
                         ).append(photo["id"])
+                        profile_texts.setdefault(
+                            photo["technician_code"], []
+                        ).append(photo["ocr_text"] or "")
                         channel_id = str(photo["channel_id"])
                         channel_numeric = (
                             channel_id[4:]
@@ -226,6 +264,14 @@ def webhook():
                         venue.setdefault("technician_photo_links", {}).setdefault(
                             photo["technician_code"], []
                         ).append(photo_link)
+                    if venue["id"] == 2:
+                        venue["technician_profiles"] = {
+                            technician_code: extract_technician_profile(
+                                texts,
+                                technician_code,
+                            )
+                            for technician_code, texts in profile_texts.items()
+                        }
 
                 cur.execute(
                     """
