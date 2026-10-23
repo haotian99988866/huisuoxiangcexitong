@@ -1,6 +1,7 @@
 import logging
 from io import BytesIO
 import os
+import re
 from datetime import date
 
 import pymysql
@@ -39,6 +40,21 @@ CORS(
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
 
+_dihao_categories_by_prefix = {
+    "0": "0牌",
+    "1": "1牌",
+    "2": "2牌",
+    "6": "6牌艺人",
+    "7": "7牌公主",
+    "8": "8牌佳丽",
+    "9": "9牌贵妃",
+}
+_dihao_category_labels = {
+    "艺人": "6牌艺人",
+    "公主": "7牌公主",
+    "佳丽": "8牌佳丽",
+    "贵妃": "9牌贵妃",
+}
 
 def get_db_connection():
     return pymysql.connect(
@@ -81,6 +97,42 @@ def _underage_technician_codes(photos):
     return underage_codes
 
 
+def _confirmed_adult_technician_codes(photos):
+    adult_codes = set()
+    for photo in photos:
+        technician_code = photo["technician_code"] or (
+            extract_labeled_technician_code(photo["ocr_text"])
+        )
+        if technician_code is None:
+            continue
+        profile = extract_technician_profile(
+            [photo["ocr_text"] or ""],
+            technician_code,
+        )
+        age = profile.get("age")
+        if age and age.isdigit() and int(age) >= 18:
+            adult_codes.add(technician_code)
+    return adult_codes
+
+
+def _dihao_category_for_photo(technician_code, ocr_text):
+    if technician_code == "韩国08":
+        return "韩国牌"
+    category_labels = set()
+    for line in (ocr_text or "").splitlines():
+        match = re.fullmatch(
+            r"\s*(艺人|公主|佳丽|贵妃)\s*[:：;；]\s*\d{2,4}\s*",
+            line,
+        )
+        if match:
+            category_labels.add(_dihao_category_labels[match.group(1)])
+    if len(category_labels) == 1:
+        return next(iter(category_labels))
+    if len(category_labels) > 1 or not technician_code:
+        return None
+    return _dihao_categories_by_prefix.get(str(technician_code)[0])
+
+
 @app.get("/photos/<int:photo_id>/image")
 def technician_photo_image(photo_id):
     conn = None
@@ -117,6 +169,17 @@ def technician_photo_image(photo_id):
                 (photo["venue_id"], photo["duty_date"]),
             )
             underage_codes = _underage_technician_codes(cur.fetchall())
+        adult_codes = set()
+        if photo is not None and photo["venue_id"] == 6:
+            cur.execute(
+                """
+                SELECT technician_code, ocr_text
+                FROM technician_photos
+                WHERE venue_id = %s AND duty_date = %s
+                """,
+                (photo["venue_id"], photo["duty_date"]),
+            )
+            adult_codes = _confirmed_adult_technician_codes(cur.fetchall())
     except pymysql.MySQLError:
         logger.exception("Failed to look up technician photo %s", photo_id)
         return jsonify({"error": "Database request failed"}), 500
@@ -148,10 +211,19 @@ def technician_photo_image(photo_id):
             or extract_labeled_technician_code(photo["ocr_text"])
         ) not in underage_codes
     )
+    is_labeled_dihao_photo = (
+        photo["venue_id"] == 6
+        and photo["status"] in {"matched", "pending_review"}
+        and (
+            photo["technician_code"]
+            or extract_labeled_technician_code(photo["ocr_text"])
+        ) in adult_codes
+    )
     if (
         not is_matched_roster_photo
         and not is_labeled_kaidi_photo
         and not is_labeled_atlantic_photo
+        and not is_labeled_dihao_photo
     ):
         return jsonify({"error": "Photo not found"}), 404
 
@@ -230,14 +302,25 @@ def webhook():
         if action == "get_venues":
             cur.execute(
                 """
-                SELECT id, name, address, phone, business_hours,
-                       map_url, cover_image, search_tags, technician_codes, status
-                FROM venues
-                WHERE status = 'active'
-                ORDER BY id
+                SELECT v.id, v.name, v.address, v.phone, v.business_hours,
+                       v.map_url, v.cover_image, v.search_tags,
+                       v.technician_codes, v.status,
+                       activity.message_date AS last_channel_message_at
+                FROM venues v
+                LEFT JOIN venue_channel_activity activity
+                    ON activity.venue_id = v.id
+                WHERE v.status = 'active'
+                ORDER BY v.id
                 """
             )
             venues = [parse_venue(venue) for venue in cur.fetchall()]
+            for venue in venues:
+                message_date = venue["last_channel_message_at"]
+                venue["last_channel_message_at"] = (
+                    message_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    if message_date
+                    else None
+                )
             today = date.today()
 
             for venue in venues:
@@ -287,8 +370,8 @@ def webhook():
                             for group in cur.fetchall()
                         ]
 
-                if attendance or venue["id"] in {4, 5}:
-                    if venue["id"] in {4, 5}:
+                if attendance or venue["id"] in {4, 5, 6}:
+                    if venue["id"] in {4, 5, 6}:
                         cur.execute(
                             """
                             SELECT id, technician_code, channel_id, msg_id,
@@ -325,6 +408,11 @@ def webhook():
                         if venue["id"] == 5
                         else set()
                     )
+                    adult_codes = (
+                        _confirmed_adult_technician_codes(photos)
+                        if venue["id"] == 6
+                        else set()
+                    )
                     profile_texts = {}
                     seen_file_ids = set()
                     seen_coded_file_ids = set()
@@ -332,13 +420,21 @@ def webhook():
                     category_codes = {}
                     for photo in photos:
                         technician_code = photo["technician_code"]
-                        if venue["id"] in {4, 5}:
+                        if venue["id"] in {4, 5, 6}:
                             technician_code = technician_code or (
                                 extract_labeled_technician_code(photo["ocr_text"])
                             )
                             if (
                                 venue["id"] == 5
                                 and technician_code in underage_codes
+                            ):
+                                continue
+                            if (
+                                venue["id"] == 6
+                                and (
+                                    technician_code is None
+                                    or technician_code not in adult_codes
+                                )
                             ):
                                 continue
                             file_id = photo["file_id"]
@@ -361,6 +457,15 @@ def webhook():
                             if venue["id"] == 5:
                                 category_name = extract_technician_category(
                                     photo["ocr_text"]
+                                )
+                                if category_name:
+                                    category_codes.setdefault(
+                                        category_name, []
+                                    ).append(technician_code)
+                            elif venue["id"] == 6:
+                                category_name = _dihao_category_for_photo(
+                                    technician_code,
+                                    photo["ocr_text"],
                                 )
                                 if category_name:
                                     category_codes.setdefault(
@@ -400,12 +505,12 @@ def webhook():
                         venue.setdefault("technician_photo_links", {}).setdefault(
                             photo["technician_code"], []
                         ).append(photo_link)
-                    if venue["id"] in {4, 5}:
+                    if venue["id"] in {4, 5, 6}:
                         venue["on_duty_count"] = photo_count
                         venue["technician_list"] = list(
                             venue["technician_photos"]
                         )
-                    if venue["id"] == 5:
+                    if venue["id"] in {5, 6}:
                         venue["technician_categories"] = [
                             {
                                 "group_name": category_name,
@@ -413,7 +518,7 @@ def webhook():
                             }
                             for category_name, codes in category_codes.items()
                         ]
-                    if venue["id"] in {2, 4, 5}:
+                    if venue["id"] in {2, 4, 5, 6}:
                         venue["technician_profiles"] = {
                             technician_code: extract_technician_profile(
                                 texts,

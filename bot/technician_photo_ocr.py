@@ -21,6 +21,9 @@ _labeled_plate_code_pattern = re.compile(
     r"(?:工号|编号)\s*[:：]?\s*(\d{2,4})(?!\d)"
 )
 _labeled_photo_code_pattern = re.compile(r"^\s*(\d{1,2}[,.]\d{2,3}|\d{2,4})\s*$")
+_technician_code_label_pattern = re.compile(
+    r"(?:工号|编号|艺人|公主|佳丽|贵妃)"
+)
 _technician_categories = (
     "至尊",
     "佳丽",
@@ -38,22 +41,25 @@ _labeled_category_code_pattern = re.compile(
     + "|".join(re.escape(category) for category in _technician_categories)
     + r")\s*(\d{2,4})\s*$"
 )
+_dihao_category_code_pattern = re.compile(
+    r"^\s*(?:艺人|公主|佳丽|贵妃)\s*[:：;；]?\s*(\d{2,4})\s*$"
+)
 _profile_patterns = {
     "technician_code": re.compile(r"^\s*(?:工号|编号)\s*[:：]?\s*(\d{2,4})(?!\d)"),
-    "age": re.compile(r"^\s*年龄\s*[:：]?\s*(\d{1,2})(?:\s*岁)?"),
+    "age": re.compile(r"^\s*年龄\s*[:：;；]?\s*(\d{1,2})(?:\s*岁)?"),
     "height": re.compile(
-        r"^\s*身高\s*[:：]?\s*((?:1[.,]\d{2})|\d{2,3})(?:\s*cm)?",
+        r"^\s*身高\s*[:：;；]?\s*((?:1[.,]\d{2})|\d{2,3})(?:\s*cm)?",
         re.IGNORECASE,
     ),
     "bust": re.compile(
-        r"^\s*胸围\s*[:：]?\s*(?:\d{2}\s*)?([A-D](?:\s*[\(（][^)\）]*[)\）]?)?)",
+        r"^\s*胸围\s*[:：;；]?\s*(?:\d{2}\s*)?([A-D](?:\s*[\(（][^)\）]*[)\）]?)?)",
         re.IGNORECASE,
     ),
     "weight": re.compile(
-        r"^\s*体重\s*[:：]?\s*(\d{2,3}\s*(?:kg|公斤|斤)?)",
+        r"^\s*体重\s*[:：;；]?\s*(\d{2,3}\s*(?:kg|公斤|斤)?)",
         re.IGNORECASE,
     ),
-    "origin": re.compile(r"^\s*(?:籍贯|产地)\s*[:：]?\s*(.+?)\s*$"),
+    "origin": re.compile(r"^\s*(?:籍贯|产地)\s*[:：;；]?\s*(.+?)\s*$"),
 }
 _profile_metadata_line = re.compile(
     r"^\s*(?:名玺水汇|特技名玺|轻度收费|中度收费|重度收费|时间)\b"
@@ -76,16 +82,21 @@ def extract_labeled_technician_code(ocr_text):
     lines = (ocr_text or "").splitlines()
     codes = []
     for index, line in enumerate(lines):
-        label_index = max(line.find("工号"), line.find("编号"))
-        if label_index < 0:
+        if re.fullmatch(r"\s*韩国\s*0?8\s*", line):
+            codes.append("韩国08")
+            continue
+        label_match = _technician_code_label_pattern.search(line)
+        if label_match is None:
             continue
 
-        value = line[label_index + 2:].strip(" \t:：")
+        value = line[label_match.end():].strip(" \t:：;；")
         if not value and index + 1 < len(lines):
             value = lines[index + 1]
         match = _labeled_photo_code_pattern.fullmatch(value)
         if match is None:
             match = _labeled_category_code_pattern.fullmatch(value)
+        if match is None:
+            match = _dihao_category_code_pattern.fullmatch(line.strip())
         if match:
             codes.append(re.sub(r"[,.]", "", match.group(1)))
 
@@ -116,7 +127,10 @@ def extract_technician_profile(ocr_texts, technician_code):
             stripped_line = line.strip()
             field_line = stripped_line
             if (
-                re.fullmatch(r"(?:年龄|身高|胸围|体重|籍贯|产地)\s*[:：]?", stripped_line)
+                re.fullmatch(
+                    r"(?:年龄|身高|胸围|体重|籍贯|产地)\s*[:：;；]?",
+                    stripped_line,
+                )
                 and index + 1 < len(lines)
             ):
                 field_line = f"{stripped_line} {lines[index + 1].strip()}"

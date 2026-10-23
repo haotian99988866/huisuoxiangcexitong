@@ -38,7 +38,9 @@
 - 每个服务项目可配置其适用技师；点击项目展开技师工号，点击工号查看已确认照片。
 - “名玺水汇会所”频道公告按牌号解析当日技师，并从公告中提取三通、潮喷、SM、双仪等服务分类；技师照片按数字工号自动匹配。
 - “凯迪/大浪淘沙会所”按价目表展示牌位、车模、日韩类别及已确认关联的技师工号，不依赖出勤公告。
-- “大西洋/五象会所”按最新价目表展示至尊、佳丽、车模、皇贵妃、皇后、1牌、3牌、0牌、豹子及日韩类别的原价和活动价（不展示预约价），服务时长90分钟；技师照片需能识别唯一类别和工号后才会自动归类。
+- “大西洋/五象会所”按最新价目表展示至尊、佳丽、车模、皇贵妃、皇后、1牌、3牌、0牌、豹子及日韩类别的价格（不展示原价或预约价），服务时长90分钟；技师照片需能识别唯一类别和工号后才会自动归类。
+- “帝豪会所”按频道价目表展示0牌、1牌、2牌、6牌艺人、7牌公主、8牌佳丽和9牌贵妃的活动价；工号可按明确类别标签或牌号前缀归类，仅展示OCR确认年满18岁的照片资料。
+- 各会所出勤板块显示频道最近一条消息的时间；从机器人监听到消息后开始记录，不回溯历史频道消息。
 - 技师详情会从照片 OCR 提取工号、年龄、身高、胸围、体重、籍贯和籍贯字段后的服务介绍；未识别出的资料不会补猜。
 - 会所详情和技师列表 API。
 - Telegram 机器人监听配置中的 10 个频道；带有对应主标签的图片会写入 `venue_photos`，并更新会所封面。
@@ -91,6 +93,7 @@ Get-Content -Raw .\bot\migrations\003_technician_photo_ocr_error.sql | mysql -u 
 Get-Content -Raw .\bot\migrations\004_service_item_technicians.sql | mysql -u root -p venue_db
 Get-Content -Raw .\bot\migrations\005_service_item_technician_duty_date.sql | mysql -u root -p venue_db
 Get-Content -Raw .\bot\migrations\006_attendance_groups.sql | mysql -u root -p venue_db
+Get-Content -Raw .\bot\migrations\007_venue_channel_activity.sql | mysql -u root -p venue_db
 ```
 
 Telegram 出勤公告的固定分区会自动同步到该日期对应的服务项目：小项、中项、高项、中医按摩、修脚师分区中的工号会关联到同类别下的项目，且只在公告日期显示。公告中的分区名单视为该类别下所有项目均可服务；重复收到同日期公告时会更新当日对应关系。

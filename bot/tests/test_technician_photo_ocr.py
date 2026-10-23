@@ -59,6 +59,14 @@ class ClassifyOcrDetectionsTests(unittest.TestCase):
             "100",
         )
 
+    def test_extracts_korea_08_code_from_dihao_photo_label(self):
+        self.assertEqual(
+            extract_labeled_technician_code(
+                "帝豪国际会所\n韩国8\n身高:165\n年龄：21"
+            ),
+            "韩国08",
+        )
+
     def test_extracts_car_model_code_from_a_labeled_ocr_line(self):
         self.assertEqual(
             extract_labeled_technician_code("工号：\n车模6666\n年龄：24"),
@@ -78,6 +86,25 @@ class ClassifyOcrDetectionsTests(unittest.TestCase):
             extract_labeled_technician_code("工号\n3牌318\n身高\n166"),
             "318",
         )
+        self.assertEqual(
+            extract_labeled_technician_code("佳丽：722\n年龄：22"),
+            "722",
+        )
+        self.assertEqual(
+            extract_labeled_technician_code("艺人：620\n年龄：23"),
+            "620",
+        )
+
+    def test_extracts_dihao_profile_fields_with_ocr_semicolon_delimiters(self):
+        profile = extract_technician_profile(
+            ["工号：06\n身高；165\n年龄；22\n胸围；C真\n籍贯；越南"],
+            "06",
+        )
+
+        self.assertEqual(profile["height"], "165")
+        self.assertEqual(profile["age"], "22")
+        self.assertEqual(profile["bust"], "C")
+        self.assertEqual(profile["origin"], "越南")
 
     def test_rejects_ambiguous_labeled_codes(self):
         self.assertIsNone(

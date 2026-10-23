@@ -26,6 +26,26 @@ const greenSectionHeadingStyle = {
   fontWeight: 600
 }
 
+const attendanceHeadingRowStyle = {
+  display: 'flex',
+  alignItems: 'baseline',
+  justifyContent: 'space-between',
+  flexWrap: 'wrap',
+  columnGap: '0',
+  rowGap: '4px'
+}
+
+const recentUpdateStyle = {
+  color: '#888',
+  fontSize: '10px',
+  whiteSpace: 'nowrap'
+}
+
+const attendanceInlineHeadingStyle = {
+  ...greenSectionHeadingStyle,
+  fontSize: '14px'
+}
+
 const technicianGridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
@@ -69,6 +89,32 @@ const atlanticTechnicianCategories = [
   { name: '豹子', price: 359 },
   { name: '日韩', price: 499 }
 ]
+
+const dihaoTechnicianCategories = [
+  { name: '0牌', price: 99 },
+  { name: '1牌', price: 149 },
+  { name: '2牌', price: 189 },
+  { name: '6牌艺人', price: 229 },
+  { name: '7牌公主', price: 269 },
+  { name: '8牌佳丽', price: 329 },
+  { name: '9牌贵妃', price: 369 },
+  { name: '韩国牌', codes: ['韩国08'] }
+]
+
+const formatChannelMessageTime = timestamp => {
+  if (!timestamp) return '暂无记录'
+
+  const messageDate = new Date(timestamp)
+  if (Number.isNaN(messageDate.getTime())) return '更新时间不可用'
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).format(messageDate)
+}
 
 export default function VenueList() {
   const [list, setList] = useState([])
@@ -205,6 +251,12 @@ export default function VenueList() {
     return [...new Set([...(category.codes || []), ...photoCodes])]
   }
 
+  const getDihaoCategoryCodes = category => (
+    selectedVenue?.technician_categories
+      ?.find(item => item.group_name === category.name)
+      ?.technician_codes || []
+  )
+
   const contactManagerUrl = selectedTechnicianCode && selectedVenue
     ? (() => {
         const photoLinks = selectedVenue.technician_photo_links?.[selectedTechnicianCode] || []
@@ -212,7 +264,7 @@ export default function VenueList() {
           '你好，我想咨询这位技师：',
           `会所：${selectedVenue.name}`,
           `工号：${selectedTechnicianCode}`,
-          ['4', '5'].includes(String(selectedVenue.id))
+          ['4', '5', '6'].includes(String(selectedVenue.id))
             ? '来源：会所频道照片'
             : `出勤：${dutyShiftToday || '今日在岗'}`,
           ...(technicianServiceCategories.length > 0
@@ -519,7 +571,7 @@ export default function VenueList() {
             }}>
               <span aria-hidden="true">✓</span>
               今日出勤 <strong style={{ fontSize: '15px' }}>{onDutyCount}</strong>{' '}
-              {['4', '5'].includes(String(selectedVenue?.id)) ? '张照片' : '人'}
+              {['4', '5', '6'].includes(String(selectedVenue?.id)) ? '张照片' : '人'}
             </div>
           </div>
           </div>
@@ -572,24 +624,27 @@ export default function VenueList() {
       ) : (
         <div>
           {/* 今日在岗技师 / 未发布提示 */}
-          {['4', '5'].includes(String(selectedVenue.id)) ? (
+          {['4', '5', '6'].includes(String(selectedVenue.id)) ? (
             <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
-              <h3 style={greenSectionHeadingStyle}>
-                👥 今日出勤技师 ({onDutyCount}张照片)
-              </h3>
-              <h3 style={{
-                ...greenSectionHeadingStyle,
-                marginTop: '16px',
-                marginBottom: '12px'
-              }}>
-                技师分类
-              </h3>
+              <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
+                <h3 style={attendanceInlineHeadingStyle}>
+                  👥 今日出勤技师 ({onDutyCount}张照片)
+                </h3>
+                <span style={recentUpdateStyle}>
+                  最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
+                </span>
+              </div>
               {(String(selectedVenue.id) === '5'
                 ? atlanticTechnicianCategories
-                : kaidiTechnicianCategories
+                : String(selectedVenue.id) === '6'
+                  ? dihaoTechnicianCategories
+                  : kaidiTechnicianCategories
               ).filter(category => (
-                String(selectedVenue.id) !== '5'
-                || getAtlanticCategoryCodes(category).length > 0
+                !['5', '6'].includes(String(selectedVenue.id))
+                || (String(selectedVenue.id) === '5'
+                  ? getAtlanticCategoryCodes(category)
+                  : getDihaoCategoryCodes(category)
+                ).length > 0
               )).map(category => (
                 <div key={category.name} style={{ marginBottom: '14px' }}>
                   <h4 style={{
@@ -599,7 +654,7 @@ export default function VenueList() {
                     fontWeight: 600
                   }}>
                     {category.name}
-                    {(String(selectedVenue.id) === '5' || category.price != null) && (
+                    {(category.price != null) && (
                       <span style={{ marginLeft: '8px', color: '#888', fontWeight: 400 }}>
                         价格 ${category.price} · 90分钟
                       </span>
@@ -607,12 +662,16 @@ export default function VenueList() {
                   </h4>
                   {(String(selectedVenue.id) === '5'
                     ? getAtlanticCategoryCodes(category)
-                    : getKaidiCategoryCodes(category)
+                    : String(selectedVenue.id) === '6'
+                      ? getDihaoCategoryCodes(category)
+                      : getKaidiCategoryCodes(category)
                   ).length > 0 ? (
                     <div style={technicianGridStyle}>
                       {(String(selectedVenue.id) === '5'
                         ? getAtlanticCategoryCodes(category)
-                        : getKaidiCategoryCodes(category)
+                        : String(selectedVenue.id) === '6'
+                          ? getDihaoCategoryCodes(category)
+                          : getKaidiCategoryCodes(category)
                       ).map(renderTechnicianTile)}
                     </div>
                   ) : (
@@ -625,17 +684,19 @@ export default function VenueList() {
             </div>
           ) : technicianList.length > 0 ? (
             <div style={attendancePanelStyle}>
-              <h3 style={{
-                ...greenSectionHeadingStyle,
-                margin: '0 0 12px 0'
-              }}>
-                👥 今日出勤技师 ({technicianList.length}人)
-                {dutyShiftToday && (
-                  <span style={{ fontSize: '12px', color: '#666', marginLeft: '8px' }}>
-                    （{dutyShiftToday}）
-                  </span>
-                )}
-              </h3>
+              <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
+                <h3 style={attendanceInlineHeadingStyle}>
+                  👥 今日出勤技师 ({technicianList.length}人)
+                  {dutyShiftToday && (
+                    <span style={{ fontSize: '11px', color: '#666', marginLeft: '8px' }}>
+                      （{dutyShiftToday}）
+                    </span>
+                  )}
+                </h3>
+                <span style={recentUpdateStyle}>
+                  最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
+                </span>
+              </div>
               {rosterGroups.length > 0 ? (
                 rosterGroups.map(group => (
                   <div key={group.group_name} style={{ marginBottom: '14px' }}>
@@ -675,10 +736,14 @@ export default function VenueList() {
               background: '#fff9e6',
               borderRadius: '12px',
               padding: '20px 16px',
-              textAlign: 'center',
               color: '#b7791f'
             }}>
-              ⚠️ 今日出勤尚未发布
+              <div style={attendanceHeadingRowStyle}>
+                <span>⚠️ 今日出勤尚未发布</span>
+                <span style={recentUpdateStyle}>
+                  最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
+                </span>
+              </div>
             </div>
           )}
 
@@ -902,7 +967,7 @@ export default function VenueList() {
                     ['height', '身高'],
                     ['bust', '胸围'],
                     ['weight', '体重'],
-                    ['origin', ['4', '5'].includes(String(selectedVenue.id)) ? '产地' : '籍贯']
+                    ['origin', ['4', '5', '6'].includes(String(selectedVenue.id)) ? '产地' : '籍贯']
                   ].filter(([field]) => technicianProfile[field]).map(([field, label]) => (
                     <div
                       key={field}
@@ -961,7 +1026,7 @@ export default function VenueList() {
                 信息来源
               </h3>
               <div style={{ fontSize: '14px', color: '#666' }}>
-                {['4', '5'].includes(String(selectedVenue.id))
+                {['4', '5', '6'].includes(String(selectedVenue.id))
                   ? '会所频道照片'
                   : technicianList.includes(selectedTechnicianCode)
                     ? `在岗${dutyShiftToday ? ` · ${dutyShiftToday}` : ''}`

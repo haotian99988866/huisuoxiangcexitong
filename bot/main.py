@@ -1,11 +1,12 @@
 import os
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pymysql
 import requests
 import telebot
+from telebot import util
 from dotenv import load_dotenv
 from db import get_conn
 from config.channels import LISTEN_CHANNELS, TAG_ALIASES
@@ -29,6 +30,65 @@ def normalize_tag(tag):
     t = tag.strip()
     return TAG_ALIASES.get(t, t)
 
+
+def get_venue_config(chat_id):
+    chat_id_str = str(chat_id)
+    chat_id_str_short = (
+        chat_id_str
+        if chat_id_str.startswith("-100")
+        else f"-100{chat_id_str.replace('-', '')}"
+    )
+    return LISTEN_CHANNELS.get(chat_id_str) or LISTEN_CHANNELS.get(
+        chat_id_str_short
+    )
+
+
+def record_channel_activity(message):
+    venue_config = get_venue_config(message.chat.id)
+    if not venue_config:
+        return
+
+    message_date = datetime.fromtimestamp(message.date, timezone.utc).replace(
+        tzinfo=None
+    )
+    conn = get_conn()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO venue_channel_activity
+                (venue_id, channel_id, message_id, message_date)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                message_id = IF(
+                    VALUES(message_date) >= message_date,
+                    VALUES(message_id),
+                    message_id
+                ),
+                message_date = GREATEST(message_date, VALUES(message_date))
+            """,
+            (
+                venue_config["venue_id"],
+                str(message.chat.id),
+                message.message_id,
+                message_date,
+            ),
+        )
+        conn.commit()
+    except pymysql.MySQLError:
+        conn.rollback()
+        logger.exception(
+            "Failed to record channel activity for message %s",
+            message.message_id,
+        )
+        raise
+    finally:
+        if cur is not None:
+            cur.close()
+        conn.close()
+
+
 def parse_caption(caption):
     if not caption:
         return [], ""
@@ -42,6 +102,7 @@ def parse_caption(caption):
 @bot.message_handler(content_types=['photo'])
 @bot.channel_post_handler(content_types=['photo'])
 def handle_photo_message(message):
+    record_channel_activity(message)
     print(f"\n=== 收到照片消息 ===")
     print(f"来源类型: {'频道' if message.content_type == 'channel_post' else '普通消息'}")
     print(f"原始频道ID: {message.chat.id}")
@@ -49,14 +110,8 @@ def handle_photo_message(message):
 
     chat_id = message.chat.id
     chat_id_str = str(chat_id)
-    chat_id_str_short = chat_id_str if chat_id_str.startswith('-100') else f"-100{chat_id_str.replace('-', '')}"
-
-    # 匹配频道
-    if chat_id_str in LISTEN_CHANNELS:
-        venue_config = LISTEN_CHANNELS[chat_id_str]
-    elif chat_id_str_short in LISTEN_CHANNELS:
-        venue_config = LISTEN_CHANNELS[chat_id_str_short]
-    else:
+    venue_config = get_venue_config(chat_id)
+    if not venue_config:
         print(f"❌ 频道ID不在监听列表中！")
         return
 
@@ -109,10 +164,11 @@ def handle_photo_message(message):
             conn.close()
 
         try:
-            bot.send_message(
+            confirmation = bot.send_message(
                 message.chat.id,
                 f"✅ 已更新【{venue_config['venue_name']}】封面\n链接：{photo_link}",
             )
+            record_channel_activity(confirmation)
         except telebot.apihelper.ApiTelegramException:
             logger.error(
                 "Failed to confirm venue cover update for message %s",
@@ -164,6 +220,7 @@ def handle_photo_message(message):
 @bot.message_handler(content_types=['text'])
 @bot.channel_post_handler(content_types=['text'])
 def handle_attendance_text(message):
+    record_channel_activity(message)
     text = message.text or message.caption or ""
 
     # 只处理包含出勤关键词的消息
@@ -174,15 +231,7 @@ def handle_attendance_text(message):
     print(f"内容: {text[:100]}...")
 
     chat_id = message.chat.id
-    chat_id_str = str(chat_id)
-    chat_id_str_short = chat_id_str if chat_id_str.startswith('-100') else f"-100{chat_id_str.replace('-', '')}"
-
-    # 匹配会所
-    venue_config = None
-    if chat_id_str in LISTEN_CHANNELS:
-        venue_config = LISTEN_CHANNELS[chat_id_str]
-    elif chat_id_str_short in LISTEN_CHANNELS:
-        venue_config = LISTEN_CHANNELS[chat_id_str_short]
+    venue_config = get_venue_config(chat_id)
 
     if not venue_config:
         print(f"❌ 未匹配到会所")
@@ -208,7 +257,18 @@ def handle_attendance_text(message):
             print(f"✅ 出勤名单已补匹配 {matched_count} 张先到照片")
 
     # 回复确认
-    bot.send_message(message.chat.id, msg)
+    confirmation = bot.send_message(message.chat.id, msg)
+    record_channel_activity(confirmation)
+
+
+@bot.channel_post_handler(
+    content_types=list(
+        dict.fromkeys(util.content_type_media + util.content_type_service)
+    )
+)
+def handle_other_channel_post(message):
+    record_channel_activity(message)
+
 
 if __name__ == "__main__":
     print("🤖 机器人启动 — 监听会所频道模式")
