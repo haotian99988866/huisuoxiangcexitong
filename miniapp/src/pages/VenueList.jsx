@@ -120,6 +120,23 @@ export default function VenueList() {
         .map(({ title }) => title)
     : []
 
+  const contactManagerUrl = selectedTechnicianCode && selectedVenue
+    ? (() => {
+        const photoLinks = selectedVenue.technician_photo_links?.[selectedTechnicianCode] || []
+        const message = [
+          '你好，我想咨询这位技师：',
+          `会所：${selectedVenue.name}`,
+          `工号：${selectedTechnicianCode}`,
+          `出勤：${dutyShiftToday || '今日在岗'}`,
+          `可服务类别：${technicianServiceCategories.join('、') || '暂无类别信息'}`,
+          ...(photoLinks.length > 0
+            ? ['', '频道照片原帖：', ...photoLinks.map((link, index) => `${index + 1}. ${link}`)]
+            : ['技师暂无照片'])
+        ].join('\n')
+        return `https://t.me/haotian99988866?text=${encodeURIComponent(message)}`
+      })()
+    : 'https://t.me/haotian99988866'
+
   const renderServiceItem = item => (
     <div key={item.id} style={{
       background: '#fff',
@@ -157,49 +174,77 @@ export default function VenueList() {
     </div>
   )
 
-  const renderCategoryTechnicians = items => {
+  const renderCategoryTechnicians = (items, title) => {
     const technicianCodes = [...new Set(
       items.flatMap(item => item.technician_codes
         ? item.technician_codes.split(',').map(code => code.trim()).filter(Boolean)
         : [])
     )]
 
-    if (technicianCodes.length === 0) return null
-
     return (
-      <div style={{
-        background: '#fff',
-        borderRadius: '10px',
-        padding: '12px 14px',
-        marginBottom: '8px'
-      }}>
-        <div style={{ fontSize: '12px', color: '#777', marginBottom: '8px' }}>
-          本类可服务技师
+      <div style={{ marginBottom: '10px' }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          marginBottom: technicianCodes.length > 0 ? '6px' : 0
+        }}>
+          <h3 style={{
+            fontSize: '15px',
+            color: '#b7791f',
+            margin: 0,
+            fontWeight: 600
+          }}>
+            {title}
+          </h3>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          {technicianCodes.map(code => {
+        {technicianCodes.length > 0 && (
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '6px',
+            margin: '0 16px'
+          }}>
+            {technicianCodes.map(code => {
             const photoIds = selectedVenue?.technician_photos?.[code] || []
             return (
               <button
                 key={code}
                 type="button"
                 onClick={() => setSelectedTechnicianCode(code)}
-                aria-label={`查看技师 ${code} 的详情`}
+                aria-label={`查看技师 ${code} 的详情${photoIds.length > 0 ? `，${photoIds.length}张照片` : '，暂无照片'}`}
                 style={{
-                  padding: '5px 11px',
-                  border: 0,
-                  borderRadius: '16px',
-                  background: '#f0f7f4',
-                  color: '#2c7a56',
-                  fontSize: '13px',
-                  cursor: 'pointer'
+                  display: 'flex',
+                  flex: '0 0 24px',
+                  width: '24px',
+                  height: '24px',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  overflow: 'hidden',
+                  border: photoIds.length > 0
+                    ? '1px solid rgba(60, 45, 35, 0.12)'
+                    : '1px solid #dcebe2',
+                  borderRadius: '50%',
+                  backgroundColor: photoIds.length > 0 ? '#e9e2d9' : '#eaf4ee',
+                  backgroundImage: photoIds.length > 0
+                    ? `linear-gradient(rgba(20, 20, 20, 0.25), rgba(20, 20, 20, 0.25)), url("${API_BASE_URL}/photos/${photoIds[0]}/image")`
+                    : 'linear-gradient(145deg, #f1f8f3, #e4f0e8)',
+                  backgroundPosition: 'center',
+                  backgroundSize: 'cover',
+                  color: photoIds.length > 0 ? '#fff' : '#36734f',
+                  fontSize: '8px',
+                  fontWeight: 700,
+                  textShadow: photoIds.length > 0 ? '0 1px 2px rgba(0, 0, 0, 0.7)' : 'none',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(40, 65, 48, 0.08)'
                 }}
               >
-                {code}{photoIds.length > 0 ? ` · ${photoIds.length}张照片` : ''}
+                <span>{code}</span>
               </button>
             )
-          })}
-        </div>
+            })}
+          </div>
+        )}
       </div>
     )
   }
@@ -487,15 +532,7 @@ export default function VenueList() {
                 { key: 'pedicure', title: '🌸 修脚师' }
               ].map(({ key, title }) => serviceGroups[key] && (
                 <div key={key} style={{ marginBottom: '18px' }}>
-                  <h3 style={{
-                    fontSize: '15px',
-                    color: '#b7791f',
-                    margin: '0 0 10px 0',
-                    fontWeight: 600
-                  }}>
-                    {title}
-                  </h3>
-                  {renderCategoryTechnicians(serviceGroups[key].items)}
+                  {renderCategoryTechnicians(serviceGroups[key].items, title)}
                   <div style={{ display: 'grid', gap: '8px' }}>
                     {serviceGroups[key].items.map(renderServiceItem)}
                   </div>
@@ -673,6 +710,37 @@ export default function VenueList() {
               ) : (
                 <div style={{ fontSize: '14px', color: '#888' }}>暂无类别信息</div>
               )}
+            </div>
+
+            <a
+              href={contactManagerUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                minHeight: '46px',
+                marginTop: '20px',
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, #38835d, #4a9870)',
+                color: '#fff',
+                fontSize: '15px',
+                fontWeight: 700,
+                textDecoration: 'none'
+              }}
+            >
+              <span aria-hidden="true">✈</span>
+              联系业务经理昊天
+            </a>
+            <div style={{
+              marginTop: '7px',
+              color: '#888',
+              fontSize: '12px',
+              textAlign: 'center'
+            }}>
+              将在 Telegram 中预填技师信息和频道照片原帖链接
             </div>
           </section>
         </div>

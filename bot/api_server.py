@@ -203,7 +203,7 @@ def webhook():
                 if attendance:
                     cur.execute(
                         """
-                        SELECT id, technician_code
+                        SELECT id, technician_code, channel_id, msg_id
                         FROM technician_photos
                         WHERE venue_id = %s AND duty_date = %s AND status = 'matched'
                         ORDER BY id
@@ -214,6 +214,18 @@ def webhook():
                         venue["technician_photos"].setdefault(
                             photo["technician_code"], []
                         ).append(photo["id"])
+                        channel_id = str(photo["channel_id"])
+                        channel_numeric = (
+                            channel_id[4:]
+                            if channel_id.startswith("-100")
+                            else channel_id.lstrip("-")
+                        )
+                        photo_link = (
+                            f"https://t.me/c/{channel_numeric}/{photo['msg_id']}"
+                        )
+                        venue.setdefault("technician_photo_links", {}).setdefault(
+                            photo["technician_code"], []
+                        ).append(photo_link)
 
                 cur.execute(
                     """
