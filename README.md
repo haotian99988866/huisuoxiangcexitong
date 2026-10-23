@@ -35,6 +35,7 @@
 
 - 会所列表、搜索标签、封面图片展示。
 - 会所服务项目和技师工号展示。
+- 每个服务项目可配置其适用技师；点击项目展开技师工号，点击工号查看已确认照片。
 - 会所详情和技师列表 API。
 - Telegram 机器人监听配置中的 10 个频道；带有对应主标签的图片会写入 `venue_photos`，并更新会所封面。
 - 机器人在本地 OCR 频道照片中的纯数字工号；唯一、高置信度且属于当日出勤名单的照片会自动关联，其他照片待人工核对。
@@ -48,6 +49,7 @@
 - `venue_photos`：频道图片及消息记录。
 - `technicians`：独立技师记录。
 - `service_items`：会所服务项目及价格。
+- `service_item_technicians`：服务项目与可服务技师工号的多对多关联。
 - `technician_photos`：照片 OCR 结果、出勤日期、候选工号及审核状态；Telegram `file_id` 只由后端使用。
 
 前端“今日出勤”数量目前根据 `technician_codes` 计算；技师团队列表则读取 `technicians` 表，两者是不同数据来源。当前数据库没有会所介绍字段，因此详情 API 暂时返回空介绍。
@@ -81,7 +83,22 @@ API_PORT=8000
 ```powershell
 Get-Content -Raw .\bot\migrations\002_technician_photos.sql | mysql -u root -p venue_db
 Get-Content -Raw .\bot\migrations\003_technician_photo_ocr_error.sql | mysql -u root -p venue_db
+Get-Content -Raw .\bot\migrations\004_service_item_technicians.sql | mysql -u root -p venue_db
+Get-Content -Raw .\bot\migrations\005_service_item_technician_duty_date.sql | mysql -u root -p venue_db
 ```
+
+Telegram 出勤公告的固定分区会自动同步到该日期对应的服务项目：小项、中项、高项、中医按摩、修脚师分区中的工号会关联到同类别下的项目，且只在公告日期显示。公告中的分区名单视为该类别下所有项目均可服务；重复收到同日期公告时会更新当日对应关系。
+
+若需手动调整某天的名单，先查出该会所服务项目 ID，再为项目插入可服务的工号：
+
+```sql
+SELECT id, name FROM service_items WHERE venue_id = 1 ORDER BY sort_order, id;
+
+INSERT INTO service_item_technicians (service_item_id, duty_date, technician_code)
+VALUES (13, '2026-10-23', '098'), (13, '2026-10-23', '021');
+```
+
+替换示例中的服务项目 ID、日期和工号为实际名单。网页点击项目名称即可展开当日工号，点击工号可查看已确认照片。
 
 ### 安装依赖
 

@@ -7,6 +7,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+CODE_PATTERN = re.compile(
+    r"(?<!\d)(\d{2,3})(?!\d)"
+    r"(?:\s*(?:🇻🇳|🇨🇳|🇰🇭|🇹🇭|🇱🇦|🇲🇲|🇵🇭|🇺🇸|🇬🇧|[（(]男[）)]))?"
+)
+CODE_EXCLUDED_LINE = re.compile(
+    r"\d{4}年\d{1,2}月\d{1,2}日|\d{4}-\d{1,2}-\d{1,2}|"
+    r"[$￥¥]|\d+\s*分钟|服务项目"
+)
+SERVICE_SECTION_MARKERS = (
+    (re.compile(r"小项"), "small"),
+    (re.compile(r"中项"), "medium"),
+    (re.compile(r"高项"), "high"),
+    (re.compile(r"中医按摩"), "tcm"),
+    (re.compile(r"修脚师"), "pedicure"),
+)
+
 
 def get_db_connection():
     return pymysql.connect(
@@ -25,6 +41,7 @@ def parse_attendance_text(text):
         "duty_date": None,
         "duty_shift": "晚班",
         "codes": [],
+        "service_codes": {},
     }
 
     date_match = re.search(
@@ -43,27 +60,44 @@ def parse_attendance_text(text):
     if shift_match:
         result["duty_shift"] = shift_match.group(1)
 
-    code_pattern = re.compile(
-        r"(?<!\d)(\d{2,3})(?!\d)"
-        r"(?:\s*(?:🇻🇳|🇨🇳|🇰🇭|🇹🇭|🇱🇦|🇲🇲|🇵🇭|🇺🇸|🇬🇧|[（(]男[）)]))?"
-    )
     codes = []
     seen = set()
     for line in text.splitlines():
-        if re.search(
-            r"\d{4}年\d{1,2}月\d{1,2}日|\d{4}-\d{1,2}-\d{1,2}|"
-            r"[$￥¥]|\d+\s*分钟|小项|中项|高项|服务项目",
-            line,
-        ):
+        if CODE_EXCLUDED_LINE.search(line):
             continue
 
-        for match in code_pattern.finditer(line):
+        for match in CODE_PATTERN.finditer(line):
             code = match.group(1)
             if code not in seen:
                 seen.add(code)
                 codes.append(code)
 
     result["codes"] = codes
+    service_codes = {}
+    current_category = None
+    for line in text.splitlines():
+        stripped_line = line.strip()
+        category = next(
+            (
+                category
+                for marker, category in SERVICE_SECTION_MARKERS
+                if marker.search(stripped_line)
+                and not CODE_PATTERN.search(stripped_line)
+            ),
+            None,
+        )
+        if category is not None:
+            current_category = category
+            service_codes.setdefault(category, [])
+            continue
+        if current_category is None or CODE_EXCLUDED_LINE.search(line):
+            continue
+        for match in CODE_PATTERN.finditer(line):
+            code = match.group(1)
+            if code not in service_codes[current_category]:
+                service_codes[current_category].append(code)
+
+    result["service_codes"] = service_codes
     return result
 
 
@@ -93,6 +127,40 @@ def save_daily_attendance(venue_id: int, text: str):
                 ",".join(data["codes"]),
             ),
         )
+        for category, technician_codes in data["service_codes"].items():
+            cur.execute(
+                """
+                DELETE st
+                FROM service_item_technicians st
+                JOIN service_items si ON si.id = st.service_item_id
+                WHERE si.venue_id = %s
+                      AND si.category = %s
+                      AND st.duty_date = %s
+                """,
+                (venue_id, category, data["duty_date"]),
+            )
+            if not technician_codes:
+                continue
+
+            cur.execute(
+                "SELECT id FROM service_items WHERE venue_id = %s AND category = %s",
+                (venue_id, category),
+            )
+            service_item_ids = [row["id"] for row in cur.fetchall()]
+            mappings = [
+                (service_item_id, data["duty_date"], technician_code)
+                for service_item_id in service_item_ids
+                for technician_code in technician_codes
+            ]
+            if mappings:
+                cur.executemany(
+                    """
+                    INSERT INTO service_item_technicians
+                        (service_item_id, duty_date, technician_code)
+                    VALUES (%s, %s, %s)
+                    """,
+                    mappings,
+                )
         conn.commit()
         return (
             True,

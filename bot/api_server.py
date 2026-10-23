@@ -205,16 +205,10 @@ def webhook():
                         """
                         SELECT id, technician_code
                         FROM technician_photos
-                        WHERE venue_id = %s AND duty_date = %s
-                              AND status = 'matched'
-                              AND FIND_IN_SET(technician_code, %s) > 0
+                        WHERE venue_id = %s AND duty_date = %s AND status = 'matched'
                         ORDER BY id
                         """,
-                        (
-                            venue["id"],
-                            attendance["duty_date"],
-                            attendance["technician_codes"],
-                        ),
+                        (venue["id"], attendance["duty_date"]),
                     )
                     for photo in cur.fetchall():
                         venue["technician_photos"].setdefault(
@@ -223,14 +217,26 @@ def webhook():
 
                 cur.execute(
                     """
-                    SELECT id, category, category_name, name, description,
-                           price, duration, sort_order
-                    FROM service_items
-                    WHERE venue_id = %s
-                    ORDER BY FIELD(category, 'small', 'medium', 'high', 'tcm', 'pedicure'),
-                             sort_order, id
+                    SELECT si.id, si.category, si.category_name, si.name,
+                           si.description, si.price, si.duration, si.sort_order,
+                           COALESCE(st.technician_codes, '') AS technician_codes
+                    FROM service_items si
+                    LEFT JOIN (
+                        SELECT service_item_id,
+                               GROUP_CONCAT(
+                                   technician_code
+                                   ORDER BY technician_code
+                                   SEPARATOR ','
+                               ) AS technician_codes
+                        FROM service_item_technicians
+                        WHERE duty_date = %s
+                        GROUP BY service_item_id
+                    ) st ON st.service_item_id = si.id
+                    WHERE si.venue_id = %s
+                    ORDER BY FIELD(si.category, 'small', 'medium', 'high', 'tcm', 'pedicure'),
+                             si.sort_order, si.id
                     """,
-                    (venue["id"],),
+                    (attendance["duty_date"] if attendance else today, venue["id"]),
                 )
                 venue["service_items"] = cur.fetchall()
                 venue["technicians"] = []
