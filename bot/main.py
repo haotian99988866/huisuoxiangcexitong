@@ -20,6 +20,7 @@ from technician_photo_ocr import (
     match_pending_technician_photos,
     save_technician_photo,
 )
+from data_cleanup import start_cleanup_thread
 from delivery_age import extract_age, ocr_image_text
 
 load_dotenv()
@@ -437,4 +438,5 @@ def save_ktv_video(message):
 if __name__ == "__main__":
     print("🤖 机器人启动 — 监听会所频道模式")
     print(f"📋 已监听 {len(LISTEN_CHANNELS)} 个频道")
+    start_cleanup_thread()
     bot.infinity_polling()

@@ -47,6 +47,8 @@ for ($i = 0; $i -lt 30 -and -not $url; $i++) {
     }
 }
 if ($url) {
+    $env:PYTHONUTF8 = '1'
+    & $py (Join-Path $root 'bot\miniapp_entry.py') menu $url
     Write-Host "公网地址：$url" -ForegroundColor Green
     Write-Host '每次启动地址都会变：到 BotFather 把小程序网址改成上面的地址。'
 } else {
