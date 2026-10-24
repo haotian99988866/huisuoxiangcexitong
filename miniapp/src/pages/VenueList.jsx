@@ -45,15 +45,16 @@ const deliveryCategoryKey = venue => venue.categoryKey || String(venue.id)
 const deliveryCategoryLabel = venue => venue.categoryLabel
   || venue.name.replace(/^西港/, '').replace(/外送$/, '')
 
-// 小苹果/红苹果共用同一个频道，拆成两个类别但沿用同一份数据
-const expandDeliveryCategories = delivery => delivery.flatMap(venue => (
-  Number(venue.id) === 10
-    ? [
-        { ...venue, categoryKey: '10-small', categoryLabel: '小苹果' },
-        { ...venue, categoryKey: '10-red', categoryLabel: '红苹果' }
-      ]
-    : [venue]
-))
+// 小苹果/红苹果共用同一个频道，按内容文字里的类别分到各自的按钮下；未判断出类别的两边都显示
+const expandDeliveryCategories = delivery => delivery.flatMap(venue => {
+  if (Number(venue.id) !== 10) return [venue]
+  const posts = venue.delivery_posts || []
+  const pick = category => posts.filter(post => !post.category || post.category === category)
+  return [
+    { ...venue, categoryKey: '10-small', categoryLabel: '小苹果', delivery_posts: pick('small') },
+    { ...venue, categoryKey: '10-red', categoryLabel: '红苹果', delivery_posts: pick('red') }
+  ]
+})
 
 // 西港170/180/160 与小苹果/红苹果外送合并为“西港外送”，原会所作为其下的类别
 const mergeDeliveryVenues = venues => {
@@ -287,7 +288,9 @@ export default function VenueList() {
       || deliveryCategories[0]
     : baseVenue
 
-  const onDutyCount = selectedVenue?.on_duty_count ?? 0
+  const onDutyCount = deliveryCategories.length > 0
+    ? deliveryCategories.reduce((sum, venue) => sum + (venue.delivery_posts || []).length, 0)
+    : selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
   const dutyShiftToday = selectedVenue?.duty_shift_today
   const serviceItems = selectedVenue?.service_items || []
@@ -722,7 +725,7 @@ export default function VenueList() {
                     type="button"
                     onClick={() => setDeliveryCategoryId(deliveryCategoryKey(venue))}
                     style={{
-                      flexShrink: 0, padding: '7px 16px', borderRadius: '18px', cursor: 'pointer',
+                      flex: '1 1 0', minWidth: 0, whiteSpace: 'nowrap', padding: '7px 2px', borderRadius: '18px', cursor: 'pointer',
                       border: active ? '1px solid #80643c' : '1px solid #eadfca',
                       background: active ? '#80643c' : '#fff',
                       color: active ? '#fff' : '#80643c',
@@ -842,6 +845,15 @@ export default function VenueList() {
                               fontSize: '12px', padding: '2px 8px', borderRadius: '10px',
                             }}>
                               🖼 {post.media.length}
+                            </span>
+                          )}
+                          {post.price && (
+                            <span style={{
+                              position: 'absolute', left: '8px', bottom: '8px',
+                              background: '#c9a24d', color: '#fff',
+                              fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '10px',
+                            }}>
+                              {post.price}$
                             </span>
                           )}
                           {post.media.some(media => media.type === 'video') && (
@@ -1021,6 +1033,17 @@ export default function VenueList() {
                     background: '#1b1610',
                     color: '#fff',
                   }}>
+                    {(deliveryViewer.work_no || deliveryViewer.price) && (
+                      <div style={{
+                        display: 'flex', gap: '12px', alignItems: 'center',
+                        fontSize: '15px', fontWeight: 700, marginBottom: '8px',
+                      }}>
+                        {deliveryViewer.work_no && <span>工号 {deliveryViewer.work_no}</span>}
+                        {deliveryViewer.price && (
+                          <span style={{ color: '#e8c46a' }}>{deliveryViewer.price}$</span>
+                        )}
+                      </div>
+                    )}
                     {deliveryViewer.description && (
                       <div style={{
                         fontSize: '15px',
@@ -1036,7 +1059,11 @@ export default function VenueList() {
                     )}
                     <a
                       href={`https://t.me/haotian99988866?text=${encodeURIComponent(
-                        `你好，我想预约${baseVenue?.name || '西港外送'}：${(deliveryViewer.description || '').slice(0, 40)}`
+                        `你好，我想预约${baseVenue?.name || '西港外送'}：${[
+                          deliveryViewer.work_no && `工号${deliveryViewer.work_no}`,
+                          deliveryViewer.price && `${deliveryViewer.price}$`,
+                          (deliveryViewer.description || '').slice(0, 40),
+                        ].filter(Boolean).join(' ')}`
                       )}`}
                       target="_blank"
                       rel="noreferrer"

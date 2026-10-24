@@ -12,6 +12,9 @@ from flask_cors import CORS
 from PIL import Image, UnidentifiedImageError
 from waitress import serve
 from urllib.parse import quote
+
+MIN_AGE = 18
+from delivery_age import extract_work_no, parse_price_table, price_for_work_no
 from technician_photo_ocr import (
     extract_labeled_technician_code,
     extract_technician_category,
@@ -279,8 +282,56 @@ def technician_photo_image(photo_id):
 DELIVERY_VENUE_IDS = {7, 8, 9, 10}
 
 
-def build_delivery_posts(rows):
+APPLE_CATEGORY_KEYWORDS = (("小苹果", "small"), ("红苹果", "red"))
+
+
+def _apple_category(text):
+    for keyword, category in APPLE_CATEGORY_KEYWORDS:
+        if keyword in text:
+            return category
+    return None
+
+
+def classify_apple_rows(rows):
+    """按文字判断小苹果/红苹果。
+    频道里的纯文字消息是分类标记，管它上面（更早发的）还没分类的内容；
+    图片/视频自己的说明文字里有关键词时优先；找不到类别的返回 None。"""
+    categories, _ = _classify_and_markers(rows)
+    return categories
+
+
+def apple_price_tables(rows):
+    """每条图片/视频上面紧挨着的文字标记里的价目表：{行id: {牌: 价格}}。"""
+    _, markers = _classify_and_markers(rows)
+    return {row_id: parse_price_table(text) for row_id, text in markers.items()}
+
+
+def _classify_and_markers(rows):
+    group_captions = {}
+    for row in rows:
+        caption = (row["caption"] or "").strip()
+        if row["media_group_id"] and caption and row["media_type"] != "text":
+            group_captions.setdefault(row["media_group_id"], caption)
+
+    categories = {}
+    markers = {}
+    next_marker = None
+    next_marker_text = ""
+    for row in sorted(rows, key=lambda r: r["message_id"], reverse=True):
+        if row["media_type"] == "text":
+            next_marker = _apple_category(row["caption"] or "") or next_marker
+            next_marker_text = row["caption"] or next_marker_text
+            continue
+        caption = (row["caption"] or "").strip() or group_captions.get(row["media_group_id"], "")
+        categories[row["id"]] = _apple_category(caption) or next_marker
+        markers[row["id"]] = next_marker_text
+    return categories, markers
+
+
+def build_delivery_posts(rows, categories=None):
     """rows 按 message_id 倒序。带文字说明或图片+视频的相册合并成一条，其余每个媒体单独一条。"""
+    categories = categories or {}
+    rows = [row for row in rows if row["media_type"] != "text"]
     group_captions = {}
     group_types = {}
     for row in rows:
@@ -307,20 +358,60 @@ def build_delivery_posts(rows):
                 post = {
                     "id": f"g{row['id']}",
                     "description": group_captions[group_id],
+                    "category": categories.get(row["id"]),
+                    "age": None,
                     "media": [],
                 }
                 grouped[group_id] = post
                 posts.append(post)
             post["media"].insert(0, media)
+            post["age"] = _min_age(post["age"], row.get("age"))
             continue
         posts.append(
             {
                 "id": f"m{row['id']}",
                 "description": (row["caption"] or "").strip(),
+                "category": categories.get(row["id"]),
+                "age": row.get("age"),
                 "media": [media],
             }
         )
     return posts
+
+
+def _min_age(current, new):
+    if current is None:
+        return new
+    if new is None:
+        return current
+    return min(current, new)
+
+
+def attach_delivery_prices(rows, posts, price_tables):
+    """工号第一位对应价目表里的牌，给每条内容加上 work_no / price。"""
+    row_by_id = {row["id"]: row for row in rows}
+    for post in posts:
+        post["work_no"] = None
+        post["price"] = None
+        for media in post["media"]:
+            row = row_by_id.get(media["id"])
+            if row is None:
+                continue
+            work_no = extract_work_no(row.get("ocr_text"), row.get("caption"))
+            if work_no and not post["work_no"]:
+                post["work_no"] = work_no
+                post["price"] = price_for_work_no(
+                    work_no, price_tables.get(media["id"])
+                )
+    return posts
+
+
+def filter_adult_posts(posts):
+    """只保留识别出年龄且满 18 周岁的内容；年龄未知或不满 18 的一律不展示。"""
+    return [
+        post for post in posts
+        if post.get("age") is not None and post["age"] >= MIN_AGE
+    ]
 
 
 @app.get("/ktv-videos/<int:video_id>")
@@ -496,7 +587,7 @@ def webhook():
                 if venue["id"] in DELIVERY_VENUE_IDS:
                     cur.execute(
                         """
-                        SELECT id, message_id, media_group_id, media_type, caption
+                        SELECT id, message_id, media_group_id, media_type, caption, age, ocr_text
                         FROM delivery_media
                         WHERE venue_id = %s
                         ORDER BY message_id DESC
@@ -504,7 +595,17 @@ def webhook():
                         """,
                         (venue["id"],),
                     )
-                    venue["delivery_posts"] = build_delivery_posts(cur.fetchall())
+                    delivery_rows = cur.fetchall()
+                    is_apple = venue["id"] == 10
+                    posts = build_delivery_posts(
+                        delivery_rows,
+                        classify_apple_rows(delivery_rows) if is_apple else None,
+                    )
+                    if is_apple:
+                        attach_delivery_prices(
+                            delivery_rows, posts, apple_price_tables(delivery_rows)
+                        )
+                    venue["delivery_posts"] = filter_adult_posts(posts)
                 cur.execute(
                     """
                     SELECT duty_date, technician_codes, duty_shift

@@ -96,6 +96,9 @@ Get-Content -Raw .\bot\migrations\006_attendance_groups.sql | mysql -u root -p v
 Get-Content -Raw .\bot\migrations\007_venue_channel_activity.sql | mysql -u root -p venue_db
 Get-Content -Raw .\bot\migrations\008_ktv_room_videos.sql | mysql -u root -p venue_db
 Get-Content -Raw .\bot\migrations\009_delivery_media.sql | mysql -u root -p venue_db
+Get-Content -Raw .\bot\migrations\010_delivery_media_age.sql | mysql -u root -p venue_db
+# 给已入库的旧外送照片补识别年龄（OCR）
+bot\venv\Scripts\python.exe bot\backfill_delivery_age.py
 ```
 
 Telegram 出勤公告的固定分区会自动同步到该日期对应的服务项目：小项、中项、高项、中医按摩、修脚师分区中的工号会关联到同类别下的项目，且只在公告日期显示。公告中的分区名单视为该类别下所有项目均可服务；重复收到同日期公告时会更新当日对应关系。

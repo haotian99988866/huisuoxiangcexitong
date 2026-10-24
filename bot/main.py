@@ -20,6 +20,7 @@ from technician_photo_ocr import (
     match_pending_technician_photos,
     save_technician_photo,
 )
+from delivery_age import extract_age, ocr_image_text
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -227,6 +228,8 @@ def handle_photo_message(message):
 def handle_attendance_text(message):
     record_channel_activity(message)
     save_ktv_text(message)
+    if save_delivery_text(message):
+        return
     text = message.text or message.caption or ""
 
     # 只处理包含出勤关键词的消息
@@ -291,6 +294,14 @@ def save_delivery_media(message):
         media_type, file_id = "video", message.video.file_id
     else:
         return
+    ocr_text, age = None, extract_age(message.caption)
+    if media_type == "photo":
+        try:
+            image_bytes = bot.download_file(bot.get_file(file_id).file_path)
+            ocr_text = ocr_image_text(image_bytes)
+            age = extract_age(message.caption, ocr_text)
+        except Exception as exc:
+            print(f"⚠️ 外送照片识别失败: {type(exc).__name__}")
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -298,12 +309,14 @@ def save_delivery_media(message):
                 """
                 INSERT INTO delivery_media
                     (venue_id, channel_id, message_id, media_group_id,
-                     media_type, file_id, caption)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                     media_type, file_id, caption, ocr_text, age)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     file_id = VALUES(file_id),
                     media_group_id = VALUES(media_group_id),
-                    caption = VALUES(caption)
+                    caption = VALUES(caption),
+                    ocr_text = VALUES(ocr_text),
+                    age = VALUES(age)
                 """,
                 (
                     venue_config["venue_id"],
@@ -313,11 +326,43 @@ def save_delivery_media(message):
                     media_type,
                     file_id,
                     message.caption or "",
+                    ocr_text,
+                    age,
                 ),
             )
         conn.commit()
     finally:
         conn.close()
+
+
+def save_delivery_text(message):
+    """外送频道的文字消息存成 text 记录，用来给前面的图片/视频判断类别；返回 True 表示已按外送处理。"""
+    venue_config = get_venue_config(message.chat.id)
+    if not venue_config or venue_config["venue_id"] not in DELIVERY_VENUE_IDS:
+        return False
+    if not message.text:
+        return True
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO delivery_media
+                    (venue_id, channel_id, message_id, media_type, file_id, caption)
+                VALUES (%s, %s, %s, 'text', '', %s)
+                ON DUPLICATE KEY UPDATE caption = VALUES(caption)
+                """,
+                (
+                    venue_config["venue_id"],
+                    str(message.chat.id),
+                    message.message_id,
+                    message.text,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return True
 
 
 KTV_VENUE_ID = 3
