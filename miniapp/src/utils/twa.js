@@ -17,6 +17,13 @@ export function closeMiniApp() {
   window.Telegram?.WebApp?.close?.()
 }
 
+// t.me 链接交给 Telegram 内部打开(频道原帖);浏览器里退回新窗口
+export function openTelegramLink(url) {
+  const tg = window.Telegram?.WebApp
+  if (tg?.openTelegramLink) tg.openTelegramLink(url)
+  else window.open(url, '_blank', 'noopener')
+}
+
 // 在 Telegram 内由顶部返回箭头负责退出详情，页面内不再重复放关闭按钮
 export const hasTelegramBackButton = Boolean(window.Telegram?.WebApp?.BackButton)
 

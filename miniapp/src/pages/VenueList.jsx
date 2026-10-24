@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
+import { FullscreenAnnouncementBar, ANNOUNCEMENT_TEXT } from '../components/Announcement'
+import ModuleTabs from '../components/ModuleTabs'
 import { API_BASE_URL, bindBackButton, closeMiniApp, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
-
-const ANNOUNCEMENT_TEXT = '暂无公告'
 
 // 首页默认显示“名玺水汇会所”，找不到时退回列表第一个
 const HOME_VENUE_NAME = '名玺水汇会所'
@@ -730,34 +730,8 @@ export default function VenueList() {
         borderBottom: '1px solid rgba(158, 132, 101, 0.16)',
         boxShadow: '0 4px 14px rgba(120, 90, 50, 0.07)'
       }}>
-        {isFullscreen && (
-          <div style={{
-            margin: '0 -12px 4px',
-            paddingTop: 'var(--tg-safe-area-inset-top, 0px)',
-            boxSizing: 'border-box'
-          }}>
-            <div
-              aria-label="公告"
-              style={{
-                height: 'max(var(--tg-content-safe-area-inset-top, 0px), 44px)',
-                padding: '0 64px',
-                boxSizing: 'border-box',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                fontSize: '13px',
-                color: '#9a6b18',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
-              <span aria-hidden="true">📢</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{ANNOUNCEMENT_TEXT}</span>
-            </div>
-          </div>
-        )}
+        {isFullscreen && <FullscreenAnnouncementBar />}
+        <ModuleTabs active="venue" />
         <div style={{
           display: 'grid',
           gap: '7px'

@@ -21,6 +21,12 @@ from technician_photo_ocr import (
     save_technician_photo,
 )
 from data_cleanup import start_cleanup_thread
+from movies import (
+    MOVIE_CHANNEL_ID,
+    clean_caption,
+    ensure_tables as ensure_movie_tables,
+    save_movie_message,
+)
 from footer import ensure_tables as ensure_footer_tables, post_footer, schedule_footer
 from admin import (
     BROADCAST_CONTENT_TYPES,
@@ -455,6 +461,11 @@ def handle_attendance_text(message):
 )
 def handle_other_channel_post(message):
     record_channel_activity(message)
+    if str(message.chat.id) == MOVIE_CHANNEL_ID and message.caption:
+        clean_caption(bot, message)
+    if save_movie_message(message):
+        print("🎬 观影视频已入库")
+        return
     save_ktv_video(message)
     save_delivery_media(message)
     venue_config = get_venue_config(message.chat.id)
@@ -467,6 +478,12 @@ def handle_other_channel_post(message):
 
 
 DELIVERY_VENUE_IDS = {7, 8, 9, 10}
+
+
+@bot.edited_channel_post_handler(content_types=['video', 'document'])
+def handle_edited_movie_post(message):
+    if save_movie_message(message):
+        print("🎬 观影视频已更新")
 
 
 def save_delivery_media(message):
@@ -627,5 +644,6 @@ if __name__ == "__main__":
     ensure_sub_tables()
     ensure_admin_tables()
     ensure_footer_tables()
+    ensure_movie_tables()
     start_cleanup_thread()
     bot.infinity_polling()

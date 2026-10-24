@@ -4,6 +4,7 @@ from telebot import types
 
 from admin import get_setting
 MINIAPP_URL = "https://t.me/haotianzhaopian_bot?startapp"
+MOVIES_URL = "https://t.me/haotianzhaopian_bot?startapp=movies"
 CONTACT_URL = "https://t.me/haotian99988866"
 CHANNEL_URL = "https://t.me/haotianyl99988866"
 BOT_URL = "https://t.me/haotianzhaopian_bot"
@@ -20,7 +21,8 @@ HOME_TEXT = (
     "✅ 今日白班 / 晚班出勤\n"
     "✅ 技师照片与资料\n"
     "✅ 价格与服务项目\n"
-    "✅ 西港外送实时信息\n\n"
+    "✅ 西港外送实时信息\n"
+    "✅ 🎬 影视观影，按分类找剧、找综艺\n\n"
     "👇 点下面的按钮开始"
 )
 
@@ -54,7 +56,10 @@ HELP_TEXT = (
 
 def home_keyboard():
     keyboard = types.InlineKeyboardMarkup(row_width=2)
-    keyboard.row(types.InlineKeyboardButton("🌴 实时出勤", url=MINIAPP_URL))
+    keyboard.row(
+        types.InlineKeyboardButton("🌴 实时出勤", url=MINIAPP_URL),
+        types.InlineKeyboardButton("🎬 观影", url=MOVIES_URL),
+    )
     keyboard.row(
         types.InlineKeyboardButton("🎉 最新活动", callback_data="menu:promo"),
         types.InlineKeyboardButton("📖 使用指南", callback_data="menu:help"),

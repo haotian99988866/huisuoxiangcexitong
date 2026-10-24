@@ -17,6 +17,12 @@ MIN_AGE = 18
 from delivery_age import extract_work_no, parse_price_table, price_for_work_no
 from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 from visit_stats import ensure_table, record_visit, verify_init_data
+from movies import (
+    ensure_tables as ensure_movie_tables,
+    movie_catalog,
+    movie_episodes,
+    thumb_file_id as movie_thumb_file_id,
+)
 from technician_photo_ocr import (
     extract_labeled_technician_code,
     extract_technician_category,
@@ -438,6 +444,18 @@ def ktv_video(video_id):
     return _proxy_telegram_media(row["file_id"])
 
 
+@app.get("/movie-thumb/<int:message_id>")
+def movie_thumb(message_id):
+    try:
+        file_id = movie_thumb_file_id(message_id)
+    except pymysql.MySQLError:
+        logger.exception("Failed to look up movie thumb %s", message_id)
+        return jsonify({"error": "Database request failed"}), 500
+    if not file_id:
+        return jsonify({"error": "Thumbnail not found"}), 404
+    return _proxy_telegram_media(file_id)
+
+
 @app.get("/delivery-media/<int:media_id>")
 def delivery_media(media_id):
     conn = None
@@ -533,6 +551,20 @@ def webhook():
         except Exception:
             logger.exception("记录访问失败")
         return jsonify({"ok": True})
+
+    if action in {"get_movies", "get_movie_series"}:
+        try:
+            if action == "get_movies":
+                category = str(data.get("category") or "").strip()[:50] or None
+                query = str(data.get("query") or "").strip()[:50] or None
+                return jsonify(movie_catalog(category, query))
+            series = str(data.get("series") or "").strip()[:255]
+            if not series:
+                return jsonify({"error": "A series name is required"}), 400
+            return jsonify({"episodes": movie_episodes(series)})
+        except pymysql.MySQLError:
+            logger.exception("Failed to load movies")
+            return jsonify({"error": "Database request failed"}), 500
 
     if action not in {"get_venues", "get_venue_detail", "get_technicians"}:
         return jsonify({"error": "Unknown action"}), 400
@@ -928,6 +960,7 @@ def webhook():
 
 if __name__ == "__main__":
     ensure_table()
+    ensure_movie_tables()
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))
     logger.info("Starting API server on %s:%s", host, port)
