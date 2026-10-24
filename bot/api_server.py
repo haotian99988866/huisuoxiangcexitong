@@ -7,7 +7,7 @@ from datetime import date
 import pymysql
 import requests
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
 from PIL import Image, UnidentifiedImageError
 from waitress import serve
@@ -34,6 +34,7 @@ CORS(
     resources={
         r"/webhook": {"origins": cors_origins},
         r"/photos/*": {"origins": cors_origins},
+        r"/ktv-videos/*": {"origins": cors_origins},
     },
 )
 
@@ -274,6 +275,70 @@ def technician_photo_image(photo_id):
     return response
 
 
+@app.get("/ktv-videos/<int:video_id>")
+def ktv_video(video_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT file_id FROM ktv_room_videos WHERE id = %s AND venue_id = 3",
+                (video_id,),
+            )
+            row = cur.fetchone()
+    except pymysql.MySQLError:
+        logger.exception("Failed to look up KTV video %s", video_id)
+        return jsonify({"error": "Database request failed"}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+    if row is None:
+        return jsonify({"error": "Video not found"}), 404
+
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return jsonify({"error": "Video service is not configured"}), 503
+    try:
+        info = requests.get(
+            f"https://api.telegram.org/bot{token}/getFile",
+            params={"file_id": row["file_id"]},
+            timeout=(5, 15),
+        ).json()
+        file_path = (info.get("result") or {}).get("file_path")
+        if not info.get("ok") or not file_path:
+            return jsonify({"error": "Video is unavailable (file too large)"}), 502
+        upstream_headers = {}
+        range_header = request.headers.get("Range")
+        if range_header and re.fullmatch(r"bytes=\d*-\d*", range_header):
+            upstream_headers["Range"] = range_header
+        upstream = requests.get(
+            f"https://api.telegram.org/file/bot{token}/{quote(file_path, safe='/')}",
+            headers=upstream_headers,
+            stream=True,
+            timeout=(5, 30),
+        )
+        if upstream.status_code not in (200, 206):
+            upstream.close()
+            return jsonify({"error": "Video is unavailable"}), 502
+    except (requests.RequestException, ValueError) as exc:
+        logger.error("Failed to retrieve KTV video %s (%s)", video_id, type(exc).__name__)
+        return jsonify({"error": "Video service is temporarily unavailable"}), 502
+
+    content_type = "video/webm" if file_path.endswith(".webm") else "video/mp4"
+    response = Response(
+        stream_with_context(upstream.iter_content(chunk_size=64 * 1024)),
+        status=upstream.status_code,
+        mimetype=content_type,
+    )
+    for header in ("Content-Length", "Content-Range"):
+        if upstream.headers.get(header):
+            response.headers[header] = upstream.headers[header]
+    response.headers["Accept-Ranges"] = "bytes"
+    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @app.post("/webhook")
 def webhook():
     data = request.get_json(silent=True)
@@ -324,6 +389,26 @@ def webhook():
             today = date.today()
 
             for venue in venues:
+                if venue["id"] == 3:
+                    cur.execute(
+                        """
+                        SELECT id, room_number, caption
+                        FROM ktv_room_videos
+                        WHERE venue_id = 3
+                        ORDER BY room_number IS NULL, room_number, message_id
+                        """
+                    )
+                    venue["ktv_videos"] = cur.fetchall()
+                    cur.execute(
+                        """
+                        SELECT content
+                        FROM ktv_channel_texts
+                        WHERE venue_id = 3
+                        ORDER BY message_id DESC
+                        LIMIT 20
+                        """
+                    )
+                    venue["ktv_texts"] = [r["content"] for r in cur.fetchall()]
                 cur.execute(
                     """
                     SELECT duty_date, technician_codes, duty_shift
@@ -602,4 +687,4 @@ if __name__ == "__main__":
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))
     logger.info("Starting API server on %s:%s", host, port)
-    serve(app, host=host, port=port)
+    serve(app, host=host, port=port, threads=16)

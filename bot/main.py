@@ -221,6 +221,7 @@ def handle_photo_message(message):
 @bot.channel_post_handler(content_types=['text'])
 def handle_attendance_text(message):
     record_channel_activity(message)
+    save_ktv_text(message)
     text = message.text or message.caption or ""
 
     # 只处理包含出勤关键词的消息
@@ -268,6 +269,76 @@ def handle_attendance_text(message):
 )
 def handle_other_channel_post(message):
     record_channel_activity(message)
+    save_ktv_video(message)
+
+
+KTV_VENUE_ID = 3
+ROOM_PATTERNS = (
+    re.compile(r"(?:房间|包房|包厢|房号)\s*[:：#\-]?\s*([A-Za-z]?\d{2,5}[A-Za-z]?)"),
+    re.compile(r"^\s*([A-Za-z]?\d{2,5}[A-Za-z]?)\s*$"),
+    re.compile(r"(\d{3,4})\s*$"),
+)
+
+
+def extract_room_number(caption):
+    for pattern in ROOM_PATTERNS:
+        match = pattern.search(caption or "")
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def save_ktv_text(message):
+    venue_config = get_venue_config(message.chat.id)
+    if not venue_config or venue_config["venue_id"] != KTV_VENUE_ID or not message.text:
+        return
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ktv_channel_texts (venue_id, channel_id, message_id, content)
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE content = VALUES(content)
+                """,
+                (KTV_VENUE_ID, str(message.chat.id), message.message_id, message.text),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_ktv_video(message):
+    venue_config = get_venue_config(message.chat.id)
+    if not venue_config or venue_config["venue_id"] != KTV_VENUE_ID or not message.video:
+        return
+    caption = message.caption or ""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ktv_room_videos
+                    (venue_id, channel_id, message_id, file_id, room_number, caption)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    file_id = VALUES(file_id),
+                    room_number = VALUES(room_number),
+                    caption = VALUES(caption)
+                """,
+                (
+                    KTV_VENUE_ID,
+                    str(message.chat.id),
+                    message.message_id,
+                    message.video.file_id,
+                    extract_room_number(caption),
+                    caption,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    print(f"KTV视频已记录: 房间 {extract_room_number(caption) or '未识别'}")
 
 
 if __name__ == "__main__":
