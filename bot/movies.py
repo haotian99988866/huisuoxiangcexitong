@@ -135,50 +135,6 @@ def save_movie(channel_id, message_id, caption, duration=None, thumb_file_id=Non
         conn.close()
 
 
-PROMO_PATTERNS = (
-    re.compile(r"来这选择.*"),
-    re.compile(r"🤗?\s*每天持续更新.*?想看什么剧.*?[）)]"),
-)
-
-
-def strip_promo(caption):
-    """只删除推广文字本身,同一行里的 # 标签保留。"""
-    text = caption or ""
-    for pattern in PROMO_PATTERNS:
-        text = pattern.sub("", text)
-    if text == (caption or ""):
-        return text
-    return "\n".join(line.rstrip() for line in text.split("\n")).strip()
-
-
-def clean_caption(bot, message):
-    """视频说明含其他频道的导航文字时,后台编辑帖子去掉(遇到限流自动等待重试)。返回是否需要清理。"""
-    caption = message.caption or ""
-    cleaned = strip_promo(caption)
-    if cleaned == caption or not cleaned:
-        return False
-    message.caption = cleaned
-    chat_id, message_id = message.chat.id, message.message_id
-
-    def work():
-        import re
-        import time
-        for _ in range(6):
-            try:
-                bot.edit_message_caption(caption=cleaned, chat_id=chat_id, message_id=message_id)
-                return
-            except Exception as exc:
-                wait = re.search(r"retry after (\d+)", str(exc))
-                if not wait:
-                    print(f"清理视频说明失败 {message_id}: {exc}")
-                    return
-                time.sleep(int(wait.group(1)) + 1)
-
-    import threading
-    threading.Thread(target=work, daemon=True).start()
-    return True
-
-
 def save_movie_message(message):
     """频道里新发/编辑的视频帖子入库。返回是否已处理。"""
     if str(message.chat.id) != MOVIE_CHANNEL_ID:
