@@ -337,6 +337,14 @@ def _classify_and_markers(rows):
     return categories, markers
 
 
+def _message_link(row):
+    channel_id = str(row.get("channel_id") or "")
+    if not channel_id or not row.get("message_id"):
+        return None
+    numeric = channel_id[4:] if channel_id.startswith("-100") else channel_id.lstrip("-")
+    return f"https://t.me/c/{numeric}/{row['message_id']}"
+
+
 def build_delivery_posts(rows, categories=None):
     """rows 按 message_id 倒序。带文字说明或图片+视频的相册合并成一条，其余每个媒体单独一条。"""
     categories = categories or {}
@@ -375,6 +383,7 @@ def build_delivery_posts(rows, categories=None):
                 grouped[group_id] = post
                 posts.append(post)
             post["media"].insert(0, media)
+            post["link"] = _message_link(row) or post.get("link")
             if row.get("image_hash"):
                 post["_hashes"].append(row["image_hash"])
             post["age"] = _min_age(post["age"], row.get("age"))
@@ -386,6 +395,7 @@ def build_delivery_posts(rows, categories=None):
                 "category": categories.get(row["id"]),
                 "age": row.get("age"),
                 "media": [media],
+                "link": _message_link(row),
                 "_ocr": row.get("ocr_text"),
                 "_hashes": [row["image_hash"]] if row.get("image_hash") else [],
             }
@@ -693,7 +703,7 @@ def webhook():
                 if venue["id"] in DELIVERY_VENUE_IDS:
                     cur.execute(
                         """
-                        SELECT id, message_id, media_group_id, media_type, caption, age, ocr_text,
+                        SELECT id, message_id, channel_id, media_group_id, media_type, caption, age, ocr_text,
                                image_hash
                         FROM delivery_media
                         WHERE venue_id = %s

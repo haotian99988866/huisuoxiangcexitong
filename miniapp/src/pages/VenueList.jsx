@@ -1173,7 +1173,7 @@ export default function VenueList() {
                           deliveryViewer.work_no && `工号${deliveryViewer.work_no}`,
                           deliveryViewer.price && `${deliveryViewer.price}$`,
                           (deliveryViewer.description || '').slice(0, 40),
-                        ].filter(Boolean).join(' ')}`
+                        ].filter(Boolean).join(' ')}${deliveryViewer.link ? `\n\n原帖：${deliveryViewer.link}` : ''}`
                       )}`}
                       target="_blank"
                       rel="noreferrer"
