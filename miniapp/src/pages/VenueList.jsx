@@ -1,5 +1,101 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { API_BASE_URL, sendData } from '../utils/twa'
+import { API_BASE_URL, bindBackButton, closeMiniApp, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
+
+const ANNOUNCEMENT_TEXT = '暂无公告'
+
+// 首页默认显示“名玺水汇会所”，找不到时退回列表第一个
+const HOME_VENUE_NAME = '名玺水汇会所'
+const pickHomeVenue = venues => venues.find(venue => venue.name === HOME_VENUE_NAME) || venues[0]
+
+
+// 进入可视区附近才开始加载，并在加载完成后淡入
+function LazyMedia({ as: Tag = 'img', src, style, ...rest }) {
+  const nodeRef = useRef(null)
+  const [inView, setInView] = useState(typeof IntersectionObserver === 'undefined')
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    if (inView) return undefined
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setInView(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '300px' })
+    observer.observe(nodeRef.current)
+    return () => observer.disconnect()
+  }, [inView])
+
+  const loadProps = Tag === 'video'
+    ? { onLoadedData: () => setLoaded(true) }
+    : { onLoad: () => setLoaded(true) }
+
+  return (
+    <Tag
+      ref={nodeRef}
+      {...rest}
+      {...(inView ? { src, ...loadProps, onError: () => setLoaded(true) } : {})}
+      style={{ ...style, opacity: loaded ? 1 : 0, transition: 'opacity 0.35s ease' }}
+    />
+  )
+}
+
+const lazyFillStyle = {
+  position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover'
+}
+
+const contactButtonStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '5px',
+  padding: '8px 18px',
+  borderRadius: '20px',
+  background: '#80643c',
+  color: '#fff',
+  fontSize: '13px',
+  fontWeight: 600,
+  textDecoration: 'none',
+  whiteSpace: 'nowrap'
+}
+
+function ContactButton() {
+  return (
+    <a
+      href="https://t.me/haotian99988866"
+      target="_blank"
+      rel="noreferrer"
+      style={contactButtonStyle}
+    >
+      <span aria-hidden="true">✈</span>联系昊天
+    </a>
+  )
+}
+
+function NoticeCard({ icon, title, updatedAt, children }) {
+  return (
+    <div style={{
+      marginBottom: '24px',
+      padding: '28px 18px',
+      textAlign: 'center',
+      background: '#fff9e6',
+      border: '1px solid #f0dfb7',
+      borderRadius: '14px',
+      color: '#9a6b18'
+    }}>
+      <div style={{ fontSize: '34px', marginBottom: '8px' }}>{icon}</div>
+      <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '8px' }}>{title}</div>
+      <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.7, color: '#987f54' }}>
+        {children}
+      </p>
+      <ContactButton />
+      {updatedAt && (
+        <div style={{ marginTop: '14px', fontSize: '11px', color: '#a89574' }}>
+          最近更新：{updatedAt}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const photoViewerButtonStyle = {
   width: '44px',
@@ -201,6 +297,8 @@ const formatChannelMessageTime = timestamp => {
 }
 
 export default function VenueList() {
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  useEffect(() => subscribeFullscreen(setIsFullscreen), [])
   const [list, setList] = useState([])
   const [selectedId, setSelectedId] = useState('')
   const [deliveryCategoryId, setDeliveryCategoryId] = useState('')
@@ -264,7 +362,7 @@ export default function VenueList() {
       if (Array.isArray(data)) {
         const merged = mergeDeliveryVenues(data)
         setList(merged)
-        setSelectedId(currentId => currentId || (merged[0] ? String(merged[0].id) : ''))
+        setSelectedId(currentId => currentId || String(pickHomeVenue(merged)?.id ?? ''))
       }
       setLoading(false)
     }
@@ -276,8 +374,9 @@ export default function VenueList() {
   const baseVenue = useMemo(() => {
     const target = list.find(v => String(v.id) === selectedId)
     if (!target && list.length > 0) {
-      setSelectedId(String(list[0].id))
-      return list[0]
+      const home = pickHomeVenue(list)
+      setSelectedId(String(home.id))
+      return home
     }
     return target
   }, [list, selectedId])
@@ -292,7 +391,10 @@ export default function VenueList() {
     ? deliveryCategories.reduce((sum, venue) => sum + (venue.delivery_posts || []).length, 0)
     : selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
-  const dutyShiftToday = selectedVenue?.duty_shift_today
+  const currentShift = selectedVenue?.current_shift || null
+  const isDeliveryDayShift = deliveryCategories.length > 0 && currentShift === '白班'
+  const dutyShiftToday = currentShift || selectedVenue?.duty_shift_today
+  const dutyLabel = currentShift ? `${currentShift}出勤` : '今日出勤'
   const serviceItems = selectedVenue?.service_items || []
   const technicianPhotos = selectedVenue?.technician_photos?.[selectedTechnicianCode] || []
   const technicianProfile = selectedVenue?.technician_profiles?.[selectedTechnicianCode] || {}
@@ -300,6 +402,25 @@ export default function VenueList() {
   const rosterGroups = attendanceGroups.filter(group => group.group_type === 'roster')
   const attendanceServiceGroups = attendanceGroups.filter(group => group.group_type === 'service')
 
+  // 从最上层详情开始，一层层退回
+  const goBack = () => {
+    if (ktvVideo) {
+      closeKtvVideo()
+    } else if (deliveryViewer) {
+      setDeliveryViewer(null)
+    } else if (photoViewerIndex !== null) {
+      setPhotoViewerIndex(null)
+      setPhotoZoom(1)
+      setPhotoLoadState('idle')
+    } else if (selectedTechnicianCode) {
+      setSelectedTechnicianCode('')
+    } else {
+      closeMiniApp()
+    }
+  }
+  const goBackRef = useRef(goBack)
+  goBackRef.current = goBack
+  useEffect(() => bindBackButton(() => goBackRef.current()), [])
   useEffect(() => {
     if (!selectedTechnicianCode) return undefined
     const closeOnEscape = event => {
@@ -367,14 +488,14 @@ export default function VenueList() {
         ? ['6666', '7777'].includes(code)
         : prefix !== undefined && code.length <= 3 && code.startsWith(prefix)
     ))
-    return [...new Set([...category.codes, ...photoCodes])]
+    return [...new Set(photoCodes)]
   }
 
   const getAtlanticCategoryCodes = category => {
     const photoCodes = selectedVenue?.technician_categories
       ?.find(item => item.group_name === category.name)
       ?.technician_codes || []
-    return [...new Set([...(category.codes || []), ...photoCodes])]
+    return [...new Set(photoCodes)]
   }
 
   const getDihaoCategoryCodes = category => (
@@ -428,10 +549,8 @@ export default function VenueList() {
           borderRadius: '12px',
           backgroundColor: photoIds.length > 0 ? '#e9e2d9' : '#eaf4ee',
           backgroundImage: photoIds.length > 0
-            ? `linear-gradient(to top, rgba(20, 20, 20, 0.72), rgba(20, 20, 20, 0.04) 58%), url("${API_BASE_URL}/photos/${photoIds[0]}/image")`
+            ? 'none'
             : 'linear-gradient(145deg, #f1f8f3, #e4f0e8)',
-          backgroundPosition: 'center',
-          backgroundSize: 'cover',
           color: photoIds.length > 0 ? '#fff' : '#36734f',
           fontSize: '14px',
           fontWeight: 700,
@@ -440,6 +559,20 @@ export default function VenueList() {
           boxShadow: '0 2px 5px rgba(40, 65, 48, 0.08)'
         }}
       >
+        {photoIds.length > 0 && (
+          <>
+            <LazyMedia
+              alt=""
+              decoding="async"
+              src={`${API_BASE_URL}/photos/${photoIds[0]}/image`}
+              style={lazyFillStyle}
+            />
+            <span style={{
+              position: 'absolute', inset: 0,
+              background: 'linear-gradient(to top, rgba(20, 20, 20, 0.72), rgba(20, 20, 20, 0.04) 58%)'
+            }} />
+          </>
+        )}
         <span style={{ position: 'relative', zIndex: 1 }}>{code}</span>
       </button>
     )
@@ -534,11 +667,10 @@ export default function VenueList() {
                     : '1px solid #dcebe2',
                   borderRadius: '50%',
                   backgroundColor: photoIds.length > 0 ? '#e9e2d9' : '#eaf4ee',
+                  position: 'relative',
                   backgroundImage: photoIds.length > 0
-                    ? `linear-gradient(rgba(20, 20, 20, 0.25), rgba(20, 20, 20, 0.25)), url("${API_BASE_URL}/photos/${photoIds[0]}/image")`
+                    ? 'none'
                     : 'linear-gradient(145deg, #f1f8f3, #e4f0e8)',
-                  backgroundPosition: 'center',
-                  backgroundSize: 'cover',
                   color: photoIds.length > 0 ? '#fff' : '#36734f',
                   fontSize: '8px',
                   fontWeight: 700,
@@ -547,7 +679,20 @@ export default function VenueList() {
                   boxShadow: '0 1px 3px rgba(40, 65, 48, 0.08)'
                 }}
               >
-                <span>{code}</span>
+                {photoIds.length > 0 && (
+                  <>
+                    <LazyMedia
+                      alt=""
+                      decoding="async"
+                      src={`${API_BASE_URL}/photos/${photoIds[0]}/image`}
+                      style={lazyFillStyle}
+                    />
+                    <span style={{
+                      position: 'absolute', inset: 0, background: 'rgba(20, 20, 20, 0.25)'
+                    }} />
+                  </>
+                )}
+                <span style={{ position: 'relative' }}>{code}</span>
               </button>
             )
             })}
@@ -569,77 +714,45 @@ export default function VenueList() {
         position: 'sticky',
         top: 0,
         zIndex: 20,
-        padding: '5px 12px 9px',
-        margin: '-12px -12px 12px',
-        background: 'rgba(250, 246, 240, 0.97)',
+        padding: '10px 12px 10px',
+        margin: '-12px -12px 14px',
+        background: 'linear-gradient(180deg, #fffdf8 0%, #faf6f0 100%)',
         backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(158, 132, 101, 0.12)'
+        borderBottom: '1px solid rgba(158, 132, 101, 0.16)',
+        boxShadow: '0 4px 14px rgba(120, 90, 50, 0.07)'
       }}>
+        {isFullscreen && (
+          <div style={{
+            margin: '0 -12px 4px',
+            paddingTop: 'var(--tg-safe-area-inset-top, 0px)',
+            boxSizing: 'border-box'
+          }}>
+            <div
+              aria-label="公告"
+              style={{
+                height: 'max(var(--tg-content-safe-area-inset-top, 0px), 44px)',
+                padding: '0 64px',
+                boxSizing: 'border-box',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                fontSize: '13px',
+                color: '#9a6b18',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              <span aria-hidden="true">📢</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{ANNOUNCEMENT_TEXT}</span>
+            </div>
+          </div>
+        )}
         <div style={{
           display: 'grid',
           gap: '7px'
         }}>
-            <div style={{
-              padding: '3px 2px 2px'
-            }}>
-              <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '8px'
-            }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
-              <div aria-hidden="true" style={{
-                display: 'grid',
-                placeItems: 'center',
-                flex: '0 0 27px',
-                width: '27px',
-                height: '27px',
-                borderRadius: '9px',
-                background: 'rgba(170, 126, 76, 0.12)',
-                color: '#8b633c',
-                fontSize: '14px',
-                fontWeight: 700
-              }}>
-                昊
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{
-                  fontSize: '12px',
-                  lineHeight: 1.3,
-                  fontWeight: 700,
-                  color: '#67472e',
-                  whiteSpace: 'nowrap'
-                }}>
-                  此网页由西港昊天提供
-                </div>
-              </div>
-            </div>
-            <a
-              href="https://t.me/haotian99988866"
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                flex: '0 0 auto',
-                maxWidth: '58%',
-                padding: '5px 2px',
-                border: 0,
-                borderRadius: '20px',
-                background: 'transparent',
-                color: '#28734d',
-                fontSize: '10px',
-                lineHeight: 1.2,
-                whiteSpace: 'nowrap'
-              }}
-            >
-              <span aria-hidden="true">✈</span>
-              @haotian99988866
-            </a>
-          </div>
-          </div>
           <div style={{
             padding: '0 2px'
           }}>
@@ -656,14 +769,18 @@ export default function VenueList() {
               style={{
                 flex: '1 1 0',
                 minWidth: '0',
-                height: '36px',
-                padding: '0 9px',
-                border: '1px solid rgba(174, 151, 122, 0.28)',
-                borderRadius: '10px',
-                color: '#3f352a',
-                fontSize: '12px',
+                height: '40px',
+                padding: '0 30px 0 12px',
+                border: '1px solid rgba(174, 151, 122, 0.32)',
+                borderRadius: '12px',
+                color: '#5a4126',
+                fontSize: '14px',
+                fontWeight: 600,
                 outline: 'none',
-                background: 'rgba(255, 255, 255, 0.62)'
+                appearance: 'none',
+                WebkitAppearance: 'none',
+                background: "#fff url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23a07a45' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") no-repeat right 12px center",
+                boxShadow: '0 1px 3px rgba(120, 90, 50, 0.06)'
               }}
             >
               {loading ? (
@@ -685,12 +802,12 @@ export default function VenueList() {
               gap: '6px',
               flex: '0 0 auto',
               minWidth: '104px',
-              height: '36px',
-              padding: '0 8px',
+              height: '40px',
+              padding: '0 10px',
               background: 'rgba(56, 131, 93, 0.1)',
               color: '#28734d',
-              border: '1px solid rgba(56, 131, 93, 0.16)',
-              borderRadius: '10px',
+              border: '1px solid rgba(56, 131, 93, 0.18)',
+              borderRadius: '12px',
               fontSize: '11px',
               fontWeight: 600,
               whiteSpace: 'nowrap'
@@ -700,16 +817,44 @@ export default function VenueList() {
                 <>
                   包房 <strong style={{ fontSize: '15px' }}>{(selectedVenue.ktv_videos || []).length}</strong> 间
                 </>
+              ) : isDeliveryDayShift ? (
+                <>白班请单独联系</>
               ) : (
                 <>
-                  今日出勤 <strong style={{ fontSize: '15px' }}>{onDutyCount}</strong>{' '}
+                  {dutyLabel} <strong style={{ fontSize: '15px' }}>{onDutyCount}</strong>{' '}
                   {['4', '5', '6'].includes(String(selectedVenue?.id)) ? '张照片' : '人'}
                 </>
               )}
             </div>
           </div>
           </div>
-          {deliveryCategories.length > 0 && (
+          {!isFullscreen && (
+            <div
+              aria-label="公告"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 12px',
+                background: '#fff',
+                border: '1px solid rgba(154, 107, 24, 0.18)',
+                borderLeft: '3px solid #c9a24d',
+                borderRadius: '10px',
+                boxShadow: '0 1px 3px rgba(120, 90, 50, 0.05)',
+                fontSize: '12px',
+                color: '#9a6b18',
+                lineHeight: 1.4
+              }}
+            >
+              <span aria-hidden="true">📢</span>
+              <span style={{ fontWeight: 700 }}>公告</span>
+              <span style={{ width: '1px', height: '12px', background: '#e6d3a3' }} />
+              <span style={{ minWidth: 0, color: '#987f54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {ANNOUNCEMENT_TEXT}
+              </span>
+            </div>
+          )}
+          {deliveryCategories.length > 0 && !isDeliveryDayShift && (
             <div style={{
               display: 'flex',
               gap: '8px',
@@ -741,34 +886,6 @@ export default function VenueList() {
         </div>
       </div>
 
-      {deliveryCategories.length === 0 && (
-      <section
-        aria-label="公告"
-        style={{
-          marginBottom: '16px',
-          padding: '14px 16px',
-          background: '#fff8e8',
-          border: '1px solid #f0dfb7',
-          borderRadius: '12px'
-        }}
-      >
-        <h2 style={{
-          margin: '0 0 6px',
-          fontSize: '14px',
-          color: '#9a6b18'
-        }}>
-          📢 公告
-        </h2>
-        <p style={{
-          margin: 0,
-          fontSize: '13px',
-          color: '#987f54'
-        }}>
-          暂无公告
-        </p>
-      </section>
-      )}
-
       {loading ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
           加载中...
@@ -789,7 +906,12 @@ export default function VenueList() {
       ) : (
         <div>
           {/* 今日在岗技师 / 未发布提示 */}
-          {Array.isArray(selectedVenue.delivery_posts) ? (
+          {isDeliveryDayShift ? (
+            <NoticeCard icon="☀️" title="西港外送只展示晚班出勤">
+              当前为白班时间（06:00–18:00），白班外送请单独联系昊天，<br />
+              晚班（18:00 起）内容将在此展示。
+            </NoticeCard>
+          ) : Array.isArray(selectedVenue.delivery_posts) ? (
             <div style={{ marginBottom: '24px' }}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
                 <h3 style={attendanceInlineHeadingStyle}>📸 最新上新</h3>
@@ -823,7 +945,8 @@ export default function VenueList() {
                                                     }}>▶</span>
                                                   )}
                                                   {cover.type === 'video' ? (
-                                                    <video
+                                                    <LazyMedia
+                              as="video"
                               muted
                               playsInline
                               preload="metadata"
@@ -831,9 +954,9 @@ export default function VenueList() {
                               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                             />
                           ) : (
-                            <img
+                            <LazyMedia
                               alt=""
-                              loading="lazy"
+                              decoding="async"
                               src={`${API_BASE_URL}/delivery-media/${cover.id}`}
                               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                             />
@@ -886,9 +1009,9 @@ export default function VenueList() {
                   })}
                 </div>
               ) : (
-                <div style={{ color: '#b7791f', background: '#fff9e6', borderRadius: '12px', padding: '20px 16px' }}>
-                  暂无内容
-                </div>
+                <NoticeCard icon="⏳" title="暂无内容">
+                  新内容发布后将在此展示，<br />如需了解详情请直接联系昊天。
+                </NoticeCard>
               )}
               {deliveryViewer && (
                 <div
@@ -899,6 +1022,8 @@ export default function VenueList() {
                     background: '#000',
                     display: 'flex',
                     flexDirection: 'column',
+                    paddingTop: 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))',
+                    boxSizing: 'border-box',
                   }}
                 >
                   <div
@@ -1003,7 +1128,8 @@ export default function VenueList() {
                             onClick={() => setDeliveryIndex(index)}
                             style={{ position: 'relative', width: '52px', height: '52px' }}
                           >
-                            <video
+                            <LazyMedia
+                              as="video"
                               muted
                               playsInline
                               preload="metadata"
@@ -1017,9 +1143,10 @@ export default function VenueList() {
                             }}>▶</span>
                           </div>
                         ) : (
-                          <img
+                          <LazyMedia
                             key={media.id}
                             alt=""
+                            decoding="async"
                             onClick={() => setDeliveryIndex(index)}
                             src={`${API_BASE_URL}/delivery-media/${media.id}`}
                             style={thumbStyle}
@@ -1082,6 +1209,7 @@ export default function VenueList() {
                       联系预约
                     </a>
                   </div>
+                  {!hasTelegramBackButton && (
                   <button
                     type="button"
                     aria-label="关闭"
@@ -1101,6 +1229,7 @@ export default function VenueList() {
                   >
                     ✕
                   </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1128,7 +1257,8 @@ export default function VenueList() {
                           background: '#2b2b2b', cursor: 'pointer', overflow: 'hidden'
                         }}
                       >
-                        <video
+                        <LazyMedia
+                          as="video"
                           preload="metadata"
                           muted
                           playsInline
@@ -1203,18 +1333,22 @@ export default function VenueList() {
                     display: 'flex', flexDirection: 'column', justifyContent: 'center'
                   }}
                 >
+                  {!hasTelegramBackButton && (
                   <button
                     type="button"
                     aria-label="关闭"
                     onClick={event => { event.stopPropagation(); closeKtvVideo() }}
                     style={{
-                      position: 'absolute', top: '14px', right: '14px', zIndex: 2,
+                      position: 'absolute',
+                      top: 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px) + 14px)',
+                      right: '14px', zIndex: 2,
                       width: '40px', height: '40px', borderRadius: '50%', border: 0,
                       background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '22px', cursor: 'pointer'
                     }}
                   >
                     ✕
                   </button>
+                  )}
                   <video
                     autoPlay
                     controls
@@ -1262,11 +1396,11 @@ export default function VenueList() {
                 </div>
               )}
             </div>
-          ) : ['4', '5', '6'].includes(String(selectedVenue.id)) ? (
+          ) : ['4', '5', '6'].includes(String(selectedVenue.id)) && onDutyCount > 0 ? (
             <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
                 <h3 style={attendanceInlineHeadingStyle}>
-                  👥 今日出勤技师 ({onDutyCount}张照片)
+                  👥 {dutyLabel}技师 ({onDutyCount}张照片)
                 </h3>
                 <span style={recentUpdateStyle}>
                   最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
@@ -1278,10 +1412,11 @@ export default function VenueList() {
                   ? dihaoTechnicianCategories
                   : kaidiTechnicianCategories
               ).filter(category => (
-                !['5', '6'].includes(String(selectedVenue.id))
-                || (String(selectedVenue.id) === '5'
+                (String(selectedVenue.id) === '5'
                   ? getAtlanticCategoryCodes(category)
-                  : getDihaoCategoryCodes(category)
+                  : String(selectedVenue.id) === '6'
+                    ? getDihaoCategoryCodes(category)
+                    : getKaidiCategoryCodes(category)
                 ).length > 0
               )).map(category => (
                 <div key={category.name} style={{ marginBottom: '14px' }}>
@@ -1324,8 +1459,8 @@ export default function VenueList() {
             <div style={attendancePanelStyle}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
                 <h3 style={attendanceInlineHeadingStyle}>
-                  👥 今日出勤技师 ({technicianList.length}人)
-                  {dutyShiftToday && (
+                  👥 {dutyLabel}技师 ({technicianList.length}人)
+                  {!currentShift && dutyShiftToday && (
                     <span style={{ fontSize: '11px', color: '#666', marginLeft: '8px' }}>
                       （{dutyShiftToday}）
                     </span>
@@ -1369,20 +1504,16 @@ export default function VenueList() {
               )}
             </div>
           ) : (
-            <div style={{
-              marginBottom: '20px',
-              background: '#fff9e6',
-              borderRadius: '12px',
-              padding: '20px 16px',
-              color: '#b7791f'
-            }}>
-              <div style={attendanceHeadingRowStyle}>
-                <span>⚠️ 今日出勤尚未发布</span>
-                <span style={recentUpdateStyle}>
-                  最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
-                </span>
-              </div>
-            </div>
+            <NoticeCard
+              icon="⏳"
+              title={`${dutyLabel}尚未发布`}
+              updatedAt={formatChannelMessageTime(selectedVenue.last_channel_message_at)}
+            >
+              {currentShift === '白班'
+                ? '白班出勤名单与照片发布后将在此展示，'
+                : '晚班出勤名单与照片发布后将在此展示，'}
+              <br />如需了解详情请直接联系昊天。
+            </NoticeCard>
           )}
 
           {/* Services grouped by category */}
@@ -1668,7 +1799,7 @@ export default function VenueList() {
                   ? '会所频道照片'
                   : technicianList.includes(selectedTechnicianCode)
                     ? `在岗${dutyShiftToday ? ` · ${dutyShiftToday}` : ''}`
-                    : '不在今日出勤名单'}
+                    : `不在${dutyLabel}名单`}
               </div>
             </div>
 

@@ -4,9 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>会所系统</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
   <div id="root"></div>
+  <script>
+    (function () {
+      var tg = window.Telegram && window.Telegram.WebApp
+      if (!tg) return
+      tg.ready()
+      tg.expand()
+      // 7.0+ 支持关闭下滑关闭手势，避免滑动内容时误关闭；8.0+ 支持真正全屏
+      if (tg.isVersionAtLeast && tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes()
+      if (tg.isVersionAtLeast && tg.isVersionAtLeast('8.0') && tg.requestFullscreen && !tg.isFullscreen) {
+        try { tg.requestFullscreen() } catch (e) {}
+      }
+    })()
+  </script>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

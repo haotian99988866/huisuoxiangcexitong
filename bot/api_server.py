@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 MIN_AGE = 18
 from delivery_age import extract_work_no, parse_price_table, price_for_work_no
+from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 from technician_photo_ocr import (
     extract_labeled_technician_code,
     extract_technician_category,
@@ -562,8 +563,14 @@ def webhook():
                     else None
                 )
             today = date.today()
+            shift_start, shift_end, shift_name = current_shift_window()
 
             for venue in venues:
+                venue["current_shift"] = (
+                    shift_name
+                    if venue["id"] in SHIFT_VENUE_IDS | DELIVERY_VENUE_IDS
+                    else None
+                )
                 if venue["id"] == 3:
                     cur.execute(
                         """
@@ -605,17 +612,32 @@ def webhook():
                         attach_delivery_prices(
                             delivery_rows, posts, apple_price_tables(delivery_rows)
                         )
-                    venue["delivery_posts"] = filter_adult_posts(posts)
-                cur.execute(
-                    """
-                    SELECT duty_date, technician_codes, duty_shift
-                    FROM attendance_daily
-                    WHERE venue_id = %s AND duty_date = %s
-                    ORDER BY FIELD(duty_shift, '晚班', '早班')
-                    LIMIT 1
-                    """,
-                    (venue["id"], today),
-                )
+                    venue["delivery_posts"] = (
+                        filter_adult_posts(posts) if shift_name == "晚班" else []
+                    )
+                if venue["id"] in SHIFT_VENUE_IDS:
+                    cur.execute(
+                        """
+                        SELECT duty_date, technician_codes, duty_shift
+                        FROM attendance_daily
+                        WHERE venue_id = %s
+                              AND created_at >= %s AND created_at < %s
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT 1
+                        """,
+                        (venue["id"], shift_start, shift_end),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT duty_date, technician_codes, duty_shift
+                        FROM attendance_daily
+                        WHERE venue_id = %s AND duty_date = %s
+                        ORDER BY FIELD(duty_shift, '晚班', '早班')
+                        LIMIT 1
+                        """,
+                        (venue["id"], today),
+                    )
                 attendance = cur.fetchone()
                 codes = attendance["technician_codes"] if attendance else None
                 venue["technician_list"] = [
@@ -659,30 +681,37 @@ def webhook():
                             SELECT id, technician_code, channel_id, msg_id,
                                    ocr_text, file_id, status
                             FROM technician_photos
-                            WHERE venue_id = %s AND duty_date = %s
+                            WHERE venue_id = %s
+                                  AND created_at >= %s AND created_at < %s
                             ORDER BY id
                             """,
-                            (venue["id"], today),
+                            (venue["id"], shift_start, shift_end),
                         )
                     else:
                         cur.execute(
                             """
                             SELECT id, technician_code, channel_id, msg_id, ocr_text
                             FROM technician_photos p
-                            WHERE venue_id = %s AND duty_date = %s
+                            WHERE venue_id = %s
                                   AND status = 'matched'
+                                  AND created_at >= %s AND created_at < %s
                                   AND NOT EXISTS (
                                       SELECT 1
                                       FROM technician_photos earlier
                                       WHERE earlier.venue_id = p.venue_id
-                                            AND earlier.duty_date = p.duty_date
+                                            AND earlier.created_at >= %s
+                                            AND earlier.created_at < %s
                                             AND earlier.file_id = p.file_id
                                             AND earlier.status = 'matched'
                                             AND earlier.id < p.id
                                   )
                             ORDER BY id
                             """,
-                            (venue["id"], attendance["duty_date"]),
+                            (
+                                venue["id"],
+                                shift_start, shift_end,
+                                shift_start, shift_end,
+                            ),
                         )
                     photos = cur.fetchall()
                     underage_codes = (
@@ -830,7 +859,12 @@ def webhook():
                     ORDER BY FIELD(si.category, 'small', 'medium', 'high', 'tcm', 'pedicure'),
                              si.sort_order, si.id
                     """,
-                    (attendance["duty_date"] if attendance else today, venue["id"]),
+                    (
+                        attendance["duty_date"]
+                        if attendance
+                        else (None if venue["id"] in SHIFT_VENUE_IDS else today),
+                        venue["id"],
+                    ),
                 )
                 venue["service_items"] = cur.fetchall()
                 venue["technicians"] = []

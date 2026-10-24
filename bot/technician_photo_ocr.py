@@ -10,6 +10,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from rapidocr import RapidOCR
 
 from db import get_conn
+from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 
 logger = logging.getLogger(__name__)
 MIN_OCR_CONFIDENCE = 0.7
@@ -292,16 +293,29 @@ def save_technician_photo(
     cur = None
     try:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT duty_date, technician_codes
-            FROM attendance_daily
-            WHERE venue_id = %s AND (duty_date = %s OR DATE(created_at) = %s)
-            ORDER BY (duty_date = %s) DESC, created_at DESC
-            LIMIT 1
-            """,
-            (venue_id, photo_date, photo_date, photo_date),
-        )
+        if venue_id in SHIFT_VENUE_IDS:
+            shift_start, shift_end, _ = current_shift_window()
+            cur.execute(
+                """
+                SELECT duty_date, technician_codes
+                FROM attendance_daily
+                WHERE venue_id = %s AND created_at >= %s AND created_at < %s
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (venue_id, shift_start, shift_end),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT duty_date, technician_codes
+                FROM attendance_daily
+                WHERE venue_id = %s AND (duty_date = %s OR DATE(created_at) = %s)
+                ORDER BY (duty_date = %s) DESC, created_at DESC
+                LIMIT 1
+                """,
+                (venue_id, photo_date, photo_date, photo_date),
+            )
         attendance = cur.fetchone()
     finally:
         if cur is not None:
@@ -379,16 +393,29 @@ def match_pending_technician_photos(
     matched_count = 0
     try:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT id, candidate_codes, ocr_confidence, ocr_text
-            FROM technician_photos
-            WHERE venue_id = %s AND duty_date = %s
-                  AND status = 'pending_review'
-            FOR UPDATE
-            """,
-            (venue_id, photo_date),
-        )
+        if venue_id in SHIFT_VENUE_IDS:
+            shift_start, shift_end, _ = current_shift_window()
+            cur.execute(
+                """
+                SELECT id, candidate_codes, ocr_confidence, ocr_text
+                FROM technician_photos
+                WHERE venue_id = %s AND status = 'pending_review'
+                      AND created_at >= %s AND created_at < %s
+                FOR UPDATE
+                """,
+                (venue_id, shift_start, shift_end),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, candidate_codes, ocr_confidence, ocr_text
+                FROM technician_photos
+                WHERE venue_id = %s AND duty_date = %s
+                      AND status = 'pending_review'
+                FOR UPDATE
+                """,
+                (venue_id, photo_date),
+            )
         for photo in cur.fetchall():
             candidates = [
                 code for code in photo["candidate_codes"].split(",") if code
