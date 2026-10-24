@@ -4,6 +4,7 @@ import time
 
 from db import get_conn
 from visit_stats import delete_old_visits
+from relay import delete_old_relays
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ def cleanup_expired_data(retention_hours=RETENTION_HOURS):
     finally:
         conn.close()
     deleted["page_visits"] = delete_old_visits()
+    deleted["bot_relay"] = delete_old_relays()
     return deleted
 
 

@@ -23,6 +23,16 @@ from technician_photo_ocr import (
 from data_cleanup import start_cleanup_thread
 from welcome import send_help, send_welcome, show_screen
 from visit_stats import admin_ids, ensure_table, format_stats
+from relay import (
+    RELAY_CONTENT_TYPES,
+    ensure_tables,
+    is_rate_limited,
+    relay_admin_reply,
+    relay_to_admins,
+    should_ack,
+    touch_user,
+    user_summary,
+)
 from delivery_age import extract_age, ocr_image_text
 
 load_dotenv()
@@ -105,17 +115,66 @@ def parse_caption(caption):
 # ===== 客人私聊机器人时发送欢迎信息 =====
 @bot.message_handler(commands=['start'], chat_types=['private'])
 def handle_start(message):
+    touch_user(message.from_user)
     send_welcome(bot, message.chat.id)
 
 
 @bot.message_handler(commands=['help'], chat_types=['private'])
 def handle_help(message):
+    touch_user(message.from_user)
     send_help(bot, message.chat.id)
 
 
 @bot.callback_query_handler(func=lambda call: (call.data or "").startswith("menu:"))
 def handle_menu_callback(call):
+    touch_user(call.from_user)
     show_screen(bot, call)
+
+
+# ===== 客人留言转发给管理员,管理员回复后发回客人 =====
+@bot.message_handler(commands=['users'], chat_types=['private'])
+def handle_users(message):
+    if message.from_user.id in admin_ids():
+        bot.send_message(message.chat.id, user_summary())
+
+
+def _is_admin_reply(message):
+    return message.from_user.id in admin_ids() and message.reply_to_message is not None
+
+
+@bot.message_handler(
+    func=_is_admin_reply, chat_types=['private'], content_types=RELAY_CONTENT_TYPES
+)
+def handle_admin_reply(message):
+    relay_admin_reply(bot, message)
+
+
+def _is_customer_message(message):
+    if message.text and message.text.startswith("/"):
+        return False
+    return message.from_user.id not in admin_ids()
+
+
+@bot.message_handler(
+    func=_is_customer_message, chat_types=['private'], content_types=RELAY_CONTENT_TYPES
+)
+def handle_customer_message(message):
+    if touch_user(message.from_user, count_message=True):
+        return
+    if is_rate_limited(message.from_user.id):
+        return
+    if relay_to_admins(bot, message):
+        if should_ack(message.from_user.id):
+            bot.send_message(
+                message.chat.id,
+                "✅ 已收到您的留言，昊天看到后会尽快回复您。\n"
+                "也可以点 /start 查看实时出勤和活动。",
+            )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "暂时无法转达，请直接联系 @haotian99988866。",
+        )
 
 
 # ===== 访问统计:仅管理员可查看 =====
@@ -477,5 +536,6 @@ if __name__ == "__main__":
     print("🤖 机器人启动 — 监听会所频道模式")
     print(f"📋 已监听 {len(LISTEN_CHANNELS)} 个频道")
     ensure_table()
+    ensure_tables()
     start_cleanup_thread()
     bot.infinity_polling()
