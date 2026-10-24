@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { API_BASE_URL, sendData } from '../utils/twa'
 
 const photoViewerButtonStyle = {
@@ -36,6 +36,51 @@ const ktvBookingButtonStyle = {
   fontSize: '13px',
   textDecoration: 'none',
   cursor: 'pointer'
+}
+
+const DELIVERY_VENUE_IDS = new Set([7, 8, 9, 10])
+
+const deliveryCategoryKey = venue => venue.categoryKey || String(venue.id)
+
+const deliveryCategoryLabel = venue => venue.categoryLabel
+  || venue.name.replace(/^西港/, '').replace(/外送$/, '')
+
+// 小苹果/红苹果共用同一个频道，拆成两个类别但沿用同一份数据
+const expandDeliveryCategories = delivery => delivery.flatMap(venue => (
+  Number(venue.id) === 10
+    ? [
+        { ...venue, categoryKey: '10-small', categoryLabel: '小苹果' },
+        { ...venue, categoryKey: '10-red', categoryLabel: '红苹果' }
+      ]
+    : [venue]
+))
+
+// 西港170/180/160 与小苹果/红苹果外送合并为“西港外送”，原会所作为其下的类别
+const mergeDeliveryVenues = venues => {
+  const delivery = venues.filter(venue => DELIVERY_VENUE_IDS.has(Number(venue.id)))
+  if (delivery.length === 0) return venues
+  const latest = delivery
+    .map(venue => venue.last_channel_message_at)
+    .filter(Boolean)
+    .sort()
+    .pop() || null
+  const mergedVenue = {
+    ...delivery[0],
+    name: '西港外送',
+    delivery_categories: expandDeliveryCategories(delivery),
+    last_channel_message_at: latest
+  }
+  const result = []
+  let inserted = false
+  venues.forEach(venue => {
+    if (!DELIVERY_VENUE_IDS.has(Number(venue.id))) {
+      result.push(venue)
+    } else if (!inserted) {
+      result.push(mergedVenue)
+      inserted = true
+    }
+  })
+  return result
 }
 
 const ktvVideoInfo = video => {
@@ -157,6 +202,25 @@ const formatChannelMessageTime = timestamp => {
 export default function VenueList() {
   const [list, setList] = useState([])
   const [selectedId, setSelectedId] = useState('')
+  const [deliveryCategoryId, setDeliveryCategoryId] = useState('')
+  const [deliveryViewer, setDeliveryViewer] = useState(null)
+  const [deliveryIndex, setDeliveryIndex] = useState(0)
+  const deliveryTouchX = useRef(0)
+  const stepDeliveryViewer = step => setDeliveryIndex(index => {
+    const total = deliveryViewer?.media.length || 1
+    return (index + step + total) % total
+  })
+  const openDeliveryViewer = post => {
+    setDeliveryIndex(0)
+    setDeliveryViewer(post)
+  }
+
+  useEffect(() => {
+    if (!deliveryViewer) return undefined
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previous }
+  }, [deliveryViewer])
   const [selectedTechnicianCode, setSelectedTechnicianCode] = useState('')
   const [photoViewerIndex, setPhotoViewerIndex] = useState(null)
   const [ktvVideo, setKtvVideo] = useState(null)
@@ -197,8 +261,9 @@ export default function VenueList() {
       }
       const data = e.data.payload?.list || e.data.payload?.venues || e.data.payload
       if (Array.isArray(data)) {
-        setList(data)
-        setSelectedId(currentId => currentId || (data[0] ? String(data[0].id) : ''))
+        const merged = mergeDeliveryVenues(data)
+        setList(merged)
+        setSelectedId(currentId => currentId || (merged[0] ? String(merged[0].id) : ''))
       }
       setLoading(false)
     }
@@ -207,7 +272,7 @@ export default function VenueList() {
     return () => window.removeEventListener('message', fn)
   }, [])
 
-  const selectedVenue = useMemo(() => {
+  const baseVenue = useMemo(() => {
     const target = list.find(v => String(v.id) === selectedId)
     if (!target && list.length > 0) {
       setSelectedId(String(list[0].id))
@@ -215,6 +280,12 @@ export default function VenueList() {
     }
     return target
   }, [list, selectedId])
+
+  const deliveryCategories = baseVenue?.delivery_categories || []
+  const selectedVenue = deliveryCategories.length > 0
+    ? deliveryCategories.find(venue => deliveryCategoryKey(venue) === deliveryCategoryId)
+      || deliveryCategories[0]
+    : baseVenue
 
   const onDutyCount = selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
@@ -635,9 +706,39 @@ export default function VenueList() {
             </div>
           </div>
           </div>
+          {deliveryCategories.length > 0 && (
+            <div style={{
+              display: 'flex',
+              gap: '8px',
+              overflowX: 'auto',
+              marginTop: '8px',
+              scrollbarWidth: 'none',
+            }}>
+              {deliveryCategories.map(venue => {
+                const active = deliveryCategoryKey(venue) === deliveryCategoryKey(selectedVenue)
+                return (
+                  <button
+                    key={deliveryCategoryKey(venue)}
+                    type="button"
+                    onClick={() => setDeliveryCategoryId(deliveryCategoryKey(venue))}
+                    style={{
+                      flexShrink: 0, padding: '7px 16px', borderRadius: '18px', cursor: 'pointer',
+                      border: active ? '1px solid #80643c' : '1px solid #eadfca',
+                      background: active ? '#80643c' : '#fff',
+                      color: active ? '#fff' : '#80643c',
+                      fontSize: '14px', fontWeight: 600
+                    }}
+                  >
+                    {deliveryCategoryLabel(venue)}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 
+      {deliveryCategories.length === 0 && (
       <section
         aria-label="公告"
         style={{
@@ -663,6 +764,7 @@ export default function VenueList() {
           暂无公告
         </p>
       </section>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
@@ -684,7 +786,298 @@ export default function VenueList() {
       ) : (
         <div>
           {/* 今日在岗技师 / 未发布提示 */}
-          {String(selectedVenue.id) === '3' ? (
+          {Array.isArray(selectedVenue.delivery_posts) ? (
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
+                <h3 style={attendanceInlineHeadingStyle}>📸 最新上新</h3>
+                <span style={recentUpdateStyle}>
+                  最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
+                </span>
+              </div>
+              {selectedVenue.delivery_posts.length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                  {selectedVenue.delivery_posts.map(post => {
+                    const description = (post.description || '').trim()
+                    const cover = post.media.find(media => media.type !== 'video') || post.media[0]
+                    return (
+                      <div
+                        key={post.id}
+                        onClick={() => openDeliveryViewer(post)}
+                        style={{
+                          background: '#fff',
+                          borderRadius: '14px',
+                          overflow: 'hidden',
+                          boxShadow: '0 2px 10px rgba(80, 60, 30, 0.1)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ position: 'relative',                         aspectRatio: '3 / 4', background: cover.type === 'video' ? '#1d1a16' : '#f3ede4' }}>
+                                                  {cover.type === 'video' && (
+                                                    <span style={{
+                                                      position: 'absolute', inset: 0, display: 'flex',
+                                                      alignItems: 'center', justifyContent: 'center',
+                                                      color: 'rgba(255,255,255,0.8)', fontSize: '44px', pointerEvents: 'none',
+                                                    }}>▶</span>
+                                                  )}
+                                                  {cover.type === 'video' ? (
+                                                    <video
+                              muted
+                              playsInline
+                              preload="metadata"
+                              src={`${API_BASE_URL}/delivery-media/${cover.id}#t=0.5`}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                            />
+                          ) : (
+                            <img
+                              alt=""
+                              loading="lazy"
+                              src={`${API_BASE_URL}/delivery-media/${cover.id}`}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                            />
+                          )}
+                          {post.media.length > 1 && (
+                            <span style={{
+                              position: 'absolute', right: '8px', bottom: '8px',
+                              background: 'rgba(0,0,0,0.55)', color: '#fff',
+                              fontSize: '12px', padding: '2px 8px', borderRadius: '10px',
+                            }}>
+                              🖼 {post.media.length}
+                            </span>
+                          )}
+                          {post.media.some(media => media.type === 'video') && (
+                            <span style={{
+                              position: 'absolute', left: '8px', top: '8px',
+                              background: 'rgba(0,0,0,0.55)', color: '#fff',
+                              fontSize: '12px', padding: '2px 8px', borderRadius: '10px',
+                            }}>
+                              ▶ 视频
+                            </span>
+                          )}
+                        </div>
+                        {description && (
+                          <div style={{
+                            padding: '8px 10px',
+                            fontSize: '13px',
+                            lineHeight: 1.5,
+                            color: '#4a3b28',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            wordBreak: 'break-word',
+                          }}>
+                            {description}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div style={{ color: '#b7791f', background: '#fff9e6', borderRadius: '12px', padding: '20px 16px' }}>
+                  暂无内容
+                </div>
+              )}
+              {deliveryViewer && (
+                <div
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 1000,
+                    background: '#000',
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <div
+                    onTouchStart={event => { deliveryTouchX.current = event.touches[0].clientX }}
+                    onTouchEnd={event => {
+                      const delta = event.changedTouches[0].clientX - deliveryTouchX.current
+                      if (Math.abs(delta) > 50) stepDeliveryViewer(delta < 0 ? 1 : -1)
+                    }}
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      position: 'relative',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                      touchAction: 'pan-y',
+                    }}
+                  >
+                    {(() => {
+                      const media = deliveryViewer.media[deliveryIndex]
+                      return media.type === 'video' ? (
+                        <video
+                          key={media.id}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          src={`${API_BASE_URL}/delivery-media/${media.id}`}
+                          style={{ maxWidth: '100%', maxHeight: '100%' }}
+                        />
+                      ) : (
+                        <img
+                          key={media.id}
+                          alt=""
+                          src={`${API_BASE_URL}/delivery-media/${media.id}`}
+                          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                        />
+                      )
+                    })()}
+                    {deliveryViewer.media.length > 1 && ['‹', '›'].map((arrow, index) => (
+                      <button
+                        key={arrow}
+                        type="button"
+                        aria-label={index === 0 ? '上一张' : '下一张'}
+                        onClick={() => stepDeliveryViewer(index === 0 ? -1 : 1)}
+                        style={{
+                          position: 'absolute',
+                          top: '50%',
+                          [index === 0 ? 'left' : 'right']: '8px',
+                          transform: 'translateY(-50%)',
+                          width: '38px',
+                          height: '38px',
+                          borderRadius: '50%',
+                          border: 'none',
+                          background: 'rgba(0,0,0,0.4)',
+                          color: '#fff',
+                          fontSize: '26px',
+                          lineHeight: '34px',
+                          padding: 0,
+                        }}
+                      >
+                        {arrow}
+                      </button>
+                    ))}
+                    {deliveryViewer.media.length > 1 && (
+                      <span style={{
+                        position: 'absolute',
+                        top: 'max(18px, env(safe-area-inset-top))',
+                        left: '14px',
+                        background: 'rgba(0,0,0,0.5)',
+                        color: '#fff',
+                        fontSize: '13px',
+                        padding: '3px 10px',
+                        borderRadius: '12px',
+                      }}>
+                        {deliveryIndex + 1} / {deliveryViewer.media.length}
+                      </span>
+                    )}
+                  </div>
+                  {deliveryViewer.media.length > 1 && (
+                    <div style={{
+                      display: 'flex',
+                      gap: '8px',
+                      justifyContent: 'center',
+                      padding: '8px 12px',
+                      background: '#000',
+                    }}>
+                      {deliveryViewer.media.map((media, index) => {
+                        const thumbStyle = {
+                          width: '52px',
+                          height: '52px',
+                          objectFit: 'cover',
+                          borderRadius: '8px',
+                          opacity: index === deliveryIndex ? 1 : 0.5,
+                          border: index === deliveryIndex ? '2px solid #c9a24d' : '2px solid transparent',
+                          boxSizing: 'border-box',
+                          background: '#222',
+                        }
+                        return media.type === 'video' ? (
+                          <div
+                            key={media.id}
+                            onClick={() => setDeliveryIndex(index)}
+                            style={{ position: 'relative', width: '52px', height: '52px' }}
+                          >
+                            <video
+                              muted
+                              playsInline
+                              preload="metadata"
+                              src={`${API_BASE_URL}/delivery-media/${media.id}#t=0.5`}
+                              style={{ ...thumbStyle, pointerEvents: 'none' }}
+                            />
+                            <span style={{
+                              position: 'absolute', inset: 0, display: 'flex',
+                              alignItems: 'center', justifyContent: 'center',
+                              color: '#fff', fontSize: '16px', pointerEvents: 'none',
+                            }}>▶</span>
+                          </div>
+                        ) : (
+                          <img
+                            key={media.id}
+                            alt=""
+                            onClick={() => setDeliveryIndex(index)}
+                            src={`${API_BASE_URL}/delivery-media/${media.id}`}
+                            style={thumbStyle}
+                          />
+                        )
+                      })}
+                    </div>
+                  )}
+                  <div style={{
+                    padding: '12px 16px max(14px, env(safe-area-inset-bottom))',
+                    background: '#1b1610',
+                    color: '#fff',
+                  }}>
+                    {deliveryViewer.description && (
+                      <div style={{
+                        fontSize: '15px',
+                        lineHeight: 1.6,
+                        maxHeight: '22vh',
+                        overflowY: 'auto',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        marginBottom: '10px',
+                      }}>
+                        {deliveryViewer.description}
+                      </div>
+                    )}
+                    <a
+                      href={`https://t.me/haotian99988866?text=${encodeURIComponent(
+                        `你好，我想预约${baseVenue?.name || '西港外送'}：${(deliveryViewer.description || '').slice(0, 40)}`
+                      )}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: 'block',
+                        textAlign: 'center',
+                        background: '#c9a24d',
+                        color: '#fff',
+                        fontWeight: 700,
+                        fontSize: '16px',
+                        padding: '12px',
+                        borderRadius: '12px',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      联系预约
+                    </a>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="关闭"
+                    onClick={() => setDeliveryViewer(null)}
+                    style={{
+                      position: 'absolute',
+                      top: 'max(12px, env(safe-area-inset-top))',
+                      right: '12px',
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '50%',
+                      border: 'none',
+                      background: 'rgba(255,255,255,0.25)',
+                      color: '#fff',
+                      fontSize: '22px',
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : String(selectedVenue.id) === '3' ? (
             <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
                 <h3 style={attendanceInlineHeadingStyle}>🎤 KTV包房视频</h3>

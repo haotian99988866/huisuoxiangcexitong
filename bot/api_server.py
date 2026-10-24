@@ -35,6 +35,7 @@ CORS(
         r"/webhook": {"origins": cors_origins},
         r"/photos/*": {"origins": cors_origins},
         r"/ktv-videos/*": {"origins": cors_origins},
+        r"/delivery-media/*": {"origins": cors_origins},
     },
 )
 
@@ -275,6 +276,53 @@ def technician_photo_image(photo_id):
     return response
 
 
+DELIVERY_VENUE_IDS = {7, 8, 9, 10}
+
+
+def build_delivery_posts(rows):
+    """rows 按 message_id 倒序。带文字说明或图片+视频的相册合并成一条，其余每个媒体单独一条。"""
+    group_captions = {}
+    group_types = {}
+    for row in rows:
+        group_id = row["media_group_id"]
+        if not group_id:
+            continue
+        group_types.setdefault(group_id, set()).add(row["media_type"])
+        caption = (row["caption"] or "").strip()
+        if caption and not group_captions.get(group_id):
+            group_captions[group_id] = caption
+    # 图片和视频一起发送视为同一个人，即使没有文字也合并成一条
+    for group_id, types in group_types.items():
+        if "video" in types and "photo" in types:
+            group_captions.setdefault(group_id, "")
+
+    posts = []
+    grouped = {}
+    for row in rows:
+        media = {"id": row["id"], "type": row["media_type"]}
+        group_id = row["media_group_id"]
+        if group_id in group_captions:
+            post = grouped.get(group_id)
+            if post is None:
+                post = {
+                    "id": f"g{row['id']}",
+                    "description": group_captions[group_id],
+                    "media": [],
+                }
+                grouped[group_id] = post
+                posts.append(post)
+            post["media"].insert(0, media)
+            continue
+        posts.append(
+            {
+                "id": f"m{row['id']}",
+                "description": (row["caption"] or "").strip(),
+                "media": [media],
+            }
+        )
+    return posts
+
+
 @app.get("/ktv-videos/<int:video_id>")
 def ktv_video(video_id):
     conn = None
@@ -294,14 +342,49 @@ def ktv_video(video_id):
             conn.close()
     if row is None:
         return jsonify({"error": "Video not found"}), 404
+    return _proxy_telegram_media(row["file_id"])
 
+
+@app.get("/delivery-media/<int:media_id>")
+def delivery_media(media_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT file_id FROM delivery_media WHERE id = %s",
+                (media_id,),
+            )
+            row = cur.fetchone()
+    except pymysql.MySQLError:
+        logger.exception("Failed to look up delivery media %s", media_id)
+        return jsonify({"error": "Database request failed"}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+    if row is None:
+        return jsonify({"error": "Media not found"}), 404
+    return _proxy_telegram_media(row["file_id"])
+
+
+MEDIA_CONTENT_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".webm": "video/webm",
+    ".mp4": "video/mp4",
+}
+
+
+def _proxy_telegram_media(file_id):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         return jsonify({"error": "Video service is not configured"}), 503
     try:
         info = requests.get(
             f"https://api.telegram.org/bot{token}/getFile",
-            params={"file_id": row["file_id"]},
+            params={"file_id": file_id},
             timeout=(5, 15),
         ).json()
         file_path = (info.get("result") or {}).get("file_path")
@@ -321,10 +404,11 @@ def ktv_video(video_id):
             upstream.close()
             return jsonify({"error": "Video is unavailable"}), 502
     except (requests.RequestException, ValueError) as exc:
-        logger.error("Failed to retrieve KTV video %s (%s)", video_id, type(exc).__name__)
+        logger.error("Failed to retrieve Telegram media (%s)", type(exc).__name__)
         return jsonify({"error": "Video service is temporarily unavailable"}), 502
 
-    content_type = "video/webm" if file_path.endswith(".webm") else "video/mp4"
+    extension = os.path.splitext(file_path)[1].lower()
+    content_type = MEDIA_CONTENT_TYPES.get(extension, "video/mp4")
     response = Response(
         stream_with_context(upstream.iter_content(chunk_size=64 * 1024)),
         status=upstream.status_code,
@@ -409,6 +493,18 @@ def webhook():
                         """
                     )
                     venue["ktv_texts"] = [r["content"] for r in cur.fetchall()]
+                if venue["id"] in DELIVERY_VENUE_IDS:
+                    cur.execute(
+                        """
+                        SELECT id, message_id, media_group_id, media_type, caption
+                        FROM delivery_media
+                        WHERE venue_id = %s
+                        ORDER BY message_id DESC
+                        LIMIT 200
+                        """,
+                        (venue["id"],),
+                    )
+                    venue["delivery_posts"] = build_delivery_posts(cur.fetchall())
                 cur.execute(
                     """
                     SELECT duty_date, technician_codes, duty_shift

@@ -4,6 +4,15 @@
   box-sizing: border-box;
 }
 
+html {
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  display: none;
+}
+
 :root {
   --primary: #d4a574;
   --primary-light: #f5e8da;

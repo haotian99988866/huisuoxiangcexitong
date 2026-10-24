@@ -115,6 +115,10 @@ def handle_photo_message(message):
         print(f"❌ 频道ID不在监听列表中！")
         return
 
+    save_delivery_media(message)
+    if venue_config["venue_id"] in DELIVERY_VENUE_IDS:
+        return
+
     primary_tag = venue_config["primary_tag"]
     caption = message.caption or ""
     tags, _ = parse_caption(caption)
@@ -204,6 +208,7 @@ def handle_photo_message(message):
         logger.exception("Failed to process technician photo %s", message.message_id)
         raise
 
+
     if result["status"] == "matched":
         print(
             f"✅ OCR 匹配成功：{venue_config['venue_name']} "
@@ -270,6 +275,49 @@ def handle_attendance_text(message):
 def handle_other_channel_post(message):
     record_channel_activity(message)
     save_ktv_video(message)
+    save_delivery_media(message)
+
+
+DELIVERY_VENUE_IDS = {7, 8, 9, 10}
+
+
+def save_delivery_media(message):
+    venue_config = get_venue_config(message.chat.id)
+    if not venue_config or venue_config["venue_id"] not in DELIVERY_VENUE_IDS:
+        return
+    if message.photo:
+        media_type, file_id = "photo", message.photo[-1].file_id
+    elif message.video:
+        media_type, file_id = "video", message.video.file_id
+    else:
+        return
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO delivery_media
+                    (venue_id, channel_id, message_id, media_group_id,
+                     media_type, file_id, caption)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    file_id = VALUES(file_id),
+                    media_group_id = VALUES(media_group_id),
+                    caption = VALUES(caption)
+                """,
+                (
+                    venue_config["venue_id"],
+                    str(message.chat.id),
+                    message.message_id,
+                    getattr(message, "media_group_id", None),
+                    media_type,
+                    file_id,
+                    message.caption or "",
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 KTV_VENUE_ID = 3
