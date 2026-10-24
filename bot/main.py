@@ -21,6 +21,13 @@ from technician_photo_ocr import (
     save_technician_photo,
 )
 from data_cleanup import start_cleanup_thread
+from subscribe import (
+    ensure_tables as ensure_sub_tables,
+    notify_attendance,
+    show_sub_menu,
+    sub_menu_keyboard,
+    sub_menu_text,
+)
 from welcome import send_help, send_welcome, show_screen
 from visit_stats import admin_ids, ensure_table, format_stats
 from relay import (
@@ -129,6 +136,23 @@ def handle_help(message):
 def handle_menu_callback(call):
     touch_user(call.from_user)
     show_screen(bot, call)
+
+
+@bot.callback_query_handler(func=lambda call: (call.data or "").startswith("sub:"))
+def handle_sub_callback(call):
+    touch_user(call.from_user)
+    show_sub_menu(bot, call)
+
+
+@bot.message_handler(commands=['remind'], chat_types=['private'])
+def handle_remind(message):
+    touch_user(message.from_user)
+    bot.send_message(
+        message.chat.id,
+        sub_menu_text(),
+        parse_mode="HTML",
+        reply_markup=sub_menu_keyboard(message.from_user.id),
+    )
 
 
 # ===== 客人留言转发给管理员,管理员回复后发回客人 =====
@@ -362,6 +386,14 @@ def handle_attendance_text(message):
         )
         if matched_count:
             print(f"✅ 出勤名单已补匹配 {matched_count} 张先到照片")
+        if notify_attendance(
+            bot,
+            venue_config["venue_id"],
+            attendance["duty_date"],
+            attendance["duty_shift"],
+            len(attendance["codes"]),
+        ):
+            print("🔔 已向订阅用户推送出勤提醒")
 
     # 回复确认
     confirmation = bot.send_message(message.chat.id, msg)
@@ -537,5 +569,6 @@ if __name__ == "__main__":
     print(f"📋 已监听 {len(LISTEN_CHANNELS)} 个频道")
     ensure_table()
     ensure_tables()
+    ensure_sub_tables()
     start_cleanup_thread()
     bot.infinity_polling()

@@ -43,8 +43,10 @@ HELP_TEXT = (
     "点技师工号，查看照片、身高体重、产地和服务介绍。\n\n"
     "<b>4️⃣ 西港外送</b>\n"
     "小程序里选择【西港外送】，只展示晚班出勤；白班请直接联系昊天。\n\n"
-    "<b>5️⃣ 预约 / 咨询</b>\n"
-    "点【💬 联系昊天】，直接发消息给我。\n\n"
+    "<b>5️⃣ 出勤提醒</b>\n"
+    "点主菜单【🔔 出勤提醒】订阅会所，名单一发布就通知你。\n\n"
+    "<b>6️⃣ 预约 / 咨询</b>\n"
+    "点【💬 联系昊天】，或直接在这里发文字、图片、语音留言，我会回复你。\n\n"
     "💡 小提示：名单会随频道实时更新，下单前建议再刷新一次。"
 )
 
@@ -60,7 +62,10 @@ def home_keyboard():
         types.InlineKeyboardButton("💬 联系昊天", url=CONTACT_URL),
         types.InlineKeyboardButton("📢 频道", url=CHANNEL_URL),
     )
-    keyboard.row(types.InlineKeyboardButton("🔗 分享给朋友", url=SHARE_URL))
+    keyboard.row(
+        types.InlineKeyboardButton("🔔 出勤提醒", callback_data="sub:menu"),
+        types.InlineKeyboardButton("🔗 分享给朋友", url=SHARE_URL),
+    )
     return keyboard
 
 
