@@ -9,6 +9,7 @@ import telebot
 from telebot import util
 from dotenv import load_dotenv
 from db import get_conn
+from image_hash import compute_hash, ensure_columns as ensure_image_hash_columns
 from config.channels import LISTEN_CHANNELS, TAG_ALIASES
 from attendance_parser import (
     PLATE_CODE_VENUE_ID,
@@ -518,10 +519,11 @@ def save_delivery_media(message):
         media_type, file_id = "video", message.video.file_id
     else:
         return
-    ocr_text, age = None, extract_age(message.caption)
+    ocr_text, age, image_hash = None, extract_age(message.caption), None
     if media_type == "photo":
         try:
             image_bytes = bot.download_file(bot.get_file(file_id).file_path)
+            image_hash = compute_hash(image_bytes)
             ocr_text = ocr_image_text(image_bytes)
             age = extract_age(message.caption, ocr_text)
         except Exception as exc:
@@ -533,14 +535,15 @@ def save_delivery_media(message):
                 """
                 INSERT INTO delivery_media
                     (venue_id, channel_id, message_id, media_group_id,
-                     media_type, file_id, caption, ocr_text, age)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     media_type, file_id, caption, ocr_text, age, image_hash)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     file_id = VALUES(file_id),
                     media_group_id = VALUES(media_group_id),
                     caption = VALUES(caption),
                     ocr_text = VALUES(ocr_text),
-                    age = VALUES(age)
+                    age = VALUES(age),
+                    image_hash = VALUES(image_hash)
                 """,
                 (
                     venue_config["venue_id"],
@@ -552,6 +555,7 @@ def save_delivery_media(message):
                     message.caption or "",
                     ocr_text,
                     age,
+                    image_hash,
                 ),
             )
         conn.commit()
@@ -667,5 +671,6 @@ if __name__ == "__main__":
     ensure_admin_tables()
     ensure_footer_tables()
     ensure_movie_tables()
+    ensure_image_hash_columns()
     start_cleanup_thread()
     bot.infinity_polling()

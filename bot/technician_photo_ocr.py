@@ -10,6 +10,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from rapidocr import RapidOCR
 
 from db import get_conn
+from image_hash import compute_hash
 from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 
 logger = logging.getLogger(__name__)
@@ -333,6 +334,7 @@ def save_technician_photo(
         ]
 
     recognition = recognize_technician_code(image_bytes, roster_codes, venue_id)
+    image_hash = compute_hash(image_bytes)
 
     conn = get_conn()
     cur = None
@@ -342,9 +344,9 @@ def save_technician_photo(
             """
             INSERT INTO technician_photos (
                 venue_id, duty_date, technician_code, file_id, channel_id, msg_id,
-                ocr_text, candidate_codes, ocr_confidence, ocr_error, status
+                ocr_text, candidate_codes, ocr_confidence, ocr_error, status, image_hash
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
             """,
             (
@@ -359,6 +361,7 @@ def save_technician_photo(
                 recognition["ocr_confidence"],
                 recognition["ocr_error"],
                 recognition["status"],
+                image_hash,
             ),
         )
         photo_id = cur.lastrowid

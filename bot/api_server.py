@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 MIN_AGE = 18
 from delivery_age import extract_work_no, parse_price_table, price_for_work_no
+from image_hash import ImageDeduper, ensure_columns as ensure_image_hash_columns
 from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 from visit_stats import ensure_table, record_visit, verify_init_data
 from movies import (
@@ -369,10 +370,13 @@ def build_delivery_posts(rows, categories=None):
                     "category": categories.get(row["id"]),
                     "age": None,
                     "media": [],
+                    "_hashes": [],
                 }
                 grouped[group_id] = post
                 posts.append(post)
             post["media"].insert(0, media)
+            if row.get("image_hash"):
+                post["_hashes"].append(row["image_hash"])
             post["age"] = _min_age(post["age"], row.get("age"))
             continue
         posts.append(
@@ -382,9 +386,60 @@ def build_delivery_posts(rows, categories=None):
                 "category": categories.get(row["id"]),
                 "age": row.get("age"),
                 "media": [media],
+                "_ocr": row.get("ocr_text"),
+                "_hashes": [row["image_hash"]] if row.get("image_hash") else [],
             }
         )
-    return posts
+    return dedupe_posts(posts)
+
+
+def _post_key(post):
+    text = "".join((post.get("description") or "").split())
+    if text:
+        return ("d", text, len(post["media"]))
+    ocr = "".join((post.get("_ocr") or "").split())
+    return ("o", ocr, len(post["media"])) if len(ocr) >= 12 else None
+
+
+def _dedupe_photos_by_hash(photos):
+    """相同图片(指纹相近)只留最早一张;无指纹的保留。"""
+    images = ImageDeduper()
+    kept = []
+    for photo in photos:
+        image_hash = photo.get("image_hash")
+        if image_hash and images.key_for(image_hash, photo["id"]) != photo["id"]:
+            continue
+        kept.append(photo)
+    return kept
+
+
+def dedupe_posts(posts):
+    """内容相同的帖子只留最新一条(rows 为倒序,先出现的最新)。先比图片指纹,再比文字。"""
+    seen = {}
+    images = ImageDeduper()
+    kept_by_id = {}
+    unique = []
+    for post in posts:
+        own = id(post)
+        original = None
+        for image_hash in post.get("_hashes", []):
+            key = images.key_for(image_hash, own)
+            if key != own:
+                original = kept_by_id.get(key)
+        key = _post_key(post)
+        if original is None and key is not None:
+            original = seen.get(key)
+            if original is None:
+                seen[key] = post
+        post.pop("_ocr", None)
+        post.pop("_hashes", None)
+        if original is not None:
+            if original.get("age") is None:
+                original["age"] = post.get("age")
+            continue
+        kept_by_id[own] = post
+        unique.append(post)
+    return unique
 
 
 def _min_age(current, new):
@@ -638,7 +693,8 @@ def webhook():
                 if venue["id"] in DELIVERY_VENUE_IDS:
                     cur.execute(
                         """
-                        SELECT id, message_id, media_group_id, media_type, caption, age, ocr_text
+                        SELECT id, message_id, media_group_id, media_type, caption, age, ocr_text,
+                               image_hash
                         FROM delivery_media
                         WHERE venue_id = %s
                               AND created_at >= %s AND created_at < %s
@@ -724,7 +780,7 @@ def webhook():
                         cur.execute(
                             """
                             SELECT id, technician_code, channel_id, msg_id,
-                                   ocr_text, file_id, status
+                                   ocr_text, file_id, status, image_hash
                             FROM technician_photos
                             WHERE venue_id = %s
                                   AND created_at >= %s AND created_at < %s
@@ -735,7 +791,7 @@ def webhook():
                     else:
                         cur.execute(
                             """
-                            SELECT id, technician_code, channel_id, msg_id, ocr_text
+                            SELECT id, technician_code, channel_id, msg_id, ocr_text, image_hash
                             FROM technician_photos p
                             WHERE venue_id = %s
                                   AND status = 'matched'
@@ -758,7 +814,7 @@ def webhook():
                                 shift_start, shift_end,
                             ),
                         )
-                    photos = cur.fetchall()
+                    photos = _dedupe_photos_by_hash(cur.fetchall())
                     underage_codes = (
                         _underage_technician_codes(photos)
                         if venue["id"] == 5
@@ -962,6 +1018,7 @@ def webhook():
 if __name__ == "__main__":
     ensure_table()
     ensure_movie_tables()
+    ensure_image_hash_columns()
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))
     logger.info("Starting API server on %s:%s", host, port)
