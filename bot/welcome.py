@@ -2,6 +2,7 @@ from urllib.parse import quote
 
 from telebot import types
 
+from admin import get_setting
 MINIAPP_URL = "https://t.me/haotianzhaopian_bot?startapp"
 CONTACT_URL = "https://t.me/haotian99988866"
 CHANNEL_URL = "https://t.me/haotianyl99988866"
@@ -86,6 +87,13 @@ SCREENS = {
 }
 
 
+def screen_text(name):
+    """活动文案可由管理员在后台修改,其余固定。"""
+    if name == "promo":
+        return get_setting("promo", PROMO_TEXT)
+    return SCREENS[name][0]
+
+
 def send_welcome(bot, chat_id):
     bot.send_message(
         chat_id,
@@ -114,7 +122,8 @@ def show_screen(bot, call):
     bot.answer_callback_query(call.id)
     if not screen:
         return
-    text, keyboard = screen
+    _, keyboard = screen
+    text = screen_text(name)
     try:
         bot.edit_message_text(
             text,

@@ -21,6 +21,15 @@ from technician_photo_ocr import (
     save_technician_photo,
 )
 from data_cleanup import start_cleanup_thread
+from admin import (
+    BROADCAST_CONTENT_TYPES,
+    PANEL_BUTTON,
+    ensure_tables as ensure_admin_tables,
+    handle_admin_callback,
+    handle_pending_message,
+    has_pending,
+    send_panel,
+)
 from subscribe import (
     ensure_tables as ensure_sub_tables,
     notify_attendance,
@@ -153,6 +162,40 @@ def handle_remind(message):
         parse_mode="HTML",
         reply_markup=sub_menu_keyboard(message.from_user.id),
     )
+
+
+# ===== 管理后台(仅管理员) =====
+def _is_admin_pending(message):
+    return message.from_user.id in admin_ids() and has_pending(message.from_user.id) and not (
+        message.text and message.text.startswith("/")
+    )
+
+
+@bot.message_handler(commands=['admin'], chat_types=['private'])
+def handle_admin(message):
+    if message.from_user.id in admin_ids():
+        send_panel(bot, message.chat.id, message.from_user.id, message.message_id)
+
+
+@bot.message_handler(
+    func=lambda m: m.text == PANEL_BUTTON and m.from_user.id in admin_ids(),
+    chat_types=['private'],
+)
+def handle_admin_button(message):
+    send_panel(bot, message.chat.id, message.from_user.id, message.message_id)
+
+
+@bot.callback_query_handler(func=lambda call: (call.data or "").startswith("adm:"))
+def handle_admin_cb(call):
+    if call.from_user.id in admin_ids():
+        handle_admin_callback(bot, call)
+
+
+@bot.message_handler(
+    func=_is_admin_pending, chat_types=['private'], content_types=BROADCAST_CONTENT_TYPES
+)
+def handle_admin_pending(message):
+    handle_pending_message(bot, message)
 
 
 # ===== 客人留言转发给管理员,管理员回复后发回客人 =====
@@ -570,5 +613,6 @@ if __name__ == "__main__":
     ensure_table()
     ensure_tables()
     ensure_sub_tables()
+    ensure_admin_tables()
     start_cleanup_thread()
     bot.infinity_polling()
