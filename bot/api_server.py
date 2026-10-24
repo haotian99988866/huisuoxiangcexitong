@@ -641,10 +641,11 @@ def webhook():
                         SELECT id, message_id, media_group_id, media_type, caption, age, ocr_text
                         FROM delivery_media
                         WHERE venue_id = %s
+                              AND created_at >= %s AND created_at < %s
                         ORDER BY message_id DESC
                         LIMIT 200
                         """,
-                        (venue["id"],),
+                        (venue["id"], shift_start, shift_end),
                     )
                     delivery_rows = cur.fetchall()
                     is_apple = venue["id"] == 10

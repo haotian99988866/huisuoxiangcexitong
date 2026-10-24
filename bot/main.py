@@ -22,6 +22,12 @@ from technician_photo_ocr import (
 )
 from data_cleanup import start_cleanup_thread
 from movies import ensure_tables as ensure_movie_tables, save_movie_message
+from publisher import (
+    handle_publisher_command,
+    handle_video as publish_video,
+    publisher_ids,
+    video_media,
+)
 from footer import ensure_tables as ensure_footer_tables, post_footer, schedule_footer
 from admin import (
     BROADCAST_CONTENT_TYPES,
@@ -200,6 +206,29 @@ def handle_admin_pending(message):
     handle_pending_message(bot, message)
 
 
+# ===== 代发:管理员私聊发视频,整理说明后发到观影频道 =====
+def _is_admin_video(message):
+    return (
+        (message.from_user.id in admin_ids() or message.from_user.id in publisher_ids())
+        and message.reply_to_message is None
+        and not has_pending(message.from_user.id)
+        and video_media(message) is not None
+    )
+
+
+@bot.message_handler(commands=['publisher'], chat_types=['private'])
+def handle_publisher(message):
+    if message.from_user.id in admin_ids():
+        handle_publisher_command(bot, message)
+
+
+@bot.message_handler(
+    func=_is_admin_video, chat_types=['private'], content_types=['video', 'document']
+)
+def handle_admin_video(message):
+    publish_video(bot, message)
+
+
 # ===== 客人留言转发给管理员,管理员回复后发回客人 =====
 @bot.message_handler(commands=['users'], chat_types=['private'])
 def handle_users(message):
@@ -284,6 +313,8 @@ def handle_photo_message(message):
         return
 
     save_delivery_media(message)
+    if get_venue_config(message.chat.id):
+        schedule_footer(bot, message.chat.id)
     if venue_config["venue_id"] in DELIVERY_VENUE_IDS:
         return
 
@@ -403,6 +434,8 @@ def handle_attendance_text(message):
 
     # 只处理包含出勤关键词的消息
     if not any(keyword in text for keyword in ['出勤', '按摩部', '技师', '白班']):
+        if get_venue_config(message.chat.id):
+            schedule_footer(bot, message.chat.id)
         return
 
     print(f"\n=== 收到出勤公告 ===")
@@ -462,11 +495,7 @@ def handle_other_channel_post(message):
     save_ktv_video(message)
     save_delivery_media(message)
     venue_config = get_venue_config(message.chat.id)
-    if (
-        venue_config
-        and venue_config["venue_id"] in DELIVERY_VENUE_IDS
-        and (message.photo or message.video)
-    ):
+    if venue_config and (message.photo or message.video):
         schedule_footer(bot, message.chat.id)
 
 
