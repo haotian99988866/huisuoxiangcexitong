@@ -102,6 +102,51 @@ def _parse_delimited_plate_groups(text):
     return groups, list(dict.fromkeys(roster_codes))
 
 
+DAY_SHIFT_CODE_PATTERN = re.compile(r"(?<!\d)(\d+)\s*[～~]+\s*(\d{2,4})(?!\d)")
+DATE_PATTERN = re.compile(
+    r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})\s*日|(\d{4})-(\d{1,2})-(\d{1,2})"
+)
+
+
+def parse_day_shift_text(text):
+    """解析白班名单,如“🎀9～～～962🇨🇳15.50下”,工号取“～～～”后的数字。"""
+    if not re.search(r"白班", text) or re.search(r"(早班|晚班)\s*出勤", text):
+        return None
+    plate_groups = {}
+    for match in DAY_SHIFT_CODE_PATTERN.finditer(text):
+        plate_groups.setdefault(f"{match.group(1)}号牌", [])
+        if match.group(2) not in plate_groups[f"{match.group(1)}号牌"]:
+            plate_groups[f"{match.group(1)}号牌"].append(match.group(2))
+    codes = list(dict.fromkeys(c for cs in plate_groups.values() for c in cs))
+    if not codes:
+        return None
+
+    duty_date = None
+    date_match = DATE_PATTERN.search(text)
+    if date_match:
+        parts = date_match.groups()
+        year, month, day = map(int, parts[:3] if parts[0] else parts[3:])
+        try:
+            duty_date = date(year, month, day)
+        except ValueError:
+            pass
+
+    return {
+        "duty_date": duty_date,
+        "duty_shift": "白班",
+        "codes": codes,
+        "service_codes": {},
+        "attendance_groups": [
+            {
+                "group_type": "roster",
+                "group_name": name,
+                "technician_codes": group_codes,
+            }
+            for name, group_codes in plate_groups.items()
+        ],
+    }
+
+
 def get_db_connection():
     return pymysql.connect(
         host=os.getenv("DB_HOST", "127.0.0.1"),
@@ -115,6 +160,9 @@ def get_db_connection():
 
 
 def parse_attendance_text(text):
+    day_shift = parse_day_shift_text(text)
+    if day_shift:
+        return day_shift
     result = {
         "duty_date": None,
         "duty_shift": "晚班",
@@ -180,6 +228,9 @@ def parse_attendance_text(text):
 
 
 def parse_plate_attendance_text(text):
+    day_shift = parse_day_shift_text(text)
+    if day_shift:
+        return day_shift
     result = {
         "duty_date": None,
         "duty_shift": "实时出勤",

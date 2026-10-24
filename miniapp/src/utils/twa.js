@@ -37,6 +37,17 @@ export function subscribeFullscreen(callback) {
   }
 }
 
+export function trackVisit() {
+  const initData = window.Telegram?.WebApp?.initData
+  if (!initData) return
+  fetch(`${API_BASE_URL}/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'track_visit', init_data: initData }),
+    keepalive: true
+  }).catch(() => {})
+}
+
 export function sendData(data) {
   fetch(`${API_BASE_URL}/webhook`, {
     method: 'POST',

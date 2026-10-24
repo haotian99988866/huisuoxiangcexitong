@@ -21,6 +21,8 @@ from technician_photo_ocr import (
     save_technician_photo,
 )
 from data_cleanup import start_cleanup_thread
+from welcome import send_welcome
+from visit_stats import admin_ids, ensure_table, format_stats
 from delivery_age import extract_age, ocr_image_text
 
 load_dotenv()
@@ -99,6 +101,32 @@ def parse_caption(caption):
     tags = [normalize_tag(t) for t in tags]
     text_without_tags = re.sub(hashtag_pattern, '', caption).strip()
     return tags, text_without_tags
+
+# ===== 客人私聊机器人时发送欢迎信息 =====
+@bot.message_handler(commands=['start', 'help'], chat_types=['private'])
+def handle_start(message):
+    send_welcome(bot, message.chat.id)
+
+
+# ===== 访问统计:仅管理员可查看 =====
+@bot.message_handler(commands=['myid'], chat_types=['private'])
+def handle_myid(message):
+    bot.send_message(message.chat.id, f"你的 Telegram ID：{message.from_user.id}")
+
+
+@bot.message_handler(commands=['stats'], chat_types=['private'])
+def handle_stats(message):
+    admins = admin_ids()
+    if message.from_user.id not in admins:
+        if not admins:
+            bot.send_message(
+                message.chat.id,
+                f"尚未设置管理员。你的 ID 是 {message.from_user.id}，"
+                "请把它填到 bot/.env 的 ADMIN_USER_IDS 后重启机器人。",
+            )
+        return
+    bot.send_message(message.chat.id, format_stats())
+
 
 # ===== 处理照片消息（更新封面） =====
 @bot.message_handler(content_types=['photo'])
@@ -234,7 +262,7 @@ def handle_attendance_text(message):
     text = message.text or message.caption or ""
 
     # 只处理包含出勤关键词的消息
-    if not any(keyword in text for keyword in ['出勤', '按摩部', '技师']):
+    if not any(keyword in text for keyword in ['出勤', '按摩部', '技师', '白班']):
         return
 
     print(f"\n=== 收到出勤公告 ===")
@@ -438,5 +466,6 @@ def save_ktv_video(message):
 if __name__ == "__main__":
     print("🤖 机器人启动 — 监听会所频道模式")
     print(f"📋 已监听 {len(LISTEN_CHANNELS)} 个频道")
+    ensure_table()
     start_cleanup_thread()
     bot.infinity_polling()

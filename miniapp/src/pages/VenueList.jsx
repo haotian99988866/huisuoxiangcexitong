@@ -232,6 +232,12 @@ const technicianGridStyle = {
   gap: '8px'
 }
 
+const roomyTechnicianGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, 1fr)',
+  gap: '12px'
+}
+
 const mingxiBoardPrices = [
   { board: '1号牌', member: 269, half: 139 },
   { board: '2号牌', member: 299, half: 149 },
@@ -391,6 +397,9 @@ export default function VenueList() {
     ? deliveryCategories.reduce((sum, venue) => sum + (venue.delivery_posts || []).length, 0)
     : selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
+  const rosterGridStyle = technicianList.length <= 9
+    ? roomyTechnicianGridStyle
+    : technicianGridStyle
   const currentShift = selectedVenue?.current_shift || null
   const isDeliveryDayShift = deliveryCategories.length > 0 && currentShift === '白班'
   const dutyShiftToday = currentShift || selectedVenue?.duty_shift_today
@@ -1492,13 +1501,13 @@ export default function VenueList() {
                         )
                       })()}
                     </h4>
-                    <div style={technicianGridStyle}>
+                    <div style={rosterGridStyle}>
                       {group.technician_codes.map(renderTechnicianTile)}
                     </div>
                   </div>
                 ))
               ) : (
-                <div style={technicianGridStyle}>
+                <div style={rosterGridStyle}>
                   {technicianList.map(renderTechnicianTile)}
                 </div>
               )}
@@ -1564,6 +1573,25 @@ export default function VenueList() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {technicianList.length > 0 && ['1', '2'].includes(String(selectedVenue.id)) && (
+            <div style={{
+              marginTop: '4px',
+              padding: '18px 16px',
+              borderRadius: '16px',
+              background: 'linear-gradient(145deg, #fffdf8, #f6ecdb)',
+              border: '1px solid rgba(158, 132, 101, 0.22)',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: '#80643c' }}>
+                ✨ 想了解更多技师？
+              </div>
+              <p style={{ margin: '8px 0 12px', fontSize: '13px', lineHeight: 1.7, color: '#8a7a64' }}>
+                点击技师工号可查看照片与详细资料，
+                <br />名单会随频道实时更新，也可联系昊天预约。
+              </p>
+              <ContactButton />
             </div>
           )}
         </div>

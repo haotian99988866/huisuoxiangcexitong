@@ -16,6 +16,7 @@ from urllib.parse import quote
 MIN_AGE = 18
 from delivery_age import extract_work_no, parse_price_table, price_for_work_no
 from duty_shift import SHIFT_VENUE_IDS, current_shift_window
+from visit_stats import ensure_table, record_visit, verify_init_data
 from technician_photo_ocr import (
     extract_labeled_technician_code,
     extract_technician_category,
@@ -522,6 +523,17 @@ def webhook():
         return jsonify({"error": "Request body must be a JSON object"}), 400
 
     action = data.get("action")
+    if action == "track_visit":
+        try:
+            user = verify_init_data(
+                data.get("init_data"), os.getenv("TELEGRAM_BOT_TOKEN")
+            )
+            if user:
+                record_visit(user)
+        except Exception:
+            logger.exception("记录访问失败")
+        return jsonify({"ok": True})
+
     if action not in {"get_venues", "get_venue_detail", "get_technicians"}:
         return jsonify({"error": "Unknown action"}), 400
 
@@ -915,6 +927,7 @@ def webhook():
 
 
 if __name__ == "__main__":
+    ensure_table()
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))
     logger.info("Starting API server on %s:%s", host, port)

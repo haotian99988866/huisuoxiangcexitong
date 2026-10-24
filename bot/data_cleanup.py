@@ -3,6 +3,7 @@ import threading
 import time
 
 from db import get_conn
+from visit_stats import delete_old_visits
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ def cleanup_expired_data(retention_hours=RETENTION_HOURS):
         conn.commit()
     finally:
         conn.close()
+    deleted["page_visits"] = delete_old_visits()
     return deleted
 
 
