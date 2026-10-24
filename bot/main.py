@@ -21,7 +21,7 @@ from technician_photo_ocr import (
     save_technician_photo,
 )
 from data_cleanup import start_cleanup_thread
-from welcome import send_welcome
+from welcome import send_help, send_welcome, show_screen
 from visit_stats import admin_ids, ensure_table, format_stats
 from delivery_age import extract_age, ocr_image_text
 
@@ -103,9 +103,19 @@ def parse_caption(caption):
     return tags, text_without_tags
 
 # ===== 客人私聊机器人时发送欢迎信息 =====
-@bot.message_handler(commands=['start', 'help'], chat_types=['private'])
+@bot.message_handler(commands=['start'], chat_types=['private'])
 def handle_start(message):
     send_welcome(bot, message.chat.id)
+
+
+@bot.message_handler(commands=['help'], chat_types=['private'])
+def handle_help(message):
+    send_help(bot, message.chat.id)
+
+
+@bot.callback_query_handler(func=lambda call: (call.data or "").startswith("menu:"))
+def handle_menu_callback(call):
+    show_screen(bot, call)
 
 
 # ===== 访问统计:仅管理员可查看 =====
