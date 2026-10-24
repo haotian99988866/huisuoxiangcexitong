@@ -1,0 +1,15 @@
+[Unit]
+Description=Club mini app API
+After=network.target mysql.service
+Requires=mysql.service
+
+[Service]
+User=clubapp
+WorkingDirectory=/opt/clubapp/bot
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=/opt/clubapp/bot/venv/bin/python api_server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

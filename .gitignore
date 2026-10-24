@@ -22,3 +22,5 @@ miniapp/.vite
 # OS
 .DS_Store
 Thumbs.db
+# Deploy
+deploy/*.sql

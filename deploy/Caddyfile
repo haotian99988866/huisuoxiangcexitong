@@ -1,0 +1,14 @@
+__DOMAIN__ {
+	encode gzip
+
+	# /api/xxx 去掉前缀后转给后端，与前端开发代理行为一致
+	handle_path /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		root * /opt/clubapp/miniapp/dist
+		try_files {path} /index.html
+		file_server
+	}
+}
