@@ -21,6 +21,7 @@ from technician_photo_ocr import (
     save_technician_photo,
 )
 from data_cleanup import start_cleanup_thread
+from footer import ensure_tables as ensure_footer_tables, post_footer, schedule_footer
 from admin import (
     BROADCAST_CONTENT_TYPES,
     PANEL_BUTTON,
@@ -394,6 +395,8 @@ def handle_attendance_text(message):
     record_channel_activity(message)
     save_ktv_text(message)
     if save_delivery_text(message):
+        if message.text and get_venue_config(message.chat.id):
+            schedule_footer(bot, message.chat.id)
         return
     text = message.text or message.caption or ""
 
@@ -441,6 +444,8 @@ def handle_attendance_text(message):
     # 回复确认
     confirmation = bot.send_message(message.chat.id, msg)
     record_channel_activity(confirmation)
+    if ok:
+        post_footer(bot, message.chat.id)
 
 
 @bot.channel_post_handler(
@@ -452,6 +457,13 @@ def handle_other_channel_post(message):
     record_channel_activity(message)
     save_ktv_video(message)
     save_delivery_media(message)
+    venue_config = get_venue_config(message.chat.id)
+    if (
+        venue_config
+        and venue_config["venue_id"] in DELIVERY_VENUE_IDS
+        and (message.photo or message.video)
+    ):
+        schedule_footer(bot, message.chat.id)
 
 
 DELIVERY_VENUE_IDS = {7, 8, 9, 10}
@@ -614,5 +626,6 @@ if __name__ == "__main__":
     ensure_tables()
     ensure_sub_tables()
     ensure_admin_tables()
+    ensure_footer_tables()
     start_cleanup_thread()
     bot.infinity_polling()
