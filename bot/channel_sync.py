@@ -20,6 +20,19 @@ from channel_sync_clean import clean_text, is_advertisement
 logger = logging.getLogger("channel_sync")
 CONFIG_PATH = Path(__file__).with_name(".channel-sync.env")
 
+def split_telegram_text(text, limit=4096):
+    chunks = []
+    start = units = 0
+    for index, character in enumerate(text):
+        size = 2 if ord(character) > 0xFFFF else 1
+        if units + size > limit:
+            chunks.append(text[start:index])
+            start, units = index, 0
+        units += size
+    if start < len(text):
+        chunks.append(text[start:])
+    return chunks
+
 
 def state_directory():
     base = Path(os.environ.get("LOCALAPPDATA", Path.home()))
@@ -236,6 +249,12 @@ async def deliver(user, bot, source, target, store, job, directory):
         store.update(job, "skipped", error="No text remains after contact cleanup.")
         logger.info("Skipped empty job %s", job["job_key"])
         return
+    long_caption = any(len(text.encode("utf-16-le")) // 2 > 1024 for text in captions)
+    # Bot accounts have a smaller caption limit than premium source-channel authors.
+    text_parts = split_telegram_text("\n\n".join(text for text in captions if text)) if (
+        long_caption or not media_messages
+    ) else []
+    media_captions = [""] * len(captions) if long_caption else captions
     with tempfile.TemporaryDirectory(prefix="media-", dir=directory) as temporary:
         paths = []
         for message in media_messages:
@@ -244,22 +263,28 @@ async def deliver(user, bot, source, target, store, job, directory):
                 raise ValueError("Media download did not produce a file.")
             paths.append(path)
         store.update(job, "sending")
+        result_ids = []
         if paths:
             if len(paths) == 1:
                 message = media_messages[0]
                 attributes = message.document.attributes if message.document else None
                 sent = await bot.send_file(
-                    target, paths[0], caption=captions[0], parse_mode=None,
+                    target, paths[0], caption=media_captions[0], parse_mode=None,
                     attributes=attributes, force_document=bool(
                         message.document and not (message.video or message.audio or message.gif)
                     ), supports_streaming=bool(message.video),
                 )
             else:
-                sent = await bot.send_file(target, paths, caption=captions, parse_mode=None)
-        else:
-            sent = await bot.send_message(target, captions[0], parse_mode=None, link_preview=False)
-        sent = sent if isinstance(sent, list) else [sent]
-        store.update(job, "sent", result_ids=[message.id for message in sent])
+                sent = await bot.send_file(target, paths, caption=media_captions, parse_mode=None)
+            sent = sent if isinstance(sent, list) else [sent]
+            result_ids.extend(message.id for message in sent)
+            store.update(job, "sending", result_ids=result_ids)
+        for text in text_parts:
+            options = {"reply_to": result_ids[0]} if paths else {}
+            sent = await bot.send_message(target, text, parse_mode=None, link_preview=False, **options)
+            result_ids.append(sent.id)
+            store.update(job, "sending", result_ids=result_ids)
+        store.update(job, "sent", result_ids=result_ids)
         logger.info("Published source message(s) %s", job["job_key"])
 
 
@@ -272,16 +297,24 @@ async def worker(user, bot, source, target, store, directory):
         try:
             await deliver(user, bot, source, target, store, job, directory)
         except errors.FloodWaitError as error:
-            store.update(job, "queued", error="Telegram rate limit; waiting.")
+            row = store.connection.execute(
+                "SELECT result_ids FROM jobs WHERE source=? AND target=? AND job_key=?",
+                (job["source"], job["target"], job["job_key"]),
+            ).fetchone()
+            partial = json.loads(row["result_ids"] or "[]")
+            store.update(job, "uncertain" if partial else "queued", result_ids=partial or None,
+                         error="Telegram rate limit after partial send; inspect before retrying."
+                         if partial else "Telegram rate limit; waiting.")
             logger.warning("Rate limited; waiting %s seconds for job %s", error.seconds, job["job_key"])
             await asyncio.sleep(error.seconds + 1)
         except Exception as error:
             row = store.connection.execute(
-                "SELECT status FROM jobs WHERE source=? AND target=? AND job_key=?",
+                "SELECT status,result_ids FROM jobs WHERE source=? AND target=? AND job_key=?",
                 (job["source"], job["target"], job["job_key"]),
             ).fetchone()
             status = "uncertain" if row["status"] == "sending" else "failed"
-            store.update(job, status, error=type(error).__name__)
+            store.update(job, status, result_ids=json.loads(row["result_ids"] or "[]") or None,
+                         error=type(error).__name__)
             logger.exception("Job %s is %s; inspect before retrying", job["job_key"], status)
 
 

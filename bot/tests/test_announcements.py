@@ -186,6 +186,21 @@ class AnnouncementIndexTests(unittest.IsolatedAsyncioTestCase):
         self.bot.send_message.assert_not_awaited()
         self.bot.send_file.assert_not_awaited()
 
+    async def test_media_and_long_text_reply_index_as_one_complete_announcement(self):
+        body = "完整新闻正文" * 300
+        self.bot.get_messages.return_value = [self.message(100, photo=True), self.message(101, body)]
+        (self.directory / "2-100.jpg").write_bytes(b"jpg")
+        with patch("announcements.local_media_path", side_effect=lambda name: self.directory / name), \
+                patch("announcements.save") as save:
+            await index_announcement(self.bot, self.target, {
+                "result_ids": "[100,101]", "job_key": "10",
+            }, "2:10")
+        save.assert_called_once()
+        self.assertEqual(save.call_args.args[:3], ("2:10", [100, 101], body))
+        self.assertEqual(len(save.call_args.args[3]), 1)
+        self.bot.send_file.assert_not_awaited()
+        self.bot.send_message.assert_not_awaited()
+
     async def test_missing_target_messages_not_indexed(self):
         self.bot.get_messages.return_value = [None]
         with patch("announcements.save") as save, self.assertRaises(ValueError):

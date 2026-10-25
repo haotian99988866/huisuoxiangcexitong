@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from telethon import types
+from telethon import types, errors
 
-from channel_sync import JobStore, deliver, enqueue_new_messages, reconcile_messages, single_instance
+from channel_sync import JobStore, deliver, enqueue_new_messages, reconcile_messages, single_instance, split_telegram_text, worker
 from channel_sync_clean import clean_text, is_advertisement
 
 
@@ -265,6 +265,79 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         await self.publish([self.message("@contact", types.MessageMediaPhoto())])
         self.assertEqual(self.bot.send_file.await_args.kwargs["caption"], "")
         self.assertEqual(self.status(), "sent")
+
+    async def test_long_caption_publishes_media_and_full_text_as_one_indexable_job(self):
+        text = "新闻正文" * 400
+        self.user.download_media.return_value = "one.jpg"
+        await self.publish([self.message(text, types.MessageMediaPhoto())])
+        self.assertEqual(self.bot.send_file.await_args.kwargs["caption"], "")
+        self.bot.send_message.assert_awaited_once_with(
+            self.target, text, parse_mode=None, link_preview=False, reply_to=101,
+        )
+        import json
+        row = self.store.connection.execute("SELECT status,result_ids FROM jobs").fetchone()
+        self.assertEqual(row["status"], "sent")
+        self.assertEqual(json.loads(row["result_ids"]), [101, 100])
+
+    async def test_album_long_caption_keeps_text_order_and_all_media(self):
+        first, second = "甲" * 1025, "第二张正文"
+        self.user.download_media.side_effect = ["one.jpg", "two.jpg"]
+        self.bot.send_file.return_value = [SimpleNamespace(id=101), SimpleNamespace(id=102)]
+        photo = types.MessageMediaPhoto()
+        await self.publish([self.message(first, photo), self.message(second, photo)], (10, 11))
+        self.assertEqual(self.bot.send_file.await_args.kwargs["caption"], ["", ""])
+        self.assertEqual(self.bot.send_message.await_args.args[1], first + "\n\n" + second)
+
+    async def test_caption_utf16_boundary_and_long_plain_text(self):
+        for text in ["文" * 1024, "🎵" * 512]:
+            with self.subTest(text_length=len(text)):
+                self.user.get_messages.return_value = [self.message(text, types.MessageMediaPhoto())]
+                self.user.download_media.return_value = "one.jpg"
+                job = self.job((len(text),))
+                await deliver(self.user, self.bot, self.source, self.target, self.store, job, self.directory)
+                self.assertEqual(self.bot.send_file.await_args.kwargs["caption"], text)
+        text = "🎵" * 3000 + "结尾"
+        parts = split_telegram_text(text)
+        self.assertEqual("".join(parts), text)
+        self.assertTrue(all(len(part.encode("utf-16-le")) // 2 <= 4096 for part in parts))
+        self.user.get_messages.return_value = [self.message(text)]
+        job = self.job((20000,))
+        await deliver(self.user, self.bot, self.source, self.target, self.store, job, self.directory)
+        self.assertEqual([call.args[1] for call in self.bot.send_message.await_args_list], parts)
+
+    async def test_partial_send_failure_retains_media_ids_for_manual_recovery(self):
+        self.user.download_media.return_value = "one.jpg"
+        self.bot.send_message.side_effect = ConnectionError("disconnected")
+        with self.assertRaises(ConnectionError):
+            await self.publish([self.message("文" * 1025, types.MessageMediaPhoto())])
+        self.store.recover()
+        row = self.store.connection.execute("SELECT status,result_ids FROM jobs").fetchone()
+        self.assertEqual(row["status"], "uncertain")
+        self.assertEqual(row["result_ids"], "[101]")
+
+    async def test_rate_limit_after_media_does_not_requeue_or_erase_partial_result(self):
+        self.job()
+        self.user.get_messages.return_value = [self.message("文" * 1025, types.MessageMediaPhoto())]
+        self.user.download_media.return_value = "one.jpg"
+        self.bot.send_message.side_effect = errors.FloodWaitError(request=None, capture=2)
+        with patch("channel_sync.asyncio.sleep", side_effect=RuntimeError("stop worker")):
+            with self.assertRaisesRegex(RuntimeError, "stop worker"):
+                await worker(self.user, self.bot, self.source, self.target, self.store, self.directory)
+        row = self.store.connection.execute("SELECT status,result_ids FROM jobs").fetchone()
+        self.assertEqual((row["status"], row["result_ids"]), ("uncertain", "[101]"))
+        self.assertIsNone(self.store.next(1, "2"))
+
+    async def test_connection_error_after_media_keeps_result_in_worker(self):
+        self.job()
+        self.user.get_messages.return_value = [self.message("文" * 1025, types.MessageMediaPhoto())]
+        self.user.download_media.return_value = "one.jpg"
+        self.bot.send_message.side_effect = ConnectionError("offline")
+        with patch("channel_sync.asyncio.sleep", side_effect=RuntimeError("stop worker")), \
+                patch("channel_sync.logger.exception"):
+            with self.assertRaisesRegex(RuntimeError, "stop worker"):
+                await worker(self.user, self.bot, self.source, self.target, self.store, self.directory)
+        row = self.store.connection.execute("SELECT status,result_ids,error FROM jobs").fetchone()
+        self.assertEqual(tuple(row), ("uncertain", "[101]", "ConnectionError"))
 
     async def test_video_attributes_preserved(self):
         message = self.message("视频正文", types.MessageMediaDocument())
