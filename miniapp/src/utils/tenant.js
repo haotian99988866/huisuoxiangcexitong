@@ -35,6 +35,8 @@ export function setTenant(config) {
 }
 
 export const getTenant = () => tenant
+export const hasDeliveryAccess = () => Boolean(tenant?.venue_ids.some(id => [7, 8, 9, 10].includes(id)))
+export const hasVenueAccess = () => Boolean(tenant?.venue_ids.some(id => [1, 2, 3, 4, 5, 6].includes(id)))
 export const isTenantEntry = () => slug !== null
 export const tenantHeaders = () => slug !== null ? { 'X-Tenant': slug } : {}
 
@@ -55,5 +57,5 @@ export function mediaUrl(href) {
 export const contactName = () => tenant?.contact_name || '昊天'
 export const contactUrl = () => `https://t.me/${tenant?.contact_username || 'haotian99988866'}`
 export const announcementText = () => tenant
-  ? `${tenant.brand_name} · 会所与观影信息服务`
+  ? `${tenant.brand_name} · ${hasDeliveryAccess() ? '会所、外送与观影' : '会所与观影'}信息服务`
   : '充值模块开发中，商品购买暂未开放'

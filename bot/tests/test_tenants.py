@@ -27,13 +27,61 @@ class TenantTests(unittest.TestCase):
         validate_config(draft)
         for fields in [
             {"slug": ""}, {"slug": "../shop"}, {"brand_name": ""},
-            {"contact_username": "https://t.me/test"}, {"venue_ids": [7]},
+            {"contact_username": "https://t.me/test"}, {"venue_ids": [11]},
             {"venue_ids": [True]}, {"venue_ids": []}, {"status": "unknown"}, {"status": []},
             {"expires_at": None}, {"expires_at": datetime(2000, 1, 1)},
             {"expires_at": datetime.now(timezone.utc)},
         ]:
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 validate_config({**config(), **fields})
+
+    def test_delivery_permissions_are_explicit_and_audited(self):
+        validate_config({**config(), "venue_ids": [7, 10]})
+        conn = self.connection(config())
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchall.return_value = [{"id": 3}, {"id": 7}]
+        with patch("tenants.get_conn", return_value=conn):
+            save_tenant({**config(), "venue_ids": [3, 7]}, create=False)
+        self.assertIn('"venue_ids": [3, 7]', cur.execute.call_args.args[1][-1])
+        conn.commit.assert_called_once()
+
+    def test_delivery_media_scoped_before_download(self):
+        client = api_server.app.test_client()
+        for venue_id, expected in ((7, 200), (8, 403), (None, 403)):
+            conn = MagicMock()
+            cur = conn.cursor.return_value.__enter__.return_value
+            cur.fetchone.side_effect = [
+                {"venue_id": venue_id} if venue_id else None,
+                {"file_id": "test-file", "media_type": "photo"},
+            ]
+            with self.subTest(venue_id=venue_id), \
+                    patch.object(api_server, "load_tenant", return_value={**config(), "venue_ids": [3, 7]}), \
+                    patch.object(api_server, "get_db_connection", return_value=conn), \
+                    patch.object(api_server, "_telegram_image", return_value=("image", 200)) as image:
+                response = client.get("/delivery-media/1?tenant=test-shop")
+                self.assertEqual(response.status_code, expected)
+                if expected == 200:
+                    image.assert_called_once_with("test-file")
+                else:
+                    image.assert_not_called()
+
+    def test_authorized_delivery_video_and_revoked_access(self):
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value.fetchone.side_effect = [
+            {"venue_id": 10}, {"file_id": "video-file", "media_type": "video"},
+        ]
+        client = api_server.app.test_client()
+        with patch.object(api_server, "load_tenant", return_value={**config(), "venue_ids": [10]}), \
+                patch.object(api_server, "get_db_connection", return_value=conn), \
+                patch.object(api_server, "_proxy_telegram_media", return_value=("video", 200)) as proxy:
+            self.assertEqual(client.get("/delivery-media/1?tenant=test-shop").status_code, 200)
+            proxy.assert_called_once_with("video-file")
+        with patch.object(api_server, "load_tenant", return_value=config()), \
+                patch.object(api_server, "get_db_connection") as db, \
+                patch.object(api_server, "_proxy_telegram_media") as proxy:
+            self.assertEqual(client.get("/delivery-media/1?tenant=test-shop").status_code, 403)
+            db.assert_not_called()
+            proxy.assert_not_called()
 
     def test_missing_suspended_draft_expired_cannot_load(self):
         for row in [None, {**config(), "status": "draft"},

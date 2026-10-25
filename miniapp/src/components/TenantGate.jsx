@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { API_BASE_URL, bindBackButton, closeMiniApp, trackVisit } from '../utils/twa'
-import { getTenant, initializeTenant, setTenant, tenantHeaders, tenantPath } from '../utils/tenant'
+import { getTenant, hasDeliveryAccess, hasVenueAccess, initializeTenant, setTenant, tenantHeaders, tenantPath } from '../utils/tenant'
 
 export default function TenantGate({ children }) {
   const [state, setState] = useState({ loading: true, error: '' })
@@ -67,9 +67,10 @@ export default function TenantGate({ children }) {
     </main>
   )
   const config = getTenant()
+  const module = new URLSearchParams(location.search).get('module')
   if (config && (!['/', '/movies'].includes(location.pathname) ||
-      (location.pathname === '/' && new URLSearchParams(location.search).get('module') === 'delivery'))) {
-    return <Navigate to={tenantPath('/?module=venue')} replace />
+      (location.pathname === '/' && (module === 'delivery' ? !hasDeliveryAccess() : !hasVenueAccess())))) {
+    return <Navigate to={tenantPath(hasVenueAccess() ? '/?module=venue' : '/?module=delivery')} replace />
   }
   return children
 }

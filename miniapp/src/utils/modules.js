@@ -1,4 +1,4 @@
-import { contactName, contactUrl, getTenant } from './tenant'
+import { contactName, contactUrl, getTenant, hasDeliveryAccess, hasVenueAccess } from './tenant'
 
 export const moduleGroups = [
   { key: 'content', label: '常用内容' },
@@ -18,7 +18,9 @@ export const modules = [
 
 export function displayModules() {
   if (!getTenant()) return modules.filter(item => !item.adminOnly)
-  return modules.filter(item => ['venue', 'movies', 'contact'].includes(item.key)).map(item => (
+  return modules.filter(item => ['movies', 'contact'].includes(item.key) ||
+    (item.key === 'venue' && hasVenueAccess()) ||
+    (item.key === 'delivery' && hasDeliveryAccess())).map(item => (
     item.key === 'contact' ? { ...item, label: `联系${contactName()}`, url: contactUrl() } : item
   ))
 }

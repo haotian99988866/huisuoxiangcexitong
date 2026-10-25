@@ -126,9 +126,13 @@ def tenant_context():
             if venue_id not in g.tenant["venue_ids"]:
                 return jsonify({"error": "此入口未开放该会所"}), 403
     elif request.endpoint in {"technician_photo_image", "ktv_video", "delivery_media"}:
-        if request.endpoint == "delivery_media":
+        if request.endpoint == "delivery_media" and not DELIVERY_VENUE_IDS.intersection(g.tenant["venue_ids"]):
             return jsonify({"error": "此入口未开放外送"}), 403
-        table, field = ("technician_photos", "photo_id") if request.endpoint == "technician_photo_image" else ("ktv_room_videos", "video_id")
+        table, field = {
+            "technician_photo_image": ("technician_photos", "photo_id"),
+            "ktv_video": ("ktv_room_videos", "video_id"),
+            "delivery_media": ("delivery_media", "media_id"),
+        }[request.endpoint]
         conn = None
         try:
             conn = get_db_connection()

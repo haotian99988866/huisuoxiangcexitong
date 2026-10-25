@@ -45,7 +45,7 @@ def dashboard():
             cur.execute("SELECT * FROM display_tenants ORDER BY created_at DESC, slug LIMIT 201")
             rows = cur.fetchall()
             cur.execute(
-                "SELECT id,name FROM venues WHERE status='active' AND id IN (1,2,3,4,5,6) ORDER BY id"
+                "SELECT id,name FROM venues WHERE status='active' AND id IN (1,2,3,4,5,6,7,8,9,10) ORDER BY id"
             )
             venues = cur.fetchall()
             cur.execute("SELECT COUNT(*) AS count FROM wallet_deposits WHERE status='pending'")

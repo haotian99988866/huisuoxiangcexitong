@@ -79,7 +79,7 @@ export default function Admin() {
     setError('')
     try {
       const value = editor.values
-      if (!value.venue_ids.length) throw new Error('请至少选择一个会所')
+      if (!value.venue_ids.length) throw new Error('请至少选择一个会所或外送项目')
       const expires_at = editor.original && value.expires_at === localDateInput(editor.original.expires_at)
         ? editor.original.expires_at : utcExpiry(value.expires_at)
       if (value.status === 'active' && (!expires_at || new Date(expires_at) <= new Date())) {
@@ -172,7 +172,7 @@ export default function Admin() {
               <div className="admin-header"><h3>{row.brand_name}</h3><span>{labels[row.effective_status]}</span></div>
               <p>{row.slug} · @{row.contact_username}</p>
               <p>到期：{formatDate(row.expires_at)}</p>
-              <p>会所：{row.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || `会所 ${id}`).join('、')}</p>
+              <p>展示项目：{row.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || `项目 ${id}`).join('、')}</p>
               <div className="admin-actions">
                 <button type="button" disabled={saving || loading} onClick={() => edit(row)}>编辑 / 续期 / 暂停</button>
                 <button type="button" disabled={saving} onClick={() => copy(row.slug)}>复制入口</button>
@@ -192,15 +192,19 @@ export default function Admin() {
                 <label>品牌名称<input required maxLength={80} value={editor.values.brand_name} onChange={event => field('brand_name', event.target.value)} /></label>
                 <label>联系名称<input required maxLength={40} value={editor.values.contact_name} onChange={event => field('contact_name', event.target.value)} /></label>
                 <label>Telegram 联系用户名<input required maxLength={33} value={editor.values.contact_username} onChange={event => field('contact_username', event.target.value)} placeholder="不含 @，也可粘贴 @用户名" /></label>
-                <fieldset><legend>展示会所</legend>
-                  {data.venues.map(venue => (
+                {[{ title: '会所权限', delivery: false }, { title: '外送权限（默认关闭，按需勾选）', delivery: true }].map(group => (
+                <fieldset key={group.title}><legend>{group.title}</legend>
+                  {data.venues.filter(venue => (venue.id >= 7) === group.delivery).map(venue => (
                     <label key={venue.id} className="admin-check"><input type="checkbox" checked={editor.values.venue_ids.includes(venue.id)}
                       onChange={event => field('venue_ids', event.target.checked ? [...editor.values.venue_ids, venue.id] : editor.values.venue_ids.filter(id => id !== venue.id))} />{venue.name}</label>
                   ))}
-                  {editor.values.venue_ids.filter(id => !data.venues.some(venue => venue.id === id)).map(id => (
-                    <label key={id} className="admin-check"><input type="checkbox" checked onChange={() => field('venue_ids', editor.values.venue_ids.filter(value => value !== id))} />会所 {id} 已停用，请取消选择</label>
-                  ))}
                 </fieldset>
+                ))}
+                <div>
+                  {editor.values.venue_ids.filter(id => !data.venues.some(venue => venue.id === id)).map(id => (
+                    <label key={id} className="admin-check"><input type="checkbox" checked onChange={() => field('venue_ids', editor.values.venue_ids.filter(value => value !== id))} />项目 {id} 已停用，请取消选择</label>
+                  ))}
+                </div>
                 <label>服务状态<select value={editor.values.status} onChange={event => field('status', event.target.value)}>
                   <option value="draft">草稿（不开放）</option><option value="active">启用</option><option value="suspended">暂停</option>
                 </select></label>
@@ -214,7 +218,7 @@ export default function Admin() {
               <p>{confirmation.tenant.brand_name} · {labels[confirmation.tenant.status]}</p>
               <p>联系人：{confirmation.tenant.contact_name} / @{confirmation.tenant.contact_username}</p>
               <p>到期：{formatDate(confirmation.tenant.expires_at)}</p>
-              <p>会所：{confirmation.tenant.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || id).join('、')}</p>
+              <p>展示项目：{confirmation.tenant.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || id).join('、')}</p>
               <p>启用、暂停及续期会影响入口访问。本操作不收款、不扣款。</p>
               <div className="admin-actions"><button type="button" disabled={saving} onClick={save}>{saving ? '保存中…' : '确认保存'}</button><button type="button" disabled={saving} onClick={() => setConfirmation(null)}>返回修改</button></div>
             </div>}

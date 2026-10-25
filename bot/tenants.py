@@ -10,6 +10,7 @@ from db import get_conn
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{2,31}")
 USERNAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{4,31}")
 CLUB_IDS = {1, 2, 3, 4, 5, 6}
+DELIVERY_IDS = {7, 8, 9, 10}
 
 
 class TenantUnavailable(ValueError):
@@ -78,8 +79,8 @@ def validate_config(config):
     if not isinstance(config.get("contact_username"), str) or not USERNAME.fullmatch(config["contact_username"]):
         raise ValueError("请输入有效的 Telegram 联系用户名，不包含 @")
     ids = config.get("venue_ids")
-    if not isinstance(ids, list) or not ids or any(type(i) is not int or i not in CLUB_IDS for i in ids):
-        raise ValueError("请选择至少一个会所，第一版仅支持会所 ID 1–6，不出租外送")
+    if not isinstance(ids, list) or not ids or any(type(i) is not int or i not in CLUB_IDS | DELIVERY_IDS for i in ids):
+        raise ValueError("请选择至少一个展示项目：会所 ID 1–6 或外送 ID 7–10")
     if not isinstance(config.get("status"), str) or config["status"] not in {"draft", "active", "suspended"}:
         raise ValueError("状态仅支持 draft / active / suspended")
     expiry = config.get("expires_at")
@@ -175,7 +176,7 @@ def main():
         sub.add_argument("--brand", required=True)
         sub.add_argument("--contact-name", required=True)
         sub.add_argument("--contact-username", required=True)
-        sub.add_argument("--venues", required=True, help="逗号分隔的会所 ID 1–6")
+        sub.add_argument("--venues", required=True, help="逗号分隔的会所 ID 1–6、外送 ID 7–10；未列出的外送默认不开放")
         sub.add_argument("--status", choices=["draft", "active", "suspended"], default="draft")
         sub.add_argument("--expires", help="UTC 到期时间 YYYY-MM-DDTHH:MM:SS，不含时区")
     args = parser.parse_args()
