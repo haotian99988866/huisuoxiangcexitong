@@ -16,6 +16,9 @@ class MusicChannelTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
+        state = patch.dict("os.environ", {"LOCALAPPDATA": str(self.root)})
+        state.start()
+        self.addCleanup(state.stop)
         source = self.root / "tone.wav"
         with wave.open(str(source), "wb") as audio:
             audio.setnchannels(1)

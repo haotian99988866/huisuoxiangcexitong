@@ -38,7 +38,7 @@ export default function MusicNowPlaying() {
             onClick={() => player.favorite(track.id, !favorite)}><MusicIcon name="heart" size={24} /></button>
         </div>
         <div className="music-full-timeline"><input className="music-full-progress" type="range" aria-label="播放进度" min="0" max={player.duration || 0} step="0.1"
-          disabled={!player.duration} value={Math.min(position, player.duration)}
+          disabled={!player.duration || player.waiting} value={Math.min(position, player.duration)}
           onChange={event => { setScrub(Number(event.target.value)); setScrubTrack(track.id) }}
           onPointerUp={event => commitSeek(event.currentTarget.value)}
           onPointerCancel={() => setScrub(null)}
@@ -47,8 +47,8 @@ export default function MusicNowPlaying() {
         <div className="music-time"><span>{musicTime(position)}</span><span>{musicTime(player.duration)}</span></div></div>
         <div className="music-full-controls">
           <button type="button" className="music-icon-button" aria-label="上一首" disabled={!player.queue.length} onClick={() => player.step(-1)}><MusicIcon name="previous" size={28} /></button>
-          <button type="button" className="music-main-toggle" aria-label={player.waiting ? '取消加载' : player.playing ? '暂停' : '播放'} onClick={player.toggle}>
-            <MusicIcon name={player.playing || player.waiting ? 'pause' : 'play'} size={30} /></button>
+          <button type="button" className="music-main-toggle" disabled={player.waiting} aria-label={player.waiting ? '正在缓冲音乐' : player.playing ? '暂停' : '播放'} onClick={player.toggle}>
+            {player.waiting ? <span className="music-buffer-spinner" aria-hidden="true" /> : <MusicIcon name={player.playing ? 'pause' : 'play'} size={30} />}</button>
           <button type="button" className="music-icon-button" aria-label="下一首" disabled={!player.queue.length && !player.nextUp.length} onClick={() => player.step(1)}><MusicIcon name="next" size={28} /></button>
         </div>
         <div className="music-full-tools">
@@ -86,7 +86,11 @@ export default function MusicNowPlaying() {
         </section>
       </div>}
       {(player.waiting || player.error || player.accountError) && <div className="music-full-feedback">
-        {player.waiting && <p role="status" className="music-hint">正在缓冲，仍可点击暂停取消…</p>}
+        {player.waiting && <div className="music-buffer-notice" role="status" aria-live="polite">
+          <span className="music-buffer-spinner" aria-hidden="true" />
+          <div><strong>正在加载音频，请稍候…</strong><small>首次播放或无损音频可能较慢，无需重复点击</small></div>
+          <button type="button" onClick={player.pause}>取消</button>
+        </div>}
         {player.error && <p role="alert" className="music-error">{player.error}</p>}
         {player.accountError && <p role="alert" className="music-error">{player.accountError}</p>}
       </div>}

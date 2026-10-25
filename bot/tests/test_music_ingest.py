@@ -5,11 +5,11 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from telethon import types
+from telethon import errors, types
 
 import music
 import music_ingest as ingest
-from music_sources import SOURCES, external_forward
+from music_sources import DYNAMIC_HISTORY_SOURCES, SOURCES, external_forward
 
 
 SOURCE = next(iter(SOURCES))
@@ -36,7 +36,7 @@ class MusicIngestTests(unittest.IsolatedAsyncioTestCase):
         self.target = SimpleNamespace(id=2368924969)
         self.user = SimpleNamespace(get_entity=AsyncMock(return_value=self.source),
                                     get_messages=AsyncMock(return_value=[audio(1)]),
-                                    forward_messages=AsyncMock(return_value=[SimpleNamespace(id=500)]))
+                                    send_file=AsyncMock(return_value=SimpleNamespace(id=500)))
         self.bot = SimpleNamespace(get_messages=AsyncMock(return_value=[audio(500)]))
 
     def history(self, messages):
@@ -91,6 +91,56 @@ class MusicIngestTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.store.remaining(other, ingest.day_key()), 0)
         self.assertEqual(self.store.connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 100)
 
+    async def test_happycat_history_has_queue_bound_but_no_daily_cap(self):
+        source = next(iter(DYNAMIC_HISTORY_SOURCES))
+        self.assertEqual(SOURCES[source][0], "happycat03")
+        self.store.progress(source, 200)
+        self.history([audio(i) for i in range(1, 151)])
+        channel = SimpleNamespace(id=source)
+        await ingest.scan_source(self.user, channel, self.store, historical=True)
+        self.assertEqual(self.store.remaining(source, ingest.day_key()), 0)
+        self.assertEqual(self.store.progress(source, 0)["history"], 50)
+        with self.store.connection:
+            self.store.connection.execute("UPDATE jobs SET status='sent' WHERE source=?", (source,))
+        await ingest.scan_source(self.user, channel, self.store, historical=True)
+        self.assertEqual(self.store.connection.execute(
+            "SELECT COUNT(*) FROM jobs WHERE source=?", (source,)).fetchone()[0], 100)
+        self.assertEqual(self.store.progress(source, 0)["history"], 100)
+        self.assertEqual(self.store.remaining(source, ingest.day_key()), 0)
+
+    def test_flood_wait_deadline_survives_restart_and_cannot_be_shortened(self):
+        with patch.object(ingest.time, "time", return_value=100):
+            self.store.defer(60)
+            self.store.defer(10)
+        restarted = ingest.MusicStore(self.path)
+        try:
+            with patch.object(ingest.time, "time", return_value=120):
+                self.assertEqual(restarted.wait_remaining(), 41)
+            with patch.object(ingest.time, "time", return_value=162):
+                self.assertEqual(restarted.wait_remaining(), 0)
+        finally:
+            restarted.close()
+
+    async def test_explicit_flood_rejection_requeues_single_audio_request(self):
+        self.store.enqueue(SOURCE, 1, True, ingest.day_key())
+        self.user.send_file.side_effect = errors.FloodWaitError(request=None, capture=30)
+        with self.assertRaises(errors.FloodWaitError):
+            await ingest.process_job(self.user, self.bot, {SOURCE: self.source},
+                                     self.target, self.store, self.store.pending())
+        self.assertEqual(self.store.pending()["status"], "queued")
+
+    async def test_happycat_live_prioritized_without_history_quota(self):
+        source = next(iter(DYNAMIC_HISTORY_SOURCES))
+        self.store.progress(source, 50)
+        self.history([audio(i) for i in range(1, 56)])
+        channel = SimpleNamespace(id=source)
+        await ingest.scan_source(self.user, channel, self.store, historical=True)
+        await ingest.scan_source(self.user, channel, self.store, historical=False)
+        self.assertEqual(self.store.pending()["historical"], 0)
+        self.assertEqual(self.store.pending()["message"], 51)
+        self.assertTrue(external_forward(SimpleNamespace(
+            forward_from_chat=SimpleNamespace(id=int(f"-100{source}")))))
+
     async def test_live_is_not_limited_by_historical_quota_or_mixed_with_baseline(self):
         self.store.progress(SOURCE, 50)
         self.history([audio(i) for i in range(1, 106)])
@@ -132,7 +182,7 @@ class MusicIngestTests(unittest.IsolatedAsyncioTestCase):
         self.user.get_messages.return_value = [message]
         await ingest.process_job(self.user, self.bot, {SOURCE: self.source}, self.target,
                                  self.store, self.store.pending())
-        self.user.forward_messages.assert_not_awaited()
+        self.user.send_file.assert_not_awaited()
         self.assertIsNone(self.store.pending())
         self.assertEqual(self.store.remaining(SOURCE, ingest.day_key()), 50)
 
@@ -156,7 +206,7 @@ class MusicIngestTests(unittest.IsolatedAsyncioTestCase):
             await ingest.process_job(self.user, self.bot, {SOURCE: self.source}, self.target,
                                      self.store, self.store.pending())
         register.assert_not_called()
-        self.user.forward_messages.assert_not_awaited()
+        self.user.send_file.assert_not_awaited()
         self.assertIsNone(self.store.pending())
         self.assertEqual(self.store.remaining(SOURCE, ingest.day_key()), 50)
 
@@ -186,7 +236,7 @@ class MusicIngestTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(ingest, "register_track", return_value=42):
             await ingest.process_job(self.user, self.bot, {SOURCE: self.source}, self.target,
                                      self.store, self.store.pending())
-        self.user.forward_messages.assert_awaited_once()
+        self.user.send_file.assert_awaited_once()
         self.assertIsNone(self.store.pending())
         self.assertEqual(self.store.connection.execute("SELECT track_id FROM jobs").fetchone()[0], 42)
 
@@ -196,12 +246,12 @@ class MusicIngestTests(unittest.IsolatedAsyncioTestCase):
         other = list(SOURCES)[1]
         self.store.enqueue(other, 1, True, ingest.day_key())
         await ingest.process_job(self.user, self.bot, {other: self.source}, self.target, self.store, self.store.pending())
-        self.user.forward_messages.assert_not_awaited()
+        self.user.send_file.assert_not_awaited()
         self.assertEqual(self.store.connection.execute("SELECT track_id FROM jobs WHERE source=?", (other,)).fetchone()[0], 42)
 
     async def test_unknown_forward_outcome_stops_automatic_retries_after_restart(self):
         self.store.enqueue(SOURCE, 1, True, ingest.day_key())
-        self.user.forward_messages.side_effect = ConnectionError("offline")
+        self.user.send_file.side_effect = ConnectionError("offline")
         with self.assertRaises(ConnectionError):
             await ingest.process_job(self.user, self.bot, {SOURCE: self.source}, self.target, self.store, self.store.pending())
         observer = ingest.MusicStore(self.path)
@@ -220,7 +270,7 @@ class MusicIngestTests(unittest.IsolatedAsyncioTestCase):
         self.store.enqueue(SOURCE, 1, True, ingest.day_key())
         self.source.noforwards = True
         await ingest.process_job(self.user, self.bot, {SOURCE: self.source}, self.target, self.store, self.store.pending())
-        self.user.forward_messages.assert_not_awaited()
+        self.user.send_file.assert_not_awaited()
         self.assertIsNone(self.store.pending())
 
     def test_forward_origin_only_matches_authorized_channels(self):
@@ -266,3 +316,30 @@ class MusicIngestTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(save.call_args.kwargs["message_id"], 500)
         self.assertEqual(save.call_args.kwargs["file_id"], "bot-file-id")
         conn.commit.assert_called_once()
+
+    async def test_clean_copy_contains_only_music_metadata_without_contacts_or_buttons(self):
+        item = audio(1, title="Song | @contact", artist="Artist 商务合作 @agent",
+                     text="广告链接 https://t.me/example\n微信:123456789")
+        self.user.get_messages.return_value = [item]
+        self.store.enqueue(SOURCE, 1, True, ingest.day_key())
+        await ingest.process_job(self.user, self.bot, {SOURCE: self.source},
+                                 self.target, self.store, self.store.pending())
+        self.user.send_file.assert_awaited_once_with(
+            self.target, item.document, caption="Song\nArtist",
+            parse_mode=None, formatting_entities=[], silent=True)
+
+    def test_contact_fields_clean_without_removing_regular_music_titles(self):
+        for value in ("Song @contact", "Song https://t.me/contact", "Song 联系方式 +8613812345678",
+                      "Song test@example.com", "Song +86 13812345678", "Song\n广告"):
+            self.assertEqual(ingest.clean_music_field(value), "Song")
+        for value in ("爱的联系", "Call Me Maybe", "867-5309", "五月天"):
+            self.assertEqual(ingest.clean_music_field(value), value)
+
+    def test_nonforwarded_collector_copy_claimed_before_publication_returns(self):
+        self.store.enqueue(SOURCE, 1, True, ingest.day_key())
+        self.store.update(self.store.pending(), "sending", document_id=10001)
+        message = SimpleNamespace(message_id=500, audio=SimpleNamespace(file_id="file-id"))
+        with patch.object(ingest.utils, "resolve_bot_file_id", return_value=SimpleNamespace(id=10001)):
+            self.assertTrue(external_forward(message, self.path))
+        with patch.object(ingest.utils, "resolve_bot_file_id", return_value=SimpleNamespace(id=99999)):
+            self.assertFalse(external_forward(message, self.path))

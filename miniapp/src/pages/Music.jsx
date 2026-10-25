@@ -222,9 +222,11 @@ export default function Music() {
           <ul className="music-list">{pageTracks.map((track, index) => (
             <li key={track.id} className={player.current?.id === track.id ? 'music-row is-current' : 'music-row'}>
               <button type="button" className="music-song-button" onClick={() => player.start(track, filtered)}
+                disabled={player.current?.id === track.id && player.waiting}
+                aria-busy={player.current?.id === track.id && player.waiting}
                 aria-label={`播放 ${track.title} - ${artistName(track.artist)}`} aria-current={player.current?.id === track.id ? 'true' : undefined}>
-                <span className="music-song-number" aria-hidden="true">{player.current?.id === track.id && player.playing ? '♫' : String((currentPage - 1) * rowsPerPage + index + 1).padStart(2, '0')}</span>
-                <span className="music-track-copy"><strong>{track.title}</strong><small>{artistName(track.artist)}{track.album ? ` · ${track.album}` : ''}</small></span>
+                <span className="music-song-number" aria-hidden="true">{player.current?.id === track.id && player.waiting ? <span className="music-buffer-spinner" /> : player.current?.id === track.id && player.playing ? '♫' : String((currentPage - 1) * rowsPerPage + index + 1).padStart(2, '0')}</span>
+                <span className="music-track-copy"><strong>{track.title}</strong><small>{player.current?.id === track.id && player.waiting ? '正在缓冲，请稍候…' : `${artistName(track.artist)}${track.album ? ` · ${track.album}` : ''}`}</small></span>
               </button>
               {player.profile && <button type="button" className="music-icon-button music-favorite" aria-label={`${favorites.includes(track.id) ? '取消收藏' : '收藏'} ${track.title}`}
                 aria-pressed={favorites.includes(track.id)} disabled={player.busy} onClick={async () => {

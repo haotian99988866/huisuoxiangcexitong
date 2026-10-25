@@ -16,6 +16,7 @@ export const musicTime = seconds => {
 export default function MusicPlayer({ children }) {
   const audioRef = useRef(null)
   const requestId = useRef(0)
+  const loadingTrack = useRef(null)
   const currentRef = useRef(null)
   const controller = useRef(null)
   const [tracks, setTracks] = useState([])
@@ -144,6 +145,7 @@ export default function MusicPlayer({ children }) {
     const pauseForOtherMedia = event => {
       if (event.target !== audio && event.target instanceof HTMLMediaElement) {
         requestId.current += 1
+        loadingTrack.current = null
         audio.pause()
         setWaiting(false)
       }
@@ -161,6 +163,8 @@ export default function MusicPlayer({ children }) {
   }, [])
 
   const start = async (track, selectedQueue) => {
+    if (loadingTrack.current === track.id || (waiting && currentRef.current?.id === track.id)) return
+    loadingTrack.current = track.id
     const audio = audioRef.current
     const id = ++requestId.current
     setError('')
@@ -199,9 +203,12 @@ export default function MusicPlayer({ children }) {
       setError(failure.name === 'NotAllowedError'
         ? '客户端阻止了播放，请再次点击播放按钮。'
         : '音频无法播放，请重试；若仍失败，请联系管理员检查文件和格式。')
+    } finally {
+      if (requestId.current === id) loadingTrack.current = null
     }
   }
   const pause = () => {
+    loadingTrack.current = null
     requestId.current += 1
     audioRef.current.pause()
     setWaiting(false)
@@ -246,6 +253,7 @@ export default function MusicPlayer({ children }) {
   const failed = () => {
     if (!currentRef.current) return
     setWaiting(false)
+    loadingTrack.current = null
     setPlaying(false)
     setError('音频加载失败或歌曲已下架，请重试或选择其他歌曲。')
   }
@@ -267,12 +275,12 @@ export default function MusicPlayer({ children }) {
 
   return (
     <MusicContext.Provider value={value}>
-      <div className={current ? 'music-layout music-layout-active' : 'music-layout'}>{children}</div>
+      <div className={`music-layout${current ? ' music-layout-active' : ''}${waiting ? ' music-layout-buffering' : ''}`}>{children}</div>
       <audio ref={audioRef} preload="metadata" loop={mode === 'single'}
         onPlay={() => setPlaying(true)}
-        onPlaying={() => setWaiting(false)}
-        onPause={() => { setPlaying(false); setWaiting(false); saveProgress() }}
-        onWaiting={() => setWaiting(true)}
+        onPlaying={() => { loadingTrack.current = null; setPlaying(true); setWaiting(false) }}
+        onPause={() => { setPlaying(false); if (loadingTrack.current === null) setWaiting(false); saveProgress() }}
+        onWaiting={() => { if (!audioRef.current.paused || loadingTrack.current !== null) setWaiting(true) }}
         onTimeUpdate={event => setPosition(event.currentTarget.currentTime)}
         onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
         onLoadedMetadata={event => {
@@ -292,11 +300,16 @@ export default function MusicPlayer({ children }) {
           <button type="button" className="music-mini-title" aria-label="展开完整播放器" onClick={() => setExpanded(true)}>
             <strong>{current.title}</strong><small>{musicArtist(current.artist)} · {waiting ? '正在缓冲' : playing ? '正在播放' : '已暂停'}</small>
           </button>
-          <button type="button" className="music-icon-button" onClick={toggle} aria-label={playing || waiting ? '暂停音乐' : '播放音乐'}>
-            <MusicIcon name={playing || waiting ? 'pause' : 'play'} />
+          <button type="button" className="music-icon-button" onClick={toggle} disabled={waiting} aria-label={waiting ? '正在缓冲音乐' : playing ? '暂停音乐' : '播放音乐'}>
+            {waiting ? <span className="music-buffer-spinner" aria-hidden="true" /> : <MusicIcon name={playing ? 'pause' : 'play'} />}
           </button>
           <button type="button" className="music-icon-button" onClick={() => step(1)} disabled={!queue.length && !nextUp.length} aria-label="下一首音乐"><MusicIcon name="next" /></button>
           <button type="button" className="music-icon-button" onClick={stop} aria-label="关闭音乐播放器"><MusicIcon name="close" size={17} /></button>
+          {waiting && <div className="music-buffer-notice" role="status" aria-live="polite">
+            <span className="music-buffer-spinner" aria-hidden="true" />
+            <div><strong>正在加载音频，请稍候…</strong><small>首次播放或无损音频可能较慢，无需重复点击</small></div>
+            <button type="button" onClick={pause}>取消</button>
+          </div>}
           {error && <p role="alert">{error}</p>}
           {accountError && <p role="alert">{accountError}</p>}
         </aside>

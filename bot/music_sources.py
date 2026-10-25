@@ -9,7 +9,10 @@ SOURCES = {
     2439864039: ("daige2005", "傣族音乐"),
     2340095017: ("syn119", "缅甸音乐"),
     2250135836: ("yingwen2005", "英文音乐"),
+    1710448756: ("happycat03", "无损音乐"),
 }
+
+DYNAMIC_HISTORY_SOURCES = {1710448756}
 
 
 def external_forward(message, store_path=None):
@@ -18,8 +21,6 @@ def external_forward(message, store_path=None):
     ident = str(getattr(chat, "id", ""))
     if ident in {f"-100{value}" for value in SOURCES}:
         return True
-    if origin is None and not getattr(message, "forward_date", None):
-        return False
     path = Path(store_path) if store_path is not None else (
         Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Huisuo" / "channel-sync" / "music-import.sqlite3"
     )
@@ -38,7 +39,7 @@ def external_forward(message, store_path=None):
         document = utils.resolve_bot_file_id(file_id)
         if document is None:
             raise ValueError("Forwarded music has an invalid Telegram file identifier")
-        # Bot updates can arrive before forward_messages returns the target message ID.
+        # Bot updates can arrive before publication returns the target message ID.
         return conn.execute(
             "SELECT 1 FROM jobs WHERE document_id=?"
             " AND status IN ('sending','forwarded','sent','uncertain') LIMIT 1",

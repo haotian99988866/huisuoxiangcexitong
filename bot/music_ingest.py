@@ -3,14 +3,16 @@ import argparse
 import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
+import re
 import sqlite3
+import time
 from types import SimpleNamespace
 
 from telethon import errors, types, utils
 
-from channel_sync_clean import is_advertisement
+from channel_sync_clean import LINK, MENTION, is_advertisement
 from music_metadata import identify
-from music_sources import SOURCES
+from music_sources import DYNAMIC_HISTORY_SOURCES, SOURCES
 
 logger = logging.getLogger(__name__)
 DAILY_LIMIT = 50
@@ -63,12 +65,30 @@ class MusicStore:
         return self.connection.execute("SELECT * FROM progress WHERE source=?", (source,)).fetchone()
 
     def remaining(self, source, day):
+        if source in DYNAMIC_HISTORY_SOURCES:
+            queued = self.connection.execute(
+                "SELECT COUNT(*) FROM jobs WHERE source=? AND historical=1"
+                " AND status IN ('queued','sending','forwarded')", (source,)).fetchone()[0]
+            return max(0, DAILY_LIMIT - queued)
         used = self.connection.execute(
             "SELECT COUNT(*) FROM jobs WHERE source=? AND historical=1"
             " AND status!='skipped' AND (day=? OR status IN ('queued','sending','forwarded'))",
             (source, day),
         ).fetchone()[0]
         return max(0, DAILY_LIMIT - used)
+
+    def wait_remaining(self):
+        row = self.connection.execute(
+            "SELECT value FROM settings WHERE key='not_before'").fetchone()
+        return max(0, float(row["value"]) - time.time()) if row else 0
+
+    def defer(self, seconds):
+        deadline = time.time() + seconds + 1
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO settings(key,value) VALUES ('not_before',?)"
+                " ON CONFLICT(key) DO UPDATE SET value=MAX(CAST(value AS REAL),CAST(excluded.value AS REAL))",
+                (str(deadline),))
 
     def enqueue(self, source, message, historical, day):
         with self.connection:
@@ -137,9 +157,31 @@ def audio_metadata(message):
         raise ValueError("Audio exceeds 128 MB or has invalid size")
     title, artist = identify(getattr(audio, "title", None), getattr(audio, "performer", None),
                              filename, message.message)
+    title = clean_music_field(title)
+    artist = clean_music_field(artist) or "未知歌手"
     if not title or title.casefold() in {"hd", "official mv", "lyrics video", "未命名歌曲"}:
         title = "未标注歌名"
     return {"title": title, "artist": artist, "suffix": suffix, "size": doc.size, "document_id": doc.id}
+
+
+def clean_music_field(value):
+    value = (value or "").split("\n", 1)[0]
+    value = re.split(
+        r"(?:广告|廣告|商务合作|商務合作|商务联系|商務聯繫|广告合作|推广合作|"
+        r"联系方式|聯繫方式|联系[人电]|联系电话|微信[号號：:]|QQ[号號：:]|"
+        r"订阅频道|訂閱頻道|加入频道|加入頻道|关注频道|關注頻道)", value, maxsplit=1)[0]
+    value = LINK.sub("", value)
+    value = MENTION.sub("", value)
+    value = re.sub(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", "", value)
+    value = re.sub(r"(?<!\w)\+?\d[\d ()-]{6,}\d(?!\w)",
+                   lambda match: "" if sum(char.isdigit() for char in match[0]) >= 10 else match[0], value)
+    return value.strip(" \t|·•-—:：,，;；")
+
+
+def music_caption(metadata):
+    title = clean_music_field(metadata["title"]) or "未标注歌名"
+    artist = clean_music_field(metadata["artist"]) or "未知歌手"
+    return f"{title}\n{artist}"
 
 
 async def scan_source(user, source, store, historical):
@@ -238,11 +280,17 @@ async def process_job(user, bot, sources, target, store, job):
     store.record_send_day(job)
     store.update(job, "sending", document_id=metadata["document_id"])
     # Telegram stores the copy in the owned channel; no local bulk media download.
-    sent = await user.forward_messages(target, [message.id], from_peer=source, silent=True)
-    if len(sent) != 1 or sent[0] is None:
-        raise RuntimeError("Forward outcome unknown")
-    store.update(job, "forwarded", result_id=sent[0].id)
-    logger.info("Music stored source=%s message=%s target=%s", job["source"], job["message"], sent[0].id)
+    try:
+        sent = await user.send_file(
+            target, message.document, caption=music_caption(metadata),
+            parse_mode=None, formatting_entities=[], silent=True)
+    except errors.FloodWaitError:
+        store.update(job, "queued", "Telegram rejected request; wait before retry")
+        raise
+    if sent is None or not getattr(sent, "id", None):
+        raise RuntimeError("Publication outcome unknown")
+    store.update(job, "forwarded", result_id=sent.id)
+    logger.info("Music stored source=%s message=%s target=%s", job["source"], job["message"], sent.id)
 
 
 async def music_worker(user, bot, directory):
@@ -256,9 +304,14 @@ async def music_worker(user, bot, directory):
             if not store.enabled():
                 await asyncio.sleep(30)
                 continue
+            wait = store.wait_remaining()
+            if wait:
+                await asyncio.sleep(min(wait, 30))
+                continue
             try:
                 if target is None:
-                    target = await user.get_entity(f"https://t.me/{music.MUSIC_CHANNEL_USERNAME}")
+                    candidate = await user.get_entity(f"https://t.me/{music.MUSIC_CHANNEL_USERNAME}")
+                    sources.clear()
                     for client in (user, bot):
                         owned = await client.get_entity(f"https://t.me/{music.MUSIC_CHANNEL_USERNAME}")
                         permissions = await client.get_permissions(owned, await client.get_me())
@@ -272,7 +325,9 @@ async def music_worker(user, bot, directory):
                         sources[ident] = source
                         latest = await user.get_messages(source, limit=1)
                         store.progress(ident, latest[0].id if latest else 0)
-                    logger.info("MUSIC READY: four authorized audio sources; history=50/source/day UTC+7; max_duration=480s")
+                    target = candidate
+                    logger.info("MUSIC READY: %s authorized audio sources; original history=50/source/day UTC+7;"
+                                " happycat03=dynamic batches without daily quota; max_duration=480s", len(SOURCES))
                 for source in sources.values():
                     if getattr(source, "noforwards", False):
                         logger.warning("Music source protected: %s; not scanned", source.id)
@@ -309,9 +364,10 @@ async def music_worker(user, bot, directory):
                         store.update(job, "uncertain" if current == "sending" else "failed", type(error).__name__)
                         logger.exception("Music import job failed source=%s message=%s status=%s",
                                          job["source"], job["message"], current)
-                    await asyncio.sleep(.5)
+                    await asyncio.sleep(3)
             except errors.FloodWaitError as error:
                 delay = max(30, error.seconds + 1)
+                store.defer(error.seconds)
                 logger.warning("Music collection rate limited; waiting %s seconds", delay)
             except Exception:
                 target = None
