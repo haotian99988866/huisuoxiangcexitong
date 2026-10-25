@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { resolveTenant, initializeTenant, setTenant, tenantPath, mediaUrl, contactUrl, tenantHeaders, announcementText, hasDeliveryAccess, hasVenueAccess } from './tenant.js'
 import { bookingUrl } from './booking.js'
+import { displayModules } from './modules.js'
 
 test('entry parsing preserves owner and rejects missing or conflicting tenants', () => {
   assert.equal(resolveTenant('', 'movies'), null)
@@ -33,6 +34,7 @@ test('scoped routes, media, contacts and booking messages preserve tenant contex
     assert.equal(contactUrl(), 'https://t.me/contact_one')
     assert.equal(hasDeliveryAccess(), false)
     assert.equal(hasVenueAccess(), true)
+    assert.equal(displayModules().some(item => item.key === 'music'), false)
     assert.ok(announcementText().includes('测试品牌'))
     const booking = new URL(bookingUrl({ title: '预约', links: [media.href] }))
     assert.equal(booking.pathname, '/contact_one')
@@ -50,6 +52,7 @@ test('scoped routes, media, contacts and booking messages preserve tenant contex
     setTenant(null)
     assert.equal(tenantPath('/movies'), '/movies')
     assert.equal(contactUrl(), 'https://t.me/haotian99988866')
+    assert.deepEqual(displayModules().filter(item => item.common).map(item => item.key), ['venue', 'delivery', 'movies', 'music'])
   } finally {
     delete globalThis.window
   }

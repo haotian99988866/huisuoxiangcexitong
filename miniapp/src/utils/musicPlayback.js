@@ -10,3 +10,10 @@ export function nextTrack(queue, currentId, direction, mode, random = Math.rando
 }
 
 export const playlistLink = token => `https://t.me/haotianzhaopian_bot?startapp=playlist_${token}`
+
+export const musicArtist = artist => !artist || ['<unknown>', 'unknown'].includes(artist.toLowerCase()) ? '未知歌手' : artist
+
+export function prioritizeTrack(ids, trackId, currentId) {
+  if (trackId === currentId) return ids
+  return [trackId, ...ids.filter(id => id !== trackId)]
+}

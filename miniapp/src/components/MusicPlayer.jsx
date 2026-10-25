@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
 import { API_BASE_URL } from '../utils/twa'
 import { requestMusic } from '../utils/music'
-import { nextTrack } from '../utils/musicPlayback'
+import { musicArtist, nextTrack, prioritizeTrack } from '../utils/musicPlayback'
 import './MusicPlayer.css'
+import MusicIcon from './MusicIcon'
+import MusicNowPlaying from './MusicNowPlaying'
 
 const MusicContext = createContext(null)
 export const useMusic = () => useContext(MusicContext)
@@ -31,6 +32,9 @@ export default function MusicPlayer({ children }) {
   const [accountError, setAccountError] = useState('')
   const [busy, setBusy] = useState(false)
   const [queueIds, setQueueIds] = useState(null)
+  const [nextIds, setNextIds] = useState([])
+  const [expanded, setExpanded] = useState(false)
+  const browseState = useRef({ view: 'all', query: '', page: 1, scroll: 0 })
   const accountChain = useRef(Promise.resolve())
   const restored = useRef(false)
   const pendingSeek = useRef(null)
@@ -38,9 +42,9 @@ export default function MusicPlayer({ children }) {
   const profileRef = useRef(null)
   const mounted = useRef(true)
   const [volume, setVolume] = useState(1)
-  const location = useLocation()
   const mode = profile?.mode || 'sequential'
   const queue = queueIds === null ? tracks : queueIds.map(id => tracks.find(track => track.id === id)).filter(Boolean)
+  const nextUp = nextIds.map(id => tracks.find(track => track.id === id)).filter(Boolean)
 
   const accountRequest = useCallback((action, fields = {}) => {
     const task = accountChain.current.then(async () => {
@@ -161,7 +165,12 @@ export default function MusicPlayer({ children }) {
     const id = ++requestId.current
     setError('')
     setWaiting(true)
-    if (selectedQueue) setQueueIds(selectedQueue.map(item => item.id))
+    if (selectedQueue) {
+      setQueueIds(selectedQueue.map(item => item.id))
+      setNextIds([])
+    } else {
+      setNextIds(ids => ids.filter(ident => ident !== track.id))
+    }
     if (currentRef.current?.id !== track.id) {
       saveProgress()
       pendingSeek.current = null
@@ -203,6 +212,10 @@ export default function MusicPlayer({ children }) {
     else if (current) start(current)
   }
   const step = direction => {
+    if (direction > 0 && nextUp.length) {
+      start(nextUp[0])
+      return
+    }
     const track = nextTrack(queue, currentRef.current?.id, direction, mode)
     if (track) start(track)
   }
@@ -217,6 +230,8 @@ export default function MusicPlayer({ children }) {
     setPosition(0)
     setDuration(0)
     setError('')
+    setExpanded(false)
+    setNextIds([])
   }
   const seek = value => {
     if (!duration) return
@@ -238,7 +253,14 @@ export default function MusicPlayer({ children }) {
     tracks, status, catalogError, load, current, playing, waiting, error,
     position, duration, mode, volume, start, pause, toggle, step, stop, seek,
     changeVolume, profile, playlists, accountError, busy, accountRequest, loadAccount,
-    queue, setQueueIds,
+    queue, setQueueIds, expanded, setExpanded, browseState, nextUp,
+    playQueued: track => start(track),
+    playNext: track => setNextIds(ids => prioritizeTrack(ids, track.id, currentRef.current?.id)),
+    removeNext: id => setNextIds(ids => ids.filter(ident => ident !== id)),
+    removeFromQueue: id => {
+      setQueueIds(queue.filter(track => track.id !== id).map(track => track.id))
+      setNextIds(ids => ids.filter(ident => ident !== id))
+    },
     changeMode: mode => accountRequest('music_update', { operation: 'mode', mode }),
     favorite: (id, enabled) => accountRequest('music_update', { operation: 'favorite', track_id: id, enabled }),
   }
@@ -264,18 +286,22 @@ export default function MusicPlayer({ children }) {
         }}
         onError={failed}
         onEnded={() => { setPlaying(false); setWaiting(false); step(1) }} />
-      {current && location.pathname !== '/music' && (
+      {current && !expanded && (
         <aside className="music-mini" aria-label="迷你音乐播放器">
-          <Link to="/music" className="music-mini-title">{current.title}<small>{current.artist}</small></Link>
-          <button type="button" onClick={toggle} aria-label={playing || waiting ? '暂停音乐' : '播放音乐'}>
-            {playing || waiting ? '暂停' : '播放'}
+          <div className="music-mini-progress" aria-hidden="true"><span style={{ width: `${duration ? Math.min(100, position / duration * 100) : 0}%` }} /></div>
+          <button type="button" className="music-mini-title" aria-label="展开完整播放器" onClick={() => setExpanded(true)}>
+            <strong>{current.title}</strong><small>{musicArtist(current.artist)} · {waiting ? '正在缓冲' : playing ? '正在播放' : '已暂停'}</small>
           </button>
-          <button type="button" onClick={() => step(1)} disabled={!queue.length} aria-label="下一首音乐">下一首</button>
-          <button type="button" onClick={stop} aria-label="关闭音乐播放器">×</button>
+          <button type="button" className="music-icon-button" onClick={toggle} aria-label={playing || waiting ? '暂停音乐' : '播放音乐'}>
+            <MusicIcon name={playing || waiting ? 'pause' : 'play'} />
+          </button>
+          <button type="button" className="music-icon-button" onClick={() => step(1)} disabled={!queue.length && !nextUp.length} aria-label="下一首音乐"><MusicIcon name="next" /></button>
+          <button type="button" className="music-icon-button" onClick={stop} aria-label="关闭音乐播放器"><MusicIcon name="close" size={17} /></button>
           {error && <p role="alert">{error}</p>}
           {accountError && <p role="alert">{accountError}</p>}
         </aside>
       )}
+      {current && expanded && <MusicNowPlaying />}
     </MusicContext.Provider>
   )
 }

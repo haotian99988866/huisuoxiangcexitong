@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { nextTrack, playlistLink } from './musicPlayback.js'
+import { musicArtist, nextTrack, playlistLink, prioritizeTrack } from './musicPlayback.js'
 
 const queue = [{ id: 1 }, { id: 2 }, { id: 3 }]
 test('sequential playback stays in the selected list and wraps in both directions', () => {
@@ -18,4 +18,15 @@ test('shuffle excludes current track; manual next still advances in single mode'
 })
 test('playlist links use Mini App startapp rather than opening the music channel', () => {
   assert.equal(playlistLink('a'.repeat(32)), `https://t.me/haotianzhaopian_bot?startapp=playlist_${'a'.repeat(32)}`)
+})
+test('play next deduplicates priority entries without changing the active track', () => {
+  const original = [3, 2]
+  assert.deepEqual(prioritizeTrack(original, 2, 1), [2, 3])
+  assert.deepEqual(prioritizeTrack(original, 4, 1), [4, 3, 2])
+  assert.equal(prioritizeTrack(original, 1, 1), original)
+  assert.deepEqual(original, [3, 2])
+})
+test('unknown performer text is consistent in mini player, lists and full player', () => {
+  for (const artist of [null, '', '<unknown>', 'UNKNOWN']) assert.equal(musicArtist(artist), '未知歌手')
+  assert.equal(musicArtist('Adele'), 'Adele')
 })
