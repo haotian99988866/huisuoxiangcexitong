@@ -353,7 +353,24 @@ def refresh_channel_metadata(message):
         conn.close()
 
 
-def audio_file(track_id):
+def commit_stream_cache(temporary, name, expected_size):
+    """Only complete verified streams become cache hits; never hold the lock over network I/O."""
+    if not STORED_NAME.fullmatch(name) or temporary.stat().st_size != expected_size:
+        raise ValueError("音乐流缓存不完整或名称无效")
+    validate_audio(temporary, strict_suffix=False)
+    destination = library_dir() / name
+    with download_lock:
+        if destination.is_file():
+            return
+        used = sum(path.stat().st_size for path in destination.parent.iterdir()
+                   if path.is_file() and path.name != temporary.name and STORED_NAME.fullmatch(path.name))
+        if used + expected_size > CHANNEL_CACHE_BYTES:
+            logger.warning("Music stream cache budget reached; completed stream not retained")
+            return
+        temporary.replace(destination)
+
+
+def audio_file(track_id, *, stream=False):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -372,8 +389,22 @@ def audio_file(track_id):
     path = library_dir() / name
     if path.resolve().parent != library_dir():
         raise ValueError("音乐文件位置无效")
+    if (stream and row.get("channel_id") == MUSIC_CHANNEL_ID and row.get("message_id")
+            and (path.suffix in {".flac", ".wav", ".ogg"} or (row.get("file_size") or 0) > 12 * 1024 * 1024)):
+        from music_playback import prepared_audio
+        prepared = prepared_audio(name, row["message_id"], row["file_size"])
+        if prepared:
+            return prepared, "audio/mpeg"
     if not path.is_file() and row.get("telegram_file_id"):
         if row.get("channel_id") == MUSIC_CHANNEL_ID and row.get("message_id"):
+            if stream:
+                from music_stream import RemoteAudio
+                size = row["file_size"]
+                if (not isinstance(size, int) or isinstance(size, bool)
+                        or not 12 <= size <= MAX_AUDIO_BYTES
+                        or not isinstance(row["message_id"], int) or row["message_id"] <= 0):
+                    raise ValueError("自有频道音乐流配置无效")
+                return RemoteAudio(row["message_id"], size, MIME_TYPES[path.suffix], name)
             path = download_owned_cached_audio(row["message_id"], name, row["file_size"])
         else:
             path = download_channel_audio(row["telegram_file_id"], name, row["file_size"])

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { musicArtist, nextTrack, playlistLink, prioritizeTrack } from './musicPlayback.js'
+import { musicArtist, musicPlaybackError, nextTrack, playlistLink, prioritizeTrack } from './musicPlayback.js'
 
 const queue = [{ id: 1 }, { id: 2 }, { id: 3 }]
 test('sequential playback stays in the selected list and wraps in both directions', () => {
@@ -29,4 +29,13 @@ test('play next deduplicates priority entries without changing the active track'
 test('unknown performer text is consistent in mini player, lists and full player', () => {
   for (const artist of [null, '', '<unknown>', 'UNKNOWN']) assert.equal(musicArtist(artist), '未知歌手')
   assert.equal(musicArtist('Adele'), 'Adele')
+})
+
+test('playback errors distinguish network, decoding, unavailable track and busy service', () => {
+  assert.match(musicPlaybackError(2), /网络/)
+  assert.match(musicPlaybackError(3), /解码/)
+  assert.match(musicPlaybackError(4), /格式/)
+  assert.match(musicPlaybackError(2, 404), /下架/)
+  assert.match(musicPlaybackError(2, 503), /繁忙/)
+  assert.match(musicPlaybackError(2, 502), /服务器/)
 })

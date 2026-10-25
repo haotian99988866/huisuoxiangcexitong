@@ -21,6 +21,7 @@ from image_hash import ImageDeduper, ensure_columns as ensure_image_hash_columns
 from image_cache import ImageCache
 from video_cache import VideoCache
 from music import ensure_tables as ensure_music_tables, catalog as music_catalog, audio_file as music_audio_file
+from music_stream import RemoteAudio, audio_response as music_stream_response
 from tenants import load_tenant, public_config, TenantUnavailable
 from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 from visit_stats import ensure_table, record_visit, verify_init_data
@@ -644,9 +645,11 @@ def movie_thumb(message_id):
 @app.get("/music-audio/<int:track_id>")
 def music_audio(track_id):
     try:
-        result = music_audio_file(track_id)
+        result = music_audio_file(track_id, stream=True)
         if result is None:
             return jsonify({"error": "歌曲不存在或已下架"}), 404
+        if isinstance(result, RemoteAudio):
+            return music_stream_response(result)
         path, mimetype = result
         response = send_file(path, mimetype=mimetype, conditional=True, max_age=0)
         response.headers["Cache-Control"] = "private, no-store"

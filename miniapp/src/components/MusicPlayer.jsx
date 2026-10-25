@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { API_BASE_URL } from '../utils/twa'
 import { requestMusic } from '../utils/music'
-import { musicArtist, nextTrack, prioritizeTrack } from '../utils/musicPlayback'
+import { musicArtist, musicPlaybackError, nextTrack, prioritizeTrack } from '../utils/musicPlayback'
 import './MusicPlayer.css'
 import MusicIcon from './MusicIcon'
 import MusicNowPlaying from './MusicNowPlaying'
@@ -202,7 +202,7 @@ export default function MusicPlayer({ children }) {
       setWaiting(false)
       setError(failure.name === 'NotAllowedError'
         ? '客户端阻止了播放，请再次点击播放按钮。'
-        : '音频无法播放，请重试；若仍失败，请联系管理员检查文件和格式。')
+        : musicPlaybackError(audio.error?.code))
     } finally {
       if (requestId.current === id) loadingTrack.current = null
     }
@@ -250,12 +250,24 @@ export default function MusicPlayer({ children }) {
     audioRef.current.volume = Number(value)
     setVolume(Number(value))
   }
-  const failed = () => {
+  const failed = async () => {
     if (!currentRef.current) return
+    const id = requestId.current
+    const trackId = currentRef.current.id
+    const code = audioRef.current.error?.code
     setWaiting(false)
     loadingTrack.current = null
     setPlaying(false)
-    setError('音频加载失败或歌曲已下架，请重试或选择其他歌曲。')
+    setError(musicPlaybackError(code))
+    if (code === 3) return
+    const check = new AbortController()
+    const timer = setTimeout(() => check.abort(), 5000)
+    try {
+      const response = await fetch(`${API_BASE_URL}/music-audio/${trackId}`, { method: 'HEAD', signal: check.signal })
+      if (requestId.current === id && currentRef.current?.id === trackId) setError(musicPlaybackError(code, response.status))
+    } catch (failure) {
+      console.warn('[Music playback status]', failure.name)
+    } finally { clearTimeout(timer) }
   }
   const value = {
     tracks, status, catalogError, load, current, playing, waiting, error,

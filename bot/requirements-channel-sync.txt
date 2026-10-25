@@ -1,3 +1,4 @@
 -r requirements.txt
 Telethon>=1.42,<2.0
 cryptg>=0.5,<0.6
+imageio-ffmpeg>=0.6,<0.7

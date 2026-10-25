@@ -197,11 +197,11 @@ async def reconciliation_worker(user, source, target, store, boundary):
 
 
 @contextmanager
-def single_instance(directory):
+def single_instance(directory, name="listener.lock"):
     # OS lock is released on crash; never delete another process's session files.
     import msvcrt
 
-    with (directory / "listener.lock").open("a+b") as lock:
+    with (directory / name).open("a+b") as lock:
         lock.seek(0, 2)
         if lock.tell() == 0:
             lock.write(b"0")
@@ -454,8 +454,10 @@ async def run(mode, directory):
         async with asyncio.TaskGroup() as tasks:
             from music_ingest import music_worker
             from movie_ingest import movie_worker
+            from music_playback import playback_worker
             tasks.create_task(music_worker(user, bot, directory))
             tasks.create_task(movie_worker(user, bot, directory))
+            tasks.create_task(playback_worker())
             tasks.create_task(worker(user, bot, source, target, store, directory))
             tasks.create_task(announcement_worker(bot, target, store))
             tasks.create_task(reconciliation_worker(user, source, target, store, boundary))
