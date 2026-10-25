@@ -1,4 +1,17 @@
-# 免费上线部署指南（Oracle 永久免费服务器）
+# 部署指南
+
+## 当前 Windows 本机部署（固定 Cloudflare 隧道）
+
+- 公网地址：`https://app.haotianzhushou.com/`。
+- 命名隧道：`huisuo`，转发到 `http://127.0.0.1:4173`；前端通过 `/api` 代理本机 8000 端口。
+- 隧道配置及凭据保存在当前用户的 `.cloudflared` 目录，不要提交凭据。
+- 手动启动：在项目根目录执行 `powershell -NoProfile -ExecutionPolicy Bypass -File deploy\start-local.ps1`。
+- 脚本启动 API、机器人、已构建的前端预览和固定隧道；跳过已运行的实例，并检查本地及公网页面、数据接口。前端更新后需先在 `miniapp` 目录执行 `npm run build`。
+- 当前电脑的用户启动目录已配置 `huisuo-services.cmd`，登录 Windows 后调用上述脚本。这不是系统服务，未登录时不会启动，也不负责进程崩溃后的自动重启。
+- 启动和服务日志位于 `%LOCALAPPDATA%\Huisuo\logs`。MySQL84 已配置为自动启动的 Windows 服务。
+- BotFather 的 Main Mini App 和机器人菜单网址应保持为上述固定地址。电脑关机、休眠或断网时，小程序仍不可用。
+
+## 可选：Oracle 永久免费服务器部署
 
 结构：一台服务器同时运行 MySQL、API、Telegram 机器人和前端，Caddy 提供免费 HTTPS。
 

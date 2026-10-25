@@ -1,56 +1,81 @@
-# 本机 + Cloudflare 临时隧道：一键启动 API、机器人、前端预览和隧道，并打印公网地址。
-# 用法：在项目根目录运行  powershell -ExecutionPolicy Bypass -File deploy\start-local.ps1
+# Start local services and the named tunnel; leave existing instances running.
+# Run: powershell -ExecutionPolicy Bypass -File deploy\start-local.ps1
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $py = Join-Path $root 'bot\venv\Scripts\python.exe'
+$node = (Get-Command node -ErrorAction Stop).Source
 $cf = 'C:\Program Files (x86)\cloudflared\cloudflared.exe'
-$log = $env:TEMP
+$config = Join-Path $env:USERPROFILE '.cloudflared\config.yml'
+$log = Join-Path $env:LOCALAPPDATA 'Huisuo\logs'
+$env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 
-function Stop-Matching($pattern) {
-    Get-CimInstance Win32_Process |
-        Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern -and $_.ProcessId -ne $PID } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-}
-
-# 先停掉旧进程，避免重复运行（同一个机器人只能运行一个实例）
-Stop-Matching 'api_server\.py'
-Stop-Matching 'bot\\main\.py|\bmain\.py'
-Stop-Matching 'vite.*preview'
-Stop-Matching 'cloudflared.*tunnel'
-Start-Sleep 2
-
-Push-Location (Join-Path $root 'bot')
-Start-Process $py -ArgumentList 'api_server.py' -WindowStyle Hidden `
-    -RedirectStandardOutput "$log\api.out.log" -RedirectStandardError "$log\api.err.log"
-Start-Process $py -ArgumentList 'main.py' -WindowStyle Hidden `
-    -RedirectStandardOutput "$log\bot.out.log" -RedirectStandardError "$log\bot.err.log"
-Pop-Location
-
-Push-Location (Join-Path $root 'miniapp')
-npm run build | Out-Null
-Start-Process node -ArgumentList 'node_modules\vite\bin\vite.js', 'preview' -WindowStyle Hidden `
-    -RedirectStandardOutput "$log\preview.out.log" -RedirectStandardError "$log\preview.err.log"
-Pop-Location
-
-Start-Sleep 4
-Remove-Item "$log\tunnel.err.log" -ErrorAction SilentlyContinue
-Start-Process $cf -ArgumentList 'tunnel', '--url', 'http://127.0.0.1:4173' -WindowStyle Hidden `
-    -RedirectStandardOutput "$log\tunnel.out.log" -RedirectStandardError "$log\tunnel.err.log"
-
-$url = $null
-for ($i = 0; $i -lt 30 -and -not $url; $i++) {
-    Start-Sleep 1
-    if (Test-Path "$log\tunnel.err.log") {
-        $m = Select-String -Path "$log\tunnel.err.log" -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1
-        if ($m) { $url = $m.Matches[0].Value }
+New-Item -ItemType Directory -Path $log -Force | Out-Null
+Start-Transcript -Path (Join-Path $log 'startup.log') -Append | Out-Null
+try {
+    foreach ($path in @($py, $cf, $config, (Join-Path $root 'miniapp\dist\index.html'))) {
+        if (-not (Test-Path -LiteralPath $path)) {
+            throw "Required file missing: $path"
+        }
     }
-}
-if ($url) {
-    $env:PYTHONUTF8 = '1'
-    & $py (Join-Path $root 'bot\miniapp_entry.py') menu $url
-    Write-Host "公网地址：$url" -ForegroundColor Green
-    Write-Host '每次启动地址都会变：到 BotFather 把小程序网址改成上面的地址。'
-} else {
-    Write-Host "未获取到公网地址，请查看 $log\tunnel.err.log" -ForegroundColor Red
+
+    function Start-ServiceProcess($executable, $pattern, $arguments, $directory, $name) {
+        $running = Get-CimInstance Win32_Process | Where-Object {
+            $_.ExecutablePath -eq $executable -and $_.CommandLine -match $pattern
+        }
+        if ($running) {
+            Write-Host "$name already running."
+            return
+        }
+        Start-Process -FilePath $executable -ArgumentList $arguments `
+            -WorkingDirectory $directory -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $log "$name.out.log") `
+            -RedirectStandardError (Join-Path $log "$name.err.log")
+        Write-Host "$name started."
+    }
+
+    function Wait-Endpoint($url, $post) {
+        for ($i = 0; $i -lt 18; $i++) {
+            try {
+                $options = @{ Uri = $url; UseBasicParsing = $true; TimeoutSec = 10 }
+                if ($post) {
+                    $options.Method = 'Post'
+                    $options.ContentType = 'application/json'
+                    $options.Body = '{"action":"get_venues"}'
+                }
+                $response = Invoke-WebRequest @options
+                if ($response.StatusCode -eq 200) {
+                    if ($post -and -not (($response.Content | ConvertFrom-Json).venues)) {
+                        throw 'Venue response is empty or invalid.'
+                    }
+                    Write-Host "Ready: $url"
+                    return
+                }
+            } catch {
+                if ($i -eq 17) { throw }
+                Write-Warning "Waiting for ${url}: $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 5
+        }
+        throw "Endpoint not ready: $url"
+    }
+
+    $botDirectory = Join-Path $root 'bot'
+    $appDirectory = Join-Path $root 'miniapp'
+    Start-ServiceProcess $py '\bapi_server\.py(?:["\s]|$)' 'api_server.py' $botDirectory 'api'
+    Start-ServiceProcess $py '\bmain\.py(?:["\s]|$)' 'main.py' $botDirectory 'bot'
+    Start-ServiceProcess $node 'vite[\\/].*preview|vite\.js"?\s+preview' `
+        'node_modules\vite\bin\vite.js preview' $appDirectory 'preview'
+    Wait-Endpoint 'http://127.0.0.1:4173/' $false
+    Wait-Endpoint 'http://127.0.0.1:8000/webhook' $true
+    Start-ServiceProcess $cf 'tunnel\s+(?:--config\s+"[^"]+"\s+)?run\s+huisuo(?:\s|$)' `
+        "tunnel --config `"$config`" run huisuo" $root 'tunnel'
+    Wait-Endpoint 'https://app.haotianzhushou.com/' $false
+    Wait-Endpoint 'https://app.haotianzhushou.com/api/webhook' $true
+    Write-Host 'Startup complete: https://app.haotianzhushou.com/'
+} catch {
+    Write-Error "Startup failed. Logs: $log. $($_.Exception.Message)"
+    exit 1
+} finally {
+    Stop-Transcript | Out-Null
 }
