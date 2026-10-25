@@ -1,3 +1,5 @@
+import { announcementText } from '../utils/tenant'
+
 export const ANNOUNCEMENT_TEXT = '充值模块开发中，商品购买暂未开放'
 
 // 全屏时 Telegram 的关闭/菜单按钮会浮在页面顶部:用等高的公告栏避让;非全屏显示公告卡片
@@ -26,7 +28,7 @@ export function FullscreenAnnouncementBar() {
         }}
       >
         <span aria-hidden="true">📢</span>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{ANNOUNCEMENT_TEXT}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{announcementText()}</span>
       </div>
     </div>
   )
@@ -56,7 +58,7 @@ export function AnnouncementCard() {
       <span style={{ fontWeight: 700 }}>公告</span>
       <span style={{ width: '1px', height: '12px', background: '#e6d3a3' }} />
       <span style={{ minWidth: 0, color: '#987f54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {ANNOUNCEMENT_TEXT}
+        {announcementText()}
       </span>
     </div>
   )

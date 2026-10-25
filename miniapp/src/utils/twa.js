@@ -1,6 +1,9 @@
+import { isTenantEntry, tenantHeaders } from './tenant'
+
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
 
 const backOverlays = []
+let visitTracked = false
 
 export function registerBackOverlay(handler) {
   backOverlays.push(handler)
@@ -60,11 +63,13 @@ export function subscribeFullscreen(callback) {
 }
 
 export function trackVisit() {
+  if (isTenantEntry() || visitTracked) return
   const initData = window.Telegram?.WebApp?.initData
   if (!initData) return
+  visitTracked = true
   fetch(`${API_BASE_URL}/webhook`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
     body: JSON.stringify({ action: 'track_visit', init_data: initData }),
     keepalive: true
   }).catch(() => {})
@@ -73,7 +78,7 @@ export function trackVisit() {
 export function sendData(data) {
   fetch(`${API_BASE_URL}/webhook`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
     body: JSON.stringify(data)
   })
     .then(async res => {

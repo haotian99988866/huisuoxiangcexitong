@@ -1,3 +1,5 @@
+import { contactName, contactUrl, getTenant } from './tenant'
+
 export const moduleGroups = [
   { key: 'content', label: '常用内容' },
   { key: 'convenience', label: '便民服务' },
@@ -12,3 +14,10 @@ export const modules = [
   { key: 'personal', label: '个人中心', icon: '👤', path: '/personal', startParam: 'personal', group: 'personal', description: '账户余额、充值记录与帮助' },
   { key: 'contact', label: '联系昊天', icon: '💬', url: 'https://t.me/haotian99988866', group: 'personal', description: '咨询与人工帮助' },
 ]
+
+export function displayModules() {
+  if (!getTenant()) return modules
+  return modules.filter(item => ['venue', 'movies', 'contact'].includes(item.key)).map(item => (
+    item.key === 'contact' ? { ...item, label: `联系${contactName()}`, url: contactUrl() } : item
+  ))
+}

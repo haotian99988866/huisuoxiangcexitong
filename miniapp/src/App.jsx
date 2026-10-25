@@ -7,6 +7,7 @@ import MovieList from './pages/MovieList'
 import Recharge from './pages/Recharge'
 import Personal from './pages/Personal'
 import { modules } from './utils/modules'
+import TenantGate from './components/TenantGate'
 
 // 机器人按钮带 startapp=movies 时直接进入观影页
 function StartParamRedirect() {
@@ -22,15 +23,17 @@ function StartParamRedirect() {
 export default function App() {
   return (
     <Router>
-      <StartParamRedirect />
-      <Routes>
-        <Route path="/" element={<VenueList />} />
-        <Route path="/movies" element={<MovieList />} />
-        <Route path="/recharge" element={<Recharge />} />
-        <Route path="/personal" element={<Personal />} />
-        <Route path="/venue/:id" element={<VenueDetail />} />
-        <Route path="/venue/:venue_id/technicians" element={<TechnicianList />} />
-      </Routes>
+      <TenantGate>
+        <StartParamRedirect />
+        <Routes>
+          <Route path="/" element={<VenueList />} />
+          <Route path="/movies" element={<MovieList />} />
+          <Route path="/recharge" element={<Recharge />} />
+          <Route path="/personal" element={<Personal />} />
+          <Route path="/venue/:id" element={<VenueDetail />} />
+          <Route path="/venue/:venue_id/technicians" element={<TechnicianList />} />
+        </Routes>
+      </TenantGate>
     </Router>
   )
 }

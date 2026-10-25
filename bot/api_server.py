@@ -8,7 +8,7 @@ from datetime import date
 import pymysql
 import requests
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, request, send_file, stream_with_context
+from flask import Flask, Response, g, jsonify, request, send_file, stream_with_context
 from flask_cors import CORS
 from PIL import Image, UnidentifiedImageError
 from waitress import serve
@@ -19,6 +19,7 @@ from delivery_age import extract_work_no, parse_price_table, price_for_work_no
 from image_hash import ImageDeduper, ensure_columns as ensure_image_hash_columns
 from image_cache import ImageCache
 from video_cache import VideoCache
+from tenants import load_tenant, public_config, TenantUnavailable
 from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 from visit_stats import ensure_table, record_visit, verify_init_data
 from movies import (
@@ -89,6 +90,68 @@ def get_db_connection():
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
     )
+
+
+@app.before_request
+def tenant_context():
+    g.tenant = None
+    if request.method == "OPTIONS":
+        return None
+    header, query = request.headers.get("X-Tenant"), request.args.get("tenant")
+    if header is not None and query is not None and header != query:
+        return jsonify({"error": "租户入口参数冲突"}), 400
+    slug = header if header is not None else query
+    if slug is None:
+        return None
+    try:
+        g.tenant = load_tenant(slug)
+    except TenantUnavailable as exc:
+        return jsonify({"error": str(exc)}), 403
+    except (ValueError, TypeError, KeyError, pymysql.MySQLError):
+        logger.exception("Failed to load tenant configuration")
+        return jsonify({"error": "租户配置暂不可用，请联系服务提供方"}), 503
+    if request.endpoint == "webhook":
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify({"error": "Request body must be a JSON object"}), 400
+        allowed = {"tenant_config", "get_venues", "get_venue_detail", "get_technicians",
+                   "get_movies", "get_movie_series"}
+        if body.get("action") not in allowed:
+            return jsonify({"error": "此入口仅提供会所与观影展示，不开放账户或充值"}), 403
+        if body.get("action") in {"get_venue_detail", "get_technicians"}:
+            try:
+                venue_id = int(body.get("id", body.get("venue_id")))
+            except (ValueError, TypeError):
+                return jsonify({"error": "A valid venue id is required"}), 400
+            if venue_id not in g.tenant["venue_ids"]:
+                return jsonify({"error": "此入口未开放该会所"}), 403
+    elif request.endpoint in {"technician_photo_image", "ktv_video", "delivery_media"}:
+        if request.endpoint == "delivery_media":
+            return jsonify({"error": "此入口未开放外送"}), 403
+        table, field = ("technician_photos", "photo_id") if request.endpoint == "technician_photo_image" else ("ktv_room_videos", "video_id")
+        conn = None
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT venue_id FROM {table} WHERE id=%s", (request.view_args[field],))
+                row = cur.fetchone()
+            if row is None or row["venue_id"] not in g.tenant["venue_ids"]:
+                return jsonify({"error": "此入口未开放该会所资料"}), 403
+        except pymysql.MySQLError:
+            logger.exception("Failed to check tenant media scope")
+            return jsonify({"error": "资料服务暂不可用"}), 503
+        finally:
+            if conn is not None:
+                conn.close()
+    return None
+
+
+@app.after_request
+def tenant_cache_policy(response):
+    if getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
+        response.headers["Cache-Control"] = "private, no-store"
+        response.vary.add("X-Tenant")
+    return response
 
 
 def parse_venue(venue):
@@ -694,6 +757,8 @@ def webhook():
         return jsonify({"error": "Request body must be a JSON object"}), 400
 
     action = data.get("action")
+    if action == "tenant_config":
+        return jsonify({"tenant": public_config(g.tenant) if g.tenant else None})
     if action in {"wallet_account", "wallet_submit"}:
         from wallet import account, submit
         init_data = data.get("init_data")
@@ -771,6 +836,8 @@ def webhook():
                 """
             )
             venues = [parse_venue(venue) for venue in cur.fetchall()]
+            if g.tenant:
+                venues = [venue for venue in venues if venue["id"] in g.tenant["venue_ids"]]
             for venue in venues:
                 message_date = venue["last_channel_message_at"]
                 venue["last_channel_message_at"] = (
@@ -1133,6 +1200,8 @@ def webhook():
 
 
 if __name__ == "__main__":
+    from tenants import ensure_tables as ensure_tenant_tables
+    ensure_tenant_tables()
     from wallet import ensure_tables as ensure_wallet_tables
     ensure_wallet_tables()
     ensure_table()

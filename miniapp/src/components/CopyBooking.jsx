@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { contactName } from '../utils/tenant'
 
 export default function CopyBooking({ url }) {
   const [status, setStatus] = useState('')
@@ -18,7 +19,7 @@ export default function CopyBooking({ url }) {
   }
   return (
     <div style={{ marginTop: '10px', fontSize: '12px', color: '#888', textAlign: 'center' }}>
-      <p style={{ margin: '0 0 6px', lineHeight: 1.5 }}>联系昊天后，若聊天框未带入资料，请复制后粘贴发送。</p>
+      <p style={{ margin: '0 0 6px', lineHeight: 1.5 }}>联系{contactName()}后，若聊天框未带入资料，请复制后粘贴发送。</p>
       <button type="button" onClick={copy}
         style={{ padding: '8px 14px', marginTop: '6px', border: '1px solid #e0d2bd', borderRadius: '8px', background: '#fffaf0', color: '#80643c' }}>
         复制预约资料

@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
-import { trackVisit, openTelegramLink } from './utils/twa'
+import { openTelegramLink } from './utils/twa'
 
 const toTelegramDeepLink = href => {
   const url = new URL(href)
@@ -27,8 +27,6 @@ document.addEventListener('click', event => {
     window.location.href = toTelegramDeepLink(anchor.href)
   }, 1500)
 }, true)
-
-trackVisit()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

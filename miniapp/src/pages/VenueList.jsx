@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useModuleState, useModuleScroll } from '../utils/moduleState'
-import { FullscreenAnnouncementBar, ANNOUNCEMENT_TEXT } from '../components/Announcement'
+import { FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
 import CopyBooking from '../components/CopyBooking'
 import { bookingUrl } from '../utils/booking'
+import { announcementText, contactName, contactUrl, mediaUrl, tenantPath } from '../utils/tenant'
 import { API_BASE_URL, bindBackButton, closeMiniApp, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
 
 // 首页默认显示“名玺水汇会所”，找不到时退回列表第一个
@@ -65,12 +66,12 @@ const contactButtonStyle = {
 function ContactButton() {
   return (
     <a
-      href="https://t.me/haotian99988866"
+      href={contactUrl()}
       target="_blank"
       rel="noreferrer"
       style={contactButtonStyle}
     >
-      <span aria-hidden="true">✈</span>联系昊天
+      <span aria-hidden="true">✈</span>联系{contactName()}
     </a>
   )
 }
@@ -207,7 +208,7 @@ const ktvPriceLines = text => (text || '')
 
 const ktvBookingUrl = video => {
   const room = video.room_number ? `${video.room_number}号房` : '包房'
-  return `https://t.me/haotian99988866?text=${encodeURIComponent(`你好，我想预定名玺水汇KTV ${room}`)}`
+  return `${contactUrl()}?text=${encodeURIComponent(`你好，我想预定名玺水汇KTV ${room}`)}`
 }
 
 const attendanceHeadingRowStyle = {
@@ -542,7 +543,7 @@ export default function VenueList() {
   const deliveryBookingUrl = deliveryViewer ? bookingUrl({
     title: `你好，我想预约${baseVenue?.name || '西港外送'}`,
     links: deliveryViewer.link ? [deliveryViewer.link] : deliveryViewer.media.map(media => (
-      new URL(`${API_BASE_URL}/delivery-media/${media.id}`, window.location.origin).href
+      new URL(mediaUrl(`${API_BASE_URL}/delivery-media/${media.id}`), window.location.origin).href
     )),
     details: [
       deliveryViewer.work_no && `工号：${deliveryViewer.work_no}`,
@@ -555,7 +556,7 @@ export default function VenueList() {
     ? (() => {
         const originalLinks = selectedVenue.technician_photo_links?.[selectedTechnicianCode] || []
         const photoLinks = originalLinks.length ? originalLinks : technicianPhotos.map(id => (
-          new URL(`${API_BASE_URL}/photos/${id}/image`, window.location.origin).href
+          new URL(mediaUrl(`${API_BASE_URL}/photos/${id}/image`), window.location.origin).href
         ))
         return bookingUrl({
           title: `你好，我想咨询这位技师：${selectedVenue.name} · 工号${selectedTechnicianCode}`,
@@ -578,7 +579,7 @@ export default function VenueList() {
           ],
         })
       })()
-    : 'https://t.me/haotian99988866'
+    : contactUrl()
 
   const renderTechnicianTile = code => {
     const photoIds = selectedVenue?.technician_photos?.[code] || []
@@ -619,7 +620,7 @@ export default function VenueList() {
             <LazyMedia
               alt=""
               decoding="async"
-              src={`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`}
+              src={mediaUrl(`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`)}
               style={lazyFillStyle}
             />
             <span style={{
@@ -739,7 +740,7 @@ export default function VenueList() {
                     <LazyMedia
                       alt=""
                       decoding="async"
-                      src={`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`}
+                      src={mediaUrl(`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`)}
                       style={lazyFillStyle}
                     />
                     <span style={{
@@ -797,7 +798,7 @@ export default function VenueList() {
                 const id = e.target.value
                 setSelectedId(id)
                 const venue = list.find(item => String(item.id) === id)
-                navigate(venue?.delivery_categories ? '/?module=delivery' : '/?module=venue', { replace: true })
+                navigate(tenantPath(venue?.delivery_categories ? '/?module=delivery' : '/?module=venue'), { replace: true })
               }}
               aria-label="选择会所"
               style={{
@@ -884,7 +885,7 @@ export default function VenueList() {
               <span style={{ fontWeight: 700 }}>公告</span>
               <span style={{ width: '1px', height: '12px', background: '#e6d3a3' }} />
               <span style={{ minWidth: 0, color: '#987f54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {ANNOUNCEMENT_TEXT}
+                {announcementText()}
               </span>
             </div>
           )}
@@ -942,7 +943,7 @@ export default function VenueList() {
           {/* 今日在岗技师 / 未发布提示 */}
           {isDeliveryDayShift ? (
             <NoticeCard icon="☀️" title="西港外送只展示晚班出勤">
-              当前为白班时间（06:00–18:00），白班外送请单独联系昊天，<br />
+              当前为白班时间（06:00–18:00），白班外送请单独联系{contactName()}，<br />
               晚班（18:00 起）内容将在此展示。
             </NoticeCard>
           ) : Array.isArray(selectedVenue.delivery_posts) ? (
@@ -984,14 +985,14 @@ export default function VenueList() {
                               muted
                               playsInline
                               preload="metadata"
-                              src={`${API_BASE_URL}/delivery-media/${cover.id}#t=0.5`}
+                              src={mediaUrl(`${API_BASE_URL}/delivery-media/${cover.id}#t=0.5`)}
                               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                             />
                           ) : (
                             <LazyMedia
                               alt=""
                               decoding="async"
-                              src={`${API_BASE_URL}/delivery-media/${cover.id}?thumb=1`}
+                              src={mediaUrl(`${API_BASE_URL}/delivery-media/${cover.id}?thumb=1`)}
                               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                             />
                           )}
@@ -1044,7 +1045,7 @@ export default function VenueList() {
                 </div>
               ) : (
                 <NoticeCard icon="⏳" title="暂无内容">
-                  新内容发布后将在此展示，<br />如需了解详情请直接联系昊天。
+                  新内容发布后将在此展示，<br />如需了解详情请直接联系{contactName()}。
                 </NoticeCard>
               )}
               {deliveryViewer && (
@@ -1085,14 +1086,14 @@ export default function VenueList() {
                           controls
                           playsInline
                           preload="metadata"
-                          src={`${API_BASE_URL}/delivery-media/${media.id}`}
+                          src={mediaUrl(`${API_BASE_URL}/delivery-media/${media.id}`)}
                           style={{ maxWidth: '100%', maxHeight: '100%' }}
                         />
                       ) : (
                         <img
                           key={media.id}
                           alt=""
-                          src={`${API_BASE_URL}/delivery-media/${media.id}`}
+                          src={mediaUrl(`${API_BASE_URL}/delivery-media/${media.id}`)}
                           style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                         />
                       )
@@ -1167,7 +1168,7 @@ export default function VenueList() {
                               muted
                               playsInline
                               preload="metadata"
-                              src={`${API_BASE_URL}/delivery-media/${media.id}#t=0.5`}
+                              src={mediaUrl(`${API_BASE_URL}/delivery-media/${media.id}#t=0.5`)}
                               style={{ ...thumbStyle, pointerEvents: 'none' }}
                             />
                             <span style={{
@@ -1182,7 +1183,7 @@ export default function VenueList() {
                             alt=""
                             decoding="async"
                             onClick={() => setDeliveryIndex(index)}
-                            src={`${API_BASE_URL}/delivery-media/${media.id}?thumb=1`}
+                            src={mediaUrl(`${API_BASE_URL}/delivery-media/${media.id}?thumb=1`)}
                             style={thumbStyle}
                           />
                         )
@@ -1292,7 +1293,7 @@ export default function VenueList() {
                           preload="metadata"
                           muted
                           playsInline
-                          src={`${API_BASE_URL}/ktv-videos/${video.id}#t=0.5`}
+                          src={mediaUrl(`${API_BASE_URL}/ktv-videos/${video.id}#t=0.5`)}
                           style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
                         />
                         <div style={{
@@ -1384,7 +1385,7 @@ export default function VenueList() {
                     controls
                     controlsList="nofullscreen"
                     playsInline
-                    src={`${API_BASE_URL}/ktv-videos/${ktvVideo.id}`}
+                    src={mediaUrl(`${API_BASE_URL}/ktv-videos/${ktvVideo.id}`)}
                     onClick={event => event.stopPropagation()}
                     style={{ width: '100%', maxHeight: '80vh', background: '#000' }}
                   />
@@ -1546,7 +1547,7 @@ export default function VenueList() {
               {currentShift === '白班'
                 ? '白班出勤名单与照片发布后将在此展示，'
                 : '晚班出勤名单与照片发布后将在此展示，'}
-              <br />如需了解详情请直接联系昊天。
+              <br />如需了解详情请直接联系{contactName()}。
             </NoticeCard>
           )}
 
@@ -1614,7 +1615,7 @@ export default function VenueList() {
               </div>
               <p style={{ margin: '8px 0 12px', fontSize: '13px', lineHeight: 1.7, color: '#8a7a64' }}>
                 点击技师工号可查看照片与详细资料，
-                <br />名单会随频道实时更新，也可联系昊天预约。
+                <br />名单会随频道实时更新，也可联系{contactName()}预约。
               </p>
               <ContactButton />
             </div>
@@ -1712,7 +1713,7 @@ export default function VenueList() {
                     }}
                   >
                     <img
-                      src={`${API_BASE_URL}/photos/${photoId}/image`}
+                      src={mediaUrl(`${API_BASE_URL}/photos/${photoId}/image`)}
                       alt={`工号 ${selectedTechnicianCode} 的第 ${index + 1} 张照片`}
                       loading="lazy"
                       onLoad={event => {
@@ -1901,7 +1902,7 @@ export default function VenueList() {
               }}
             >
               <span aria-hidden="true">✈</span>
-              联系业务经理昊天
+              联系业务经理{contactName()}
             </a>
           </section>
         </div>
@@ -1971,7 +1972,7 @@ export default function VenueList() {
           >
             <img
               key={`${technicianPhotos[photoViewerIndex]}-${photoRetry}`}
-              src={`${API_BASE_URL}/photos/${technicianPhotos[photoViewerIndex]}/image${photoRetry ? `?retry=${photoRetry}` : ''}`}
+              src={mediaUrl(`${API_BASE_URL}/photos/${technicianPhotos[photoViewerIndex]}/image${photoRetry ? `?retry=${photoRetry}` : ''}`)}
               alt={`工号 ${selectedTechnicianCode} 的放大照片`}
               onLoad={() => setPhotoLoadState('loaded')}
               onError={() => setPhotoLoadState('error')}

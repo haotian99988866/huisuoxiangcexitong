@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { moduleGroups, modules } from '../utils/modules'
+import { moduleGroups, displayModules } from '../utils/modules'
+import { getTenant, tenantPath } from '../utils/tenant'
 import { registerBackOverlay } from '../utils/twa'
 import { rememberModuleScroll } from '../utils/moduleState'
 import './ModuleTabs.css'
 
 export default function ModuleTabs({ active }) {
+  const modules = displayModules()
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const trigger = useRef(null)
@@ -46,11 +48,12 @@ export default function ModuleTabs({ active }) {
   const selectModule = item => {
     rememberModuleScroll(active)
     setExpanded(false)
-    if (item.key !== active) navigate(item.path, { replace: true })
+    if (item.key !== active) navigate(tenantPath(item.path), { replace: true })
   }
 
   return (
     <nav aria-label="模块导航" className="module-navigation">
+      {getTenant() && <div className="module-current">{getTenant().brand_name}</div>}
       <div className="module-shortcuts">
         {modules.filter(item => item.common).map(item => (
           <button

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
 import { useModuleState, useModuleScroll } from '../utils/moduleState'
+import { mediaUrl, tenantHeaders } from '../utils/tenant'
 import {
   API_BASE_URL,
   bindBackButton,
@@ -13,7 +14,7 @@ import {
 
 const coverUrl = cover => {
   if (!cover) return ''
-  return /^https?:/.test(cover) ? cover : `${API_BASE_URL}/${cover}`
+  return /^https?:/.test(cover) ? cover : mediaUrl(`${API_BASE_URL}/${cover}`)
 }
 
 const openMovie = href => {
@@ -34,7 +35,7 @@ const formatDuration = seconds => {
 async function post(body) {
   const res = await fetch(`${API_BASE_URL}/webhook`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
     body: JSON.stringify(body)
   })
   const payload = await res.json()

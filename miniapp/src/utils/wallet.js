@@ -1,6 +1,8 @@
 import { API_BASE_URL } from './twa'
+import { isTenantEntry } from './tenant'
 
 export async function requestWallet(action, fields = {}) {
+  if (isTenantEntry()) throw new Error('此入口不开放账户或充值。')
   const initData = window.Telegram?.WebApp?.initData
   if (!initData) throw new Error('请从 Telegram 打开小程序，以确认你的账户身份。')
   const response = await fetch(`${API_BASE_URL}/webhook`, {

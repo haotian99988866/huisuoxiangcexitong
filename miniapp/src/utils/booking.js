@@ -1,3 +1,5 @@
+import { contactUrl } from './tenant.js'
+
 const MAX_DRAFT_LENGTH = 4096
 
 export function bookingUrl({ title, links = [], details = [] }) {
@@ -6,5 +8,5 @@ export function bookingUrl({ title, links = [], details = [] }) {
   const header = [title, ...(sources.length ? ['原帖 / 图片链接：', ...sources] : [])].join('\n')
   const message = [header, ...details.filter(Boolean)].join('\n')
   const text = Array.from(message).slice(0, MAX_DRAFT_LENGTH).join('')
-  return `https://t.me/haotian99988866?text=${encodeURIComponent(text)}`
+  return `${contactUrl()}?text=${encodeURIComponent(text)}`
 }

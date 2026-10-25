@@ -34,6 +34,41 @@ KTV 包房列表和播放器交互保持不变。API 启动后通过单独的后
 视频缓存保存在 `%LOCALAPPDATA%\Huisuo\ktv-video-cache`（未设置时使用系统临时目录），以 Telegram 文件 ID 的哈希隔离，重启后可复用；总量上限 512 MB，单文件上限 32 MB。完整下载并校验声明大小及 MP4/WebM 容器标识后才原子发布，空间不足时淘汰旧文件，不能缓存的文件明确记录错误并保留原 Telegram 转发路径。
 视频接口仍先查询数据库确认包房视频存在；命中本地缓存后支持 Range/206、拖动进度、HEAD 与 ETag/304，响应头 `X-Media-Cache` 为 `HIT`。缓存未就绪时为 `MISS`，继续使用原流式转发，不阻塞等待整段下载；转发结束或客户端断开时关闭上游连接。新增视频首次缓存完成前仍可能等待 Telegram 回源，客人实际播放速度仍受服务器上传和客人网络影响。
 
+## 展示服务租赁基础（暂未开通真实租户）
+
+第一版共用 `haotianzhaopian_bot`，提供租户品牌名、联系名、Telegram 联系用户名和会所 ID 白名单；租户仅有会所、观影与联系入口，不含外送、个人中心、钱包或充值。不做租户自助后台、自动收月费或扣款；平台运营者人工收费、核实授权后开通和续期。主入口原有功能保持不变。
+
+### 本机管理员管理
+
+在 `bot` 目录运行（Windows 使用 `.\venv\Scripts\python.exe`）：
+
+```powershell
+# 仅创建表，不开通租户；API 启动时也会初始化表
+.\venv\Scripts\python.exe tenants.py init
+.\venv\Scripts\python.exe tenants.py list
+
+# 示例命令，不会自动执行。先创建草稿，不可对外访问
+.\venv\Scripts\python.exe tenants.py create partner-one --brand "合作方品牌" --contact-name "合作方客服" --contact-username "partner_contact" --venues "1,2,3" --status draft
+
+# 人工核款后，用完整配置更新并启用；到期时间一律为 UTC，不含时区
+# 下例日期仅示范格式，实际填写未来日期
+.\venv\Scripts\python.exe tenants.py update partner-one --brand "合作方品牌" --contact-name "合作方客服" --contact-username "partner_contact" --venues "1,2,3" --status active --expires "2030-01-01T00:00:00"
+
+# 暂停时同样提供完整配置，省略到期时间即清空到期时间
+.\venv\Scripts\python.exe tenants.py update partner-one --brand "合作方品牌" --contact-name "合作方客服" --contact-username "partner_contact" --venues "1,2,3" --status suspended
+```
+
+`create` 不覆盖已有租户；`update` 不会隐式创建租户。续期用 `update` 设置新的未来到期时间并保持 `active`。联系人不带 `@`，只可选择当前启用的会所 ID 1–6；不把 7–10 外送资料出租。第一版不支持自定义头像或租户公告，公告显示品牌与信息服务说明。
+
+### 专属入口与边界
+
+- Telegram 入口：`https://t.me/haotianzhaopian_bot?startapp=tenant_partner-one`。
+- 网页入口：`https://app.haotianzhushou.com/?tenant=partner-one`；直接进入观影为 `/movies?tenant=partner-one`。
+- 导航、接口及媒体链接保留租户标识；预约、复制提示和 KTV 预订使用该租户联系人。没有有效租户配置时阻止访问，不退回昊天主入口。配置不返回账务、管理员或客户数据。
+- API 每个带租户标识的请求检查启用状态、UTC 到期时间及会所白名单；媒体命中本地缓存也先检查范围。租户响应禁止浏览器/CDN 缓存，避免过期配置或其他租户配置复用，但服务器本地公共媒体缓存仍共享。打开页面每 60 秒复核租户状态；故障、暂停或到期显示不可用提示。
+- 这是**公开内容的品牌化展示订阅**，专属链接不是登录凭证或内容付费墙。主入口、公共频道和未携带租户标识的原公开 API 仍存在；用户可自行离开租户入口访问主平台。不能宣称租户白名单可阻止用户通过公共来源查看其他会所，也不能把去掉租户标识理解为取得管理员权限。租户入口不提供任何私人账户或钱包数据；主平台钱包仍使用原 Telegram 签名身份校验。
+- 共用机器人时机器人名称和 Telegram 框架品牌不会独立；影视、照片和个人资料商业展示须有相应授权。正式收费扩展前应另行落实内容授权、托管稳定性、备份与服务条款。新表 `display_tenants` 应纳入数据库备份。
+
 ## 充值模块当前状态
 
 小程序 `/recharge` 和机器人主菜单已增加充值中心入口，支持 `startapp=recharge` 直达。
