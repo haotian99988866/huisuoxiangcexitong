@@ -25,3 +25,8 @@ Thumbs.db
 # Deploy
 deploy/*.sql
 bot/miniapp_posts.json
+*.session
+*.session-journal
+*.session-shm
+*.session-wal
+.channel-sync.env

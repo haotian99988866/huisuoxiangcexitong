@@ -11,9 +11,42 @@
 - 启动和服务日志位于 `%LOCALAPPDATA%\Huisuo\logs`。MySQL84 已配置为自动启动的 Windows 服务。
 - BotFather 的 Main Mini App 和机器人菜单网址应保持为上述固定地址。电脑关机、休眠或断网时，小程序仍不可用。
 
+## 独立频道同步（需本机用户账号登录）
+
+`bot/channel_sync.py` 是手动启用的独立进程，不会随现有 API/机器人自动启动，也不会读取私人聊天。固定监听已授权转载的来源 `@svip`，由现有机器人发布至 `@haotiancm99988866`；用户账号须订阅来源，机器人须有目标频道发帖权限。用户和机器人采用独立 MTProto 会话，不启动额外 Bot API 轮询。来源频道或消息启用保护内容时拒绝转载，不能绕过。
+
+在项目根目录用 PowerShell 执行：
+
+```powershell
+bot\venv\Scripts\python.exe -m pip install -r bot\requirements-channel-sync.txt
+# 仅首次配置；已有配置时不要覆盖
+Copy-Item bot\.channel-sync.env.example bot\.channel-sync.env
+# 在本机编辑 bot\.channel-sync.env，填入自己的 api_id / api_hash
+bot\venv\Scripts\python.exe bot\channel_sync.py login
+# 按终端提示自行输入手机号、验证码、两步验证密码；登录不会开始转发
+bot\venv\Scripts\python.exe bot\channel_sync.py run
+# 出现 READY 才表示开始监听；Ctrl+C 停止
+```
+
+API 配置文件、Telegram 登录会话禁止发到聊天、提交 Git 或上传服务器外的第三方。现有机器人 token 从本机 `bot/.env` 读取，不需要复制。会话、日志和 SQLite 发送记录存于 `%LOCALAPPDATA%\Huisuo\channel-sync`，应仅允许当前 Windows 用户访问；会话文件相当于账号登录权限，不是普通缓存，勿删除后重新登录来解决不明问题，可在 Telegram「设置 → 设备」撤销授权。
+
+只接收每次服务就绪后到达的新消息，不扫描历史或补取停机期间的消息；但已经入队且尚未尝试发送的任务会在重启后继续。文字、图片、视频/音频和文件支持重新发布，相册按组发布；不支持的消息（如投票）明确记为失败。清理正文和媒体说明中指定的「关注大事件频道➡️ @Svip 投稿：@tx188」推广段、URL（包括隐藏链接的标签）及 Telegram 联系方式，不额外添加来源；原格式转为纯文字，媒体内容和文件名不做修改，图片或视频画面中的联系方式不会被清除。纯文字清理后为空则跳过，媒体说明为空仍发布媒体。
+
+单实例锁避免同时运行两个监听进程，发送记录按来源/目标/消息组合去重；媒体仅临时落盘，用完清理。Telegram 限流明确等待；普通失败记录 `failed`，发送期间连接中断或进程退出标记 `uncertain`，不自动重发以免重复，需人工对照目标频道处理。这不是“绝不丢失/恰好一次”的承诺；停止进程后可检查日志或执行以下命令查看状态（运行期间也可查看）：
+
+```powershell
+bot\venv\Scripts\python.exe bot\channel_sync.py status
+```
+
+上线前必须完成真实账号登录、确认来源/目标及授权，并做真实新消息验收；单元测试不代表已连上 Telegram。电脑休眠、关机、网络断开或进程关闭会停止监听。
+
+当前本机监听已切换为独立后台进程，并核实新的 `READY` 日志；关闭 VS Code 或原来的交互终端不影响该后台实例。当前用户启动目录已配置 `huisuo-channel-sync.lnk`，登录 Windows 后隐藏运行 `deploy\start-channel-sync.ps1`；脚本检查配置和已登录会话，已有监听进程则不重复启动，新实例最多等待 120 秒检查新的 `READY` 日志。启动结果写入 `%LOCALAPPDATA%\Huisuo\channel-sync\startup.log`，进程输出位于同目录的 `listener.out.log` / `listener.err.log`。这是用户登录自启，不是未登录也运行的系统服务，不提供崩溃自动重启；尚未通过真实重启验收。要取消自启，只删除用户启动目录中的 `huisuo-channel-sync.lnk`，不影响其他服务或当前运行实例。
+
+不要再在终端运行第二份 `run`；需要手动后台启动时执行 `powershell -NoProfile -ExecutionPolicy Bypass -File deploy\start-channel-sync.ps1`。查看 `%LOCALAPPDATA%\Huisuo\channel-sync\sync.log` 或运行 `status` 检查发送记录。停止后台时须先核实 `channel_sync.py run` 对应的具体进程 ID，并检查发送中的任务，再停止指定进程，不能按 Python 进程名批量结束，以免影响现有 API 和机器人。
+
 ## 小程序导航扩展
 
-顶部固定显示会所、外送、观影及“全部”入口；全部功能面板按内容、便民服务、个人与帮助分组，仅显示已接入的页面。
+顶部固定显示会所、外送、观影、音乐及“全部”入口；全部功能面板按内容、便民服务、个人与帮助分组，仅显示已接入的页面。
 模块名称、分组、常用入口及直达参数统一登记在 `miniapp/src/utils/modules.js`；新增页面仍需在 `App.jsx` 注册路由。
 外送直达地址为 `/?module=delivery`，会所入口为 `/?module=venue`；原首页、观影和充值链接保持兼容。
 浏览筛选与滚动位置仅在当前页面会话内保留，不缓存余额或身份数据；面板支持关闭按钮、遮罩、Escape 和 Telegram 返回键。
