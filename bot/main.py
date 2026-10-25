@@ -48,6 +48,7 @@ from subscribe import (
     sub_menu_text,
 )
 from welcome import send_help, send_welcome, show_screen
+import news_subscription
 from visit_stats import admin_ids, ensure_table, format_stats
 from relay import (
     RELAY_CONTENT_TYPES,
@@ -142,7 +143,51 @@ def parse_caption(caption):
 @bot.message_handler(commands=['start'], chat_types=['private'])
 def handle_start(message):
     touch_user(message.from_user)
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) == 2 and (parts[1] == "news" or parts[1].startswith("news_")):
+        show_news_menu(message, "" if parts[1] == "news" else parts[1][5:])
+        return
     send_welcome(bot, message.chat.id)
+
+
+def show_news_menu(message, slug=""):
+    try:
+        news_subscription.show_menu(bot, message.chat.id, message.from_user.id, slug)
+    except ValueError as error:
+        bot.send_message(message.chat.id, str(error))
+    except pymysql.MySQLError:
+        logger.exception("News subscription menu unavailable")
+        bot.send_message(message.chat.id, "订阅服务暂不可用，请稍后重试 /news。")
+
+
+@bot.message_handler(commands=['news'], chat_types=['private'])
+def handle_news(message):
+    try:
+        current = news_subscription.subscription(message.from_user.id)
+        if current and current["active"]:
+            keyboard = telebot.types.InlineKeyboardMarkup()
+            keyboard.add(telebot.types.InlineKeyboardButton("取消新闻订阅", callback_data="news:off"))
+            bot.send_message(message.chat.id, "你已订阅东南亚大事件，新资讯发布后会及时提醒。", reply_markup=keyboard)
+        else:
+            show_news_menu(message)
+    except pymysql.MySQLError:
+        logger.exception("News subscription status unavailable")
+        bot.send_message(message.chat.id, "订阅状态暂不可用，请稍后重试 /news。")
+
+
+@bot.message_handler(commands=['news_off'], chat_types=['private'])
+def handle_news_off(message):
+    try:
+        news_subscription.unsubscribe(message.from_user.id)
+        bot.send_message(message.chat.id, "已取消东南亚大事件新闻订阅。")
+    except pymysql.MySQLError:
+        logger.exception("News unsubscribe failed")
+        bot.send_message(message.chat.id, "取消失败，请稍后重试 /news_off。")
+
+
+@bot.callback_query_handler(func=lambda call: (call.data or "").startswith("news:"))
+def handle_news_callback(call):
+    news_subscription.handle_callback(bot, call)
 
 
 @bot.message_handler(commands=['help'], chat_types=['private'])
@@ -759,5 +804,12 @@ if __name__ == "__main__":
     ensure_movie_tables()
     ensure_music_tables()
     ensure_image_hash_columns()
+    from announcements import ensure_tables as ensure_announcement_tables
+    from tenants import ensure_tables as ensure_tenant_tables
+    ensure_tenant_tables()
+    ensure_announcement_tables()
+    news_subscription.ensure_tables()
+    news_subscription.start_worker(bot)
+    logger.warning("News subscription worker ready")
     start_cleanup_thread()
     bot.infinity_polling()

@@ -13,17 +13,19 @@ SHARE_URL = (
     "https://t.me/share/url?url="
     + quote(BOT_URL, safe="")
     + "&text="
-    + quote("西港会所/外送实时出勤、技师照片、价格，一键自助查询", safe="")
+    + quote("昊天生活通 · 西港生活服务与东南亚资讯，一站查看", safe="")
 )
 
 HOME_TEXT = (
-    "🌴 <b>欢迎使用 昊天西港查询助手</b>\n\n"
-    "西港会所 · 外送，一站查看：\n"
+    "🌴 <b>欢迎使用 昊天生活助手</b>\n"
+    "昊天生活通 · 西港生活服务与东南亚资讯\n\n"
     "✅ 今日白班 / 晚班出勤\n"
     "✅ 技师照片与资料\n"
     "✅ 价格与服务项目\n"
     "✅ 西港外送实时信息\n"
-    "✅ 🎬 影视观影，按分类找剧、找综艺\n\n"
+    "✅ 🎬 影视观影，按分类找剧、找综艺\n"
+    "✅ 🎵 音乐播放与歌单\n"
+    "✅ 📰 东南亚大事件与新闻订阅\n\n"
     "👇 点下面的按钮开始"
 )
 
@@ -51,6 +53,8 @@ HELP_TEXT = (
     "点主菜单【🔔 出勤提醒】订阅会所，名单一发布就通知你。\n\n"
     "<b>6️⃣ 预约 / 咨询</b>\n"
     "点【💬 联系昊天】，或直接在这里发文字、图片、语音留言，我会回复你。\n\n"
+    "<b>7️⃣ 大事件新闻订阅</b>\n"
+    "点【📰 大事件新闻订阅】或发送 /news，确认后接收新资讯提醒；发送 /news_off 随时取消。\n\n"
     "💡 小提示：名单会随频道实时更新，下单前建议再刷新一次。"
 )
 
@@ -76,6 +80,7 @@ def home_keyboard():
         types.InlineKeyboardButton("🔔 出勤提醒", callback_data="sub:menu"),
         types.InlineKeyboardButton("🔗 分享给朋友", url=SHARE_URL),
     )
+    keyboard.row(types.InlineKeyboardButton("📰 大事件新闻订阅", callback_data="news:menu"))
     return keyboard
 
 

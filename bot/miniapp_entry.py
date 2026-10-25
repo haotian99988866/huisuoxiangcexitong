@@ -21,7 +21,7 @@ from config.channels import LISTEN_CHANNELS
 
 load_dotenv()
 
-DEFAULT_MENU_TEXT = "打开会所"
+DEFAULT_MENU_TEXT = "昊天生活通"
 DEFAULT_POST_TEXT = (
     "🌴 西港会所 · 外送 实时信息\n\n"
     "今日出勤、技师照片、价格一键查看，随时更新\n\n"

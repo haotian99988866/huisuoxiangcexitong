@@ -19,6 +19,9 @@
 .news-sticky .module-current:last-child { display: none; }
 .news-telegram-clearance { height: calc(var(--tg-safe-area-inset-top, 0px) + max(var(--tg-content-safe-area-inset-top, 0px), 44px)); }
 .news-toolbar { display: flex; align-items: center; justify-content: space-between; height: 44px; gap: 12px; }
+.news-subscription { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--news-line); color: var(--news-accent); font-size: 12px; }
+.news-subscription > span > span { display: block; margin-top: 4px; color: var(--news-muted); font-size: 10px; }
+.news-subscription button { flex-shrink: 0; min-height: 40px; padding: 8px 12px; border: 1px solid #d4dfcf; border-radius: 8px; background: #edf2e9; color: var(--news-accent); font-size: 12px; }
 .news-list-heading { display: flex; align-items: baseline; min-width: 0; gap: 10px; padding-left: 8px; }
 .news-list-heading h1 { font-size: 15px; font-weight: 600; }
 .news-list-heading > span { font-size: 11px; color: var(--news-muted); }

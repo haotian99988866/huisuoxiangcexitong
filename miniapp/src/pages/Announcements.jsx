@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import ModuleTabs from '../components/ModuleTabs'
 import { FullscreenAnnouncementBar } from '../components/Announcement'
-import { API_BASE_URL, bindBackButton, registerBackOverlay, subscribeFullscreen } from '../utils/twa'
+import { API_BASE_URL, bindBackButton, openTelegramLink, registerBackOverlay, subscribeFullscreen } from '../utils/twa'
 import { getTenant, hasAnnouncementAccess, mediaUrl, tenantPath } from '../utils/tenant'
 import { rememberModuleScroll, useModuleScroll, useModuleState } from '../utils/moduleState'
 import { requestAnnouncements } from '../utils/announcements'
@@ -91,6 +91,10 @@ export default function Announcements() {
       </div>
       {id && <ReadingProgress articleId={id} ready={Boolean(result)} />}
     </div>
+    {allowed && <div className="news-subscription">
+      <span>新资讯，机器人及时提醒<span>主动订阅 · 随时取消</span></span>
+      <button type="button" onClick={() => openTelegramLink(`https://t.me/haotianzhaopian_bot?start=news${getTenant()?.slug ? `_${getTenant().slug}` : ''}`)}>订阅 / 管理</button>
+    </div>}
     {!allowed ? <div className="news-state" role="alert"><h2>此入口暂未开放资讯</h2><p>请联系服务提供方了解详情。</p></div>
       : error ? <div className="news-state" role="alert"><h2>暂时无法加载</h2><p>{error}</p><button className="news-primary-button" onClick={() => setAttempt(value => value + 1)}>重新加载</button></div>
         : !result ? <NewsSkeleton detail={Boolean(id)} />

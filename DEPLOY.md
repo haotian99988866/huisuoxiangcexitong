@@ -1,5 +1,7 @@
 # 部署指南
 
+主入口品牌为「昊天生活通」，副标题为「西港生活服务与东南亚资讯」；机器人显示名称为「昊天生活助手」，新闻栏目保留「东南亚大事件」。租户入口继续使用自己的品牌名称。构建前端后更新网站标题；在 bot 目录运行 `python bot_profile.py` 更新机器人名称、简介及命令，菜单按钮通过 `python miniapp_entry.py menu https://app.haotianzhushou.com` 设置为「昊天生活通」。机器人欢迎文案修改需重启主机器人，不更改机器人用户名或现有链接。
+
 ## 当前 Windows 本机部署（固定 Cloudflare 隧道）
 
 - 公网地址：`https://app.haotianzhushou.com/`。
@@ -47,6 +49,18 @@ bot\venv\Scripts\python.exe bot\channel_sync.py status
 不要再在终端运行第二份 `run`；需要手动后台启动时执行 `powershell -NoProfile -ExecutionPolicy Bypass -File deploy\start-channel-sync.ps1`。查看 `%LOCALAPPDATA%\Huisuo\channel-sync\sync.log` 或运行 `status` 检查发送记录。停止后台时须先核实 `channel_sync.py run` 对应的具体进程 ID，并检查发送中的任务，再停止指定进程，不能按 Python 进程名批量结束，以免影响现有 API 和机器人。
 
 ## 频道公告
+
+### 新闻主动订阅
+
+新闻列表和详情页提供「订阅 / 管理」，跳转 `haotianzhaopian_bot` 私聊（主入口 `start=news`，租户 `start=news_<slug>`）。打开机器人或发送 `/start` 不自动订阅，客人需点击「订阅新资讯」明确确认。机器人主菜单及 `/news` 也可管理，`/news_off` 或推送中的「取消新闻订阅」立即关闭后续待发送提醒；取消时已在发送途中的一条仍可能到达。不能向尚未启动机器人的客人主动私聊。
+
+每个 Telegram 用户仅一份新闻订阅，切换入口以最后一次确认的入口为准。租户订阅与推送前均核对启用状态、有效期及 `announcements_enabled`，关闭权限后不发送；已订阅客人仍可在机器人中取消。详情按钮以 Web App 打开相应新闻并保留租户参数。主菜单是公开主入口，不属于租户隔离账号系统。
+
+订阅基线取确认时最大的公告 ID，不补推已有公告。主机器人 `main.py` 每 5 秒扫描新收录且未下架的公告，向主动订阅客人发送「标题＋UTC+7 时间＋详情按钮」，不附媒体、不向未订阅客人广播。请保持主机器人、API 和频道监听正常运行。通知来自成功转发并收录的公告，因此整体延迟包含收录轮询与发送排队时间，不承诺秒到。
+
+`news_subscriptions` 保存用户、入口、启用状态及基线；`news_deliveries` 按用户/公告唯一去重，持久化 `queued/sending/sent/failed/uncertain/skipped`、发送结果 ID 和错误原因。单主机器人实例消费队列，每批最多发送 20 条，至少间隔 0.1 秒；429 按 Telegram 指定时间延后重试，403 关闭该用户新闻订阅。进程中断时的 `sending` 和无法确认发送结果的网络错误记为 `uncertain`，不自动重发，需人工核查；明确拒绝记为 `failed`，不承诺“恰好一次”或必达。
+
+部署：启动主机器人会幂等初始化订阅表并启动推送线程；前端重新构建，主机器人需重启，API 和频道监听无需为订阅重启。使用 `bot_profile.py` 更新机器人命令列表。不要启动第二个 polling 实例。可只读查询两张订阅表检查状态，勿将用户 ID 或登录凭据作为公开日志分享。
 
 顶部滚动资讯统一按「东南亚大事件 · 发布时间 · 标题」排列，栏目名与时间、标题一起滚动，不额外增加固定标题或栏高。
 
