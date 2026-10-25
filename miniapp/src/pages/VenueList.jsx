@@ -619,7 +619,7 @@ export default function VenueList() {
             <LazyMedia
               alt=""
               decoding="async"
-              src={`${API_BASE_URL}/photos/${photoIds[0]}/image`}
+              src={`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`}
               style={lazyFillStyle}
             />
             <span style={{
@@ -739,7 +739,7 @@ export default function VenueList() {
                     <LazyMedia
                       alt=""
                       decoding="async"
-                      src={`${API_BASE_URL}/photos/${photoIds[0]}/image`}
+                      src={`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`}
                       style={lazyFillStyle}
                     />
                     <span style={{
@@ -991,7 +991,7 @@ export default function VenueList() {
                             <LazyMedia
                               alt=""
                               decoding="async"
-                              src={`${API_BASE_URL}/delivery-media/${cover.id}`}
+                              src={`${API_BASE_URL}/delivery-media/${cover.id}?thumb=1`}
                               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                             />
                           )}
@@ -1182,7 +1182,7 @@ export default function VenueList() {
                             alt=""
                             decoding="async"
                             onClick={() => setDeliveryIndex(index)}
-                            src={`${API_BASE_URL}/delivery-media/${media.id}`}
+                            src={`${API_BASE_URL}/delivery-media/${media.id}?thumb=1`}
                             style={thumbStyle}
                           />
                         )

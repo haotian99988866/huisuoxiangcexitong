@@ -16,6 +16,12 @@ const coverUrl = cover => {
   return /^https?:/.test(cover) ? cover : `${API_BASE_URL}/${cover}`
 }
 
+const openMovie = href => {
+  const url = new URL(href)
+  url.searchParams.set('t', '1')
+  openTelegramLink(url.href)
+}
+
 const formatDuration = seconds => {
   if (!seconds) return ''
   const h = Math.floor(seconds / 3600)
@@ -107,7 +113,7 @@ export default function MovieList() {
 
   const openItem = item => {
     if (item.url) {
-      openTelegramLink(item.url)
+      openMovie(item.url)
       return
     }
     setOpenSeries(item)
@@ -191,7 +197,7 @@ export default function MovieList() {
             {episodes.map(episode => (
               <button
                 key={episode.url}
-                onClick={() => openTelegramLink(episode.url)}
+                onClick={() => openMovie(episode.url)}
                 style={{
                   display: 'flex', gap: '10px', padding: '8px', textAlign: 'left',
                   background: '#fff', border: '1px solid rgba(174, 151, 122, 0.22)',

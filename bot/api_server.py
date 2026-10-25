@@ -1,7 +1,7 @@
 import logging
-from io import BytesIO
 import os
 import re
+import tempfile
 from datetime import date
 
 import pymysql
@@ -16,6 +16,7 @@ from urllib.parse import quote
 MIN_AGE = 18
 from delivery_age import extract_work_no, parse_price_table, price_for_work_no
 from image_hash import ImageDeduper, ensure_columns as ensure_image_hash_columns
+from image_cache import ImageCache
 from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 from visit_stats import ensure_table, record_visit, verify_init_data
 from movies import (
@@ -53,6 +54,9 @@ CORS(
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
+image_cache = ImageCache(os.path.join(
+    os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "image-cache"
+))
 
 _dihao_categories_by_prefix = {
     "0": "0牌",
@@ -241,51 +245,7 @@ def technician_photo_image(photo_id):
     ):
         return jsonify({"error": "Photo not found"}), 404
 
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        return jsonify({"error": "Photo service is not configured"}), 503
-
-    try:
-        file_response = requests.get(
-            f"https://api.telegram.org/bot{token}/getFile",
-            params={"file_id": photo["file_id"]},
-            timeout=(5, 15),
-        )
-        file_response.raise_for_status()
-        file_info = file_response.json()
-        if not file_info.get("ok") or not file_info.get("result", {}).get("file_path"):
-            logger.error("Telegram did not return a file path for photo %s", photo_id)
-            return jsonify({"error": "Photo is unavailable"}), 502
-
-        file_path = file_info["result"]["file_path"]
-        image_response = requests.get(
-            f"https://api.telegram.org/file/bot{token}/{quote(file_path, safe='/')}",
-            timeout=(5, 30),
-        )
-        image_response.raise_for_status()
-    except requests.RequestException as exc:
-        logger.error(
-            "Failed to retrieve Telegram photo %s (%s)",
-            photo_id,
-            type(exc).__name__,
-        )
-        return jsonify({"error": "Photo service is temporarily unavailable"}), 502
-
-    try:
-        with Image.open(BytesIO(image_response.content)) as image:
-            content_type = Image.MIME.get(image.format)
-            image.verify()
-    except (UnidentifiedImageError, OSError):
-        logger.error("Telegram returned invalid image data for photo %s", photo_id)
-        return jsonify({"error": "Stored file is not an image"}), 502
-    if content_type is None:
-        logger.error("Unsupported Telegram image format for photo %s", photo_id)
-        return jsonify({"error": "Unsupported photo format"}), 502
-
-    response = Response(image_response.content, mimetype=content_type)
-    response.headers["Cache-Control"] = "private, max-age=300"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    return response
+    return _telegram_image(photo["file_id"])
 
 
 DELIVERY_VENUE_IDS = {7, 8, 9, 10}
@@ -518,7 +478,7 @@ def movie_thumb(message_id):
         return jsonify({"error": "Database request failed"}), 500
     if not file_id:
         return jsonify({"error": "Thumbnail not found"}), 404
-    return _proxy_telegram_media(file_id)
+    return _telegram_image(file_id)
 
 
 @app.get("/delivery-media/<int:media_id>")
@@ -528,7 +488,7 @@ def delivery_media(media_id):
         conn = get_db_connection()
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT file_id FROM delivery_media WHERE id = %s",
+                "SELECT file_id, media_type FROM delivery_media WHERE id = %s",
                 (media_id,),
             )
             row = cur.fetchone()
@@ -540,7 +500,48 @@ def delivery_media(media_id):
             conn.close()
     if row is None:
         return jsonify({"error": "Media not found"}), 404
+    if row["media_type"] == "photo":
+        return _telegram_image(row["file_id"])
     return _proxy_telegram_media(row["file_id"])
+
+
+def _telegram_image(file_id):
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return jsonify({"error": "Image service is not configured"}), 503
+
+    def download():
+        with requests.get(
+            f"https://api.telegram.org/bot{token}/getFile",
+            params={"file_id": file_id}, timeout=(5, 15),
+        ) as info:
+            info.raise_for_status()
+            payload = info.json()
+        path = (payload.get("result") or {}).get("file_path")
+        if not payload.get("ok") or not path:
+            raise ValueError("Telegram did not return an image path")
+        with requests.get(
+            f"https://api.telegram.org/file/bot{token}/{quote(path, safe='/')}",
+            timeout=(5, 30),
+        ) as upstream:
+            upstream.raise_for_status()
+            return upstream.content
+
+    try:
+        data, content_type = image_cache.get(
+            file_id, download, thumbnail=request.args.get("thumb") == "1"
+        )
+    except (requests.RequestException, ValueError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
+        logger.error("Failed to retrieve Telegram image (%s)", type(exc).__name__)
+        return jsonify({"error": "Image service is temporarily unavailable"}), 502
+    except OSError:
+        logger.exception("Failed to read, process or cache image")
+        return jsonify({"error": "Image cache is temporarily unavailable"}), 503
+    response = Response(data, mimetype=content_type)
+    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.add_etag()
+    return response.make_conditional(request)
 
 
 MEDIA_CONTENT_TYPES = {
