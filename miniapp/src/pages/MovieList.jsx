@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
+import { useModuleState, useModuleScroll } from '../utils/moduleState'
 import {
   API_BASE_URL,
   bindBackButton,
@@ -68,15 +69,16 @@ function Thumb({ src, style }) {
 export default function MovieList() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   useEffect(() => subscribeFullscreen(setIsFullscreen), [])
-  const [category, setCategory] = useState('')
-  const [queryInput, setQueryInput] = useState('')
-  const [query, setQuery] = useState('')
+  const [category, setCategory] = useModuleState('movies.category', '')
+  const [queryInput, setQueryInput] = useModuleState('movies.searchInput', '')
+  const [query, setQuery] = useModuleState('movies.search', '')
   const [data, setData] = useState({ categories: [], series: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [openSeries, setOpenSeries] = useState(null)
   const [episodes, setEpisodes] = useState([])
   const [episodesLoading, setEpisodesLoading] = useState(false)
+  useModuleScroll('movies', !loading)
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(queryInput.trim()), 300)

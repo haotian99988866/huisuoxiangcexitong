@@ -1,14 +1,29 @@
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
 
+const backOverlays = []
+
+export function registerBackOverlay(handler) {
+  backOverlays.push(handler)
+  return () => {
+    const index = backOverlays.lastIndexOf(handler)
+    if (index >= 0) backOverlays.splice(index, 1)
+  }
+}
+
 // 返回箭头始终显示：有详情页时退出当前详情，在列表页时返回 Telegram（关闭小程序）
 export function bindBackButton(handler) {
   const tg = window.Telegram?.WebApp
   const button = tg?.BackButton
   if (!button || !handler) return () => {}
-  button.onClick(handler)
+  const onBack = () => {
+    const overlay = backOverlays[backOverlays.length - 1]
+    if (overlay) overlay()
+    else handler()
+  }
+  button.onClick(onBack)
   button.show()
   return () => {
-    button.offClick(handler)
+    button.offClick(onBack)
     button.hide()
   }
 }

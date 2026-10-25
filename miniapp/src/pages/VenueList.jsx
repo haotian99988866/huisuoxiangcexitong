@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useModuleState, useModuleScroll } from '../utils/moduleState'
 import { FullscreenAnnouncementBar, ANNOUNCEMENT_TEXT } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
 import { API_BASE_URL, bindBackButton, closeMiniApp, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
@@ -303,11 +305,15 @@ const formatChannelMessageTime = timestamp => {
 }
 
 export default function VenueList() {
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const requestedModule = searchParams.get('module')
   const [isFullscreen, setIsFullscreen] = useState(false)
   useEffect(() => subscribeFullscreen(setIsFullscreen), [])
   const [list, setList] = useState([])
-  const [selectedId, setSelectedId] = useState('')
-  const [deliveryCategoryId, setDeliveryCategoryId] = useState('')
+  const [selectedId, setSelectedId] = useModuleState('venue.selection', '')
+  const [lastVenueId, setLastVenueId] = useModuleState('venue.lastClub', '')
+  const [deliveryCategoryId, setDeliveryCategoryId] = useModuleState('delivery.category', '')
   const [deliveryViewer, setDeliveryViewer] = useState(null)
   const [deliveryIndex, setDeliveryIndex] = useState(0)
   const deliveryTouchX = useRef(0)
@@ -348,6 +354,24 @@ export default function VenueList() {
   const [widePhotos, setWidePhotos] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  useModuleScroll(requestedModule === 'delivery' ? 'delivery' : 'venue', !loading)
+
+  useEffect(() => {
+    if (!list.length || !requestedModule) return
+    setSelectedId(current => {
+      const selected = list.find(venue => String(venue.id) === current)
+      const wantsDelivery = requestedModule === 'delivery'
+      if (selected && Boolean(selected.delivery_categories) === wantsDelivery) return current
+      const candidates = list.filter(venue => Boolean(venue.delivery_categories) === wantsDelivery)
+      if (!wantsDelivery && candidates.some(venue => String(venue.id) === lastVenueId)) return lastVenueId
+      return String(pickHomeVenue(candidates)?.id || current)
+    })
+  }, [requestedModule, list, setSelectedId, lastVenueId])
+
+  useEffect(() => {
+    const selected = list.find(venue => String(venue.id) === selectedId)
+    if (selected && !selected.delivery_categories) setLastVenueId(selectedId)
+  }, [selectedId, list, setLastVenueId])
 
   useEffect(() => {
     setSelectedTechnicianCode('')
@@ -731,7 +755,7 @@ export default function VenueList() {
         boxShadow: '0 4px 14px rgba(120, 90, 50, 0.07)'
       }}>
         {isFullscreen && <FullscreenAnnouncementBar />}
-        <ModuleTabs active="venue" />
+        <ModuleTabs active={deliveryCategories.length ? 'delivery' : 'venue'} />
         <div style={{
           display: 'grid',
           gap: '7px'
@@ -747,7 +771,12 @@ export default function VenueList() {
           }}>
             <select
               value={selectedId}
-              onChange={e => setSelectedId(e.target.value)}
+              onChange={e => {
+                const id = e.target.value
+                setSelectedId(id)
+                const venue = list.find(item => String(item.id) === id)
+                navigate(venue?.delivery_categories ? '/?module=delivery' : '/?module=venue', { replace: true })
+              }}
               aria-label="选择会所"
               style={{
                 flex: '1 1 0',

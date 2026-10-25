@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
-import { API_BASE_URL, bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
+import { bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
+import { requestWallet } from '../utils/wallet'
+import DepositRecords from '../components/DepositRecords'
 
 const panelStyle = {
   background: '#fff',
@@ -35,18 +37,6 @@ export default function Recharge() {
   const [amount, setAmount] = useState('')
   const [txid, setTxid] = useState('')
   const [busy, setBusy] = useState(false)
-  const requestWallet = async (action, fields = {}) => {
-    const initData = window.Telegram?.WebApp?.initData
-    if (!initData) throw new Error('请从 Telegram 打开充值中心，以确认你的账户身份。')
-    const response = await fetch(`${API_BASE_URL}/webhook`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, init_data: initData, ...fields }),
-    })
-    const result = await response.json()
-    if (!response.ok) throw new Error(result.error || '账户请求失败，请稍后重试')
-    return result
-  }
   const refresh = async () => {
     setBusy(true)
     setError('')
@@ -127,15 +117,7 @@ export default function Recharge() {
           </>
         ) : <p style={mutedStyle}>收款地址尚未配置，充值关闭，请勿转账。</p>}
         <h3 style={{ marginTop: '18px' }}>最近充值记录</h3>
-        {wallet?.deposits.length === 0 && <p style={mutedStyle}>暂无记录</p>}
-        {wallet?.deposits.map(deposit => (
-          <div key={deposit.id} style={{ padding: '12px 0', borderBottom: '1px solid #eee', overflowWrap: 'anywhere' }}>
-            <p>#{deposit.id} · {{ pending: '待核款', approved: '已入账', rejected: '已拒绝' }[deposit.status] || deposit.status}</p>
-            <p style={mutedStyle}>申报 {deposit.claimed} U{deposit.credited && ` · 入账 ${deposit.credited} U`}</p>
-            <p style={mutedStyle}>{deposit.created_at}</p>
-            <p style={mutedStyle}>TXID：{deposit.txid}</p>
-          </div>
-        ))}
+        {wallet && <DepositRecords deposits={wallet.deposits} />}
       </section>
       <section aria-labelledby="premium-heading" style={panelStyle}>
         <h2 id="premium-heading" style={{ fontSize: '19px', marginBottom: '10px' }}>

@@ -1,0 +1,18 @@
+.module-navigation { margin-bottom: 8px; }
+.module-shortcuts { display: flex; gap: 4px; padding: 3px; background: rgba(160, 122, 69, .12); border-radius: 12px; }
+.module-shortcut { flex: 1; min-width: 0; min-height: 40px; border: 0; border-radius: 10px; background: transparent; color: #7a5c35; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.module-shortcut.selected { color: #fff; background: linear-gradient(135deg, #b88a4a, #9a6f35); box-shadow: 0 2px 6px rgba(120, 90, 50, .25); }
+.module-current { padding: 6px 4px 0; color: #7a5c35; font-size: 12px; }
+.module-backdrop { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: flex-end; justify-content: center; background: #0008; padding-top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px) + 16px); }
+.module-panel { width: 100%; max-width: 480px; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; background: #fffdf8; border-radius: 22px 22px 0 0; padding: 20px 16px max(24px, env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px)); }
+.module-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.module-panel-header h2 { font-size: 20px; color: #5a4126; }
+.module-panel-header button { width: 44px; height: 44px; border: 0; border-radius: 50%; background: #f0e9de; color: #5a4126; cursor: pointer; }
+.module-group { margin-bottom: 20px; }
+.module-group h3 { font-size: 13px; color: #8b7962; margin-bottom: 10px; }
+.module-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.module-tile { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; text-align: left; padding: 14px; border: 1px solid #ebdfcd; border-radius: 14px; background: #fff; color: #5a4126; font-family: inherit; cursor: pointer; }
+.module-tile > span { font-size: 23px; }
+.module-tile strong { font-size: 15px; }
+.module-tile small { color: #8b7962; font-size: 12px; }
+.module-tile.selected { background: #fff3dc; border-color: #bc914d; }
