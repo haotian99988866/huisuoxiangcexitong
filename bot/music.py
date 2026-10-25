@@ -14,7 +14,8 @@ import requests
 import pymysql
 
 from db import get_conn
-from music_dedupe import ensure_schema, import_lock, save_track
+from music_dedupe import ensure_schema, import_lock, save_track, song_key
+from music_metadata import identify
 
 MAX_AUDIO_BYTES = 128 * 1024 * 1024
 TELEGRAM_MAX_BYTES = 20 * 1024 * 1024
@@ -213,8 +214,8 @@ def save_channel_message(message):
     file_id = media.file_id
     size = getattr(media, "file_size", None)
     name = hashlib.sha256(f"{file_id}:{message.message_id}".encode()).hexdigest()[:32] + suffix
-    title = (getattr(media, "title", None) or Path(getattr(media, "file_name", None) or "未命名歌曲").stem).strip()[:120]
-    artist = (getattr(media, "performer", None) or "未知歌手").strip()[:120]
+    title, artist = identify(getattr(media, "title", None), getattr(media, "performer", None),
+                             getattr(media, "file_name", None), getattr(message, "caption", None))
     conn = get_conn()
     try:
         with import_lock(conn):
@@ -251,6 +252,41 @@ def handle_channel_message(bot, message, admins):
             except Exception as notification_error:
                 logger.error("Music import notification failed: %s", type(notification_error).__name__)
     return True
+
+
+def refresh_channel_metadata(message):
+    """Repair labels without replacing audio, changing IDs or merging user references."""
+    if str(message.chat.id) != MUSIC_CHANNEL_ID:
+        raise ValueError("只能修正已配置音乐频道的歌曲")
+    media = getattr(message, "audio", None) or getattr(message, "document", None)
+    if media is None:
+        raise ValueError("原消息没有可用音频")
+    title, artist = identify(getattr(media, "title", None), getattr(media, "performer", None),
+                             getattr(media, "file_name", None), getattr(message, "caption", None))
+    key = song_key(title, artist)
+    conn = get_conn()
+    try:
+        with import_lock(conn), conn.cursor() as cur:
+            cur.execute("SELECT id,title,artist FROM music_tracks WHERE channel_id=%s AND message_id=%s"
+                        " AND merged_into IS NULL FOR UPDATE", (MUSIC_CHANNEL_ID, message.message_id))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError("原歌曲不存在或已合并，请人工核对")
+            if (row["title"], row["artist"]) == (title, artist):
+                return False
+            cur.execute("SELECT id FROM music_tracks WHERE dedupe_key=%s AND id<>%s", (key, row["id"]))
+            if cur.fetchone():
+                raise ValueError("修正后与其他歌曲同名同歌手，请人工核对版本，不自动合并")
+            cur.execute("UPDATE music_tracks SET title=%s,artist=%s,dedupe_key=%s WHERE id=%s",
+                        (title, artist, key, row["id"]))
+        conn.commit()
+        logger.info("Music track %s metadata refreshed; audio and references unchanged", row["id"])
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def audio_file(track_id):

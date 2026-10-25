@@ -114,6 +114,24 @@ class MusicChannelTests(unittest.TestCase):
             self.assertTrue(music.handle_channel_message(bot, self.message, [123]))
         self.assertIn("测试下载失败", bot.send_message.call_args.args[1])
 
+    def test_metadata_repair_only_updates_labels_and_identity(self):
+        self.cur.fetchone.side_effect = [{"id": 8, "title": "Old", "artist": "<unknown>"}, None]
+        with patch.object(music, "get_conn", return_value=self.conn):
+            self.assertTrue(music.refresh_channel_metadata(self.message))
+        sql, args = self.cur.execute.call_args.args
+        self.assertEqual(args[:2], ("Test song", "Test artist"))
+        self.assertNotIn("file_name", sql)
+        self.assertNotIn("enabled", sql)
+        self.assertNotIn("merged_into", sql)
+        self.conn.commit.assert_called_once()
+
+    def test_metadata_repair_conflict_is_not_silently_merged(self):
+        self.cur.fetchone.side_effect = [{"id": 8, "title": "Old", "artist": "<unknown>"}, {"id": 9}]
+        with patch.object(music, "get_conn", return_value=self.conn), self.assertRaisesRegex(ValueError, "人工核对"):
+            music.refresh_channel_metadata(self.message)
+        self.conn.rollback.assert_called_once()
+        self.assertFalse(any(call.args[0].startswith("UPDATE") for call in self.cur.execute.call_args_list))
+
     def test_cache_miss_redownload_and_range_afterwards(self):
         target = self.root / self.name
         self.cur.fetchone.return_value = {
