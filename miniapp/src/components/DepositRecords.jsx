@@ -1,4 +1,4 @@
-const detailStyle = { color: '#776b5c', fontSize: '14px', lineHeight: 1.8 }
+const detailStyle = { color: '#627264', fontSize: '14px', lineHeight: 1.8 }
 const statuses = { pending: '待核款', approved: '已入账', rejected: '已拒绝' }
 
 export default function DepositRecords({ deposits }) {

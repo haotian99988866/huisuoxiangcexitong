@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { sendData } from '../utils/twa'
+import ModuleIcon from '../components/ModuleIcon'
 
 export default function VenueDetail() {
   const { id } = useParams()
@@ -37,7 +38,7 @@ export default function VenueDetail() {
       
       <div className="detail-card">
         <div className="venue-card__row">
-          <span className="venue-card__icon">📍</span>
+          <span className="venue-card__icon"><ModuleIcon name="location" /></span>
           <div>
             <div className="venue-card__label">详细地址</div>
             <div className="venue-card__value">{v.address || '暂无地址'}</div>
@@ -45,7 +46,7 @@ export default function VenueDetail() {
         </div>
 
         <div className="venue-card__row">
-          <span className="venue-card__icon">🕐</span>
+          <span className="venue-card__icon"><ModuleIcon name="clock" /></span>
           <div>
             <div className="venue-card__label">营业时间</div>
             <div className="venue-card__value">{v.business_hours || '暂无营业时间'}</div>
@@ -53,7 +54,7 @@ export default function VenueDetail() {
         </div>
 
         <div className="venue-card__row">
-          <span className="venue-card__icon">📞</span>
+          <span className="venue-card__icon"><ModuleIcon name="phone" /></span>
           <div>
             <div className="venue-card__label">咨询热线</div>
             <div className="venue-card__value">{v.phone || '暂无电话'}</div>
@@ -62,16 +63,16 @@ export default function VenueDetail() {
       </div>
 
       <div className="detail-card">
-        <h3>📋 会所介绍</h3>
+        <h3>会所介绍</h3>
         <p style={{color:'#4a4a4a', lineHeight:1.8}}>{v.description || '暂无介绍'}</p>
       </div>
 
       <Link to={`/venue/${id}/technicians`} className="btn btn-outline" style={{marginBottom:12}}>
-        👩‍⚕️ 查看技师团队
+        查看技师团队
       </Link>
 
       <a href={v.phone ? `tel:${v.phone}` : undefined} className="btn btn-success">
-        📞 立即致电预约
+        立即致电预约
       </a>
     </div>
   )

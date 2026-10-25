@@ -1,19 +1,24 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { moduleGroups, displayModules } from '../utils/modules'
 import { getTenant, tenantPath } from '../utils/tenant'
 import { registerBackOverlay } from '../utils/twa'
 import { rememberModuleScroll } from '../utils/moduleState'
+import ModuleIcon from './ModuleIcon'
+import SeasonalWelcome from './SeasonalWelcome'
 import './ModuleTabs.css'
 
 export default function ModuleTabs({ active }) {
   const modules = displayModules()
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
+  const [showSeasonal, setShowSeasonal] = useState(false)
   const trigger = useRef(null)
   const dialog = useRef(null)
   const current = modules.find(item => item.key === active)
+  const seasonalId = useId()
+  useEffect(() => { if (!expanded) setShowSeasonal(false) }, [expanded])
 
   useEffect(() => {
     if (!expanded) return
@@ -63,7 +68,7 @@ export default function ModuleTabs({ active }) {
             className={active === item.key ? 'module-shortcut selected' : 'module-shortcut'}
             onClick={() => selectModule(item)}
           >
-            <span aria-hidden="true">{item.icon}</span> {item.label}
+            <ModuleIcon name={item.key} /> {item.label}
           </button>
         ))}
         <button ref={trigger} type="button" className={`module-shortcut module-all${current && !current.common ? ' selected' : ''}`}
@@ -81,6 +86,14 @@ export default function ModuleTabs({ active }) {
               <h2 id="module-panel-title">全部功能</h2>
               <button type="button" aria-label="关闭全部功能" onClick={() => setExpanded(false)}>✕</button>
             </header>
+            <button className="module-seasonal-entry" type="button" aria-expanded={showSeasonal}
+              aria-controls={seasonalId} onClick={() => setShowSeasonal(value => !value)}>
+              <span>今日时令<small>农历 · 节气 · 节日</small></span>
+              <span aria-hidden="true">{showSeasonal ? '−' : '＋'}</span>
+            </button>
+            <div id={seasonalId} hidden={!showSeasonal}>
+              {showSeasonal && <SeasonalWelcome />}
+            </div>
             {moduleGroups.map(group => {
               const items = modules.filter(item => item.group === group.key)
               if (!items.length) return null
@@ -89,7 +102,7 @@ export default function ModuleTabs({ active }) {
                   <h3>{group.label}</h3>
                   <div className="module-grid">
                     {items.map(item => {
-                      const content = <><span aria-hidden="true">{item.icon}</span><strong>{item.label}</strong><small>{item.description}</small></>
+                      const content = <><ModuleIcon name={item.key} /><strong>{item.label}</strong><small>{item.description}</small></>
                       return item.url ? (
                         <a key={item.key} href={item.url} target="_blank" rel="noreferrer" className="module-tile">{content}</a>
                       ) : (

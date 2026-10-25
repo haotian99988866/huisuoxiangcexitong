@@ -1,26 +1,26 @@
-.admin-console { max-width: 720px; margin: 0 auto; padding: 12px 12px 36px; color: #5a4126; overflow-wrap: anywhere; }
+.admin-console { max-width: 720px; margin: 0 auto; padding: 12px 12px 36px; color: #304639; overflow-wrap: anywhere; }
 .admin-console h1 { font-size: 22px; }
 .admin-console h2 { font-size: 18px; margin-bottom: 10px; }
 .admin-console h3 { font-size: 16px; }
 .admin-header, .admin-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.admin-console button { padding: 9px 12px; border: 1px solid #d9c8ae; border-radius: 9px; background: #fffaf0; color: #694b29; cursor: pointer; min-height: 40px; }
+.admin-console button { padding: 9px 12px; border: 1px solid #cad5c6; border-radius: 9px; background: #f2f5ed; color: #365544; cursor: pointer; min-height: 44px; }
 .admin-console button:disabled { opacity: .55; cursor: default; }
-.admin-hint { color: #776b5c; font-size: 12px; line-height: 1.7; margin: 10px 0; }
+.admin-hint { color: #627264; font-size: 12px; line-height: 1.7; margin: 10px 0; }
 .admin-error, .admin-notice { padding: 12px; border-radius: 9px; margin: 12px 0; }
 .admin-error { background: #fff0ed; color: #b42318; }
 .admin-notice { background: #edf7ef; color: #286b41; }
 .admin-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.admin-stats div, .admin-card { background: #fff; border: 1px solid #ebdfcd; border-radius: 12px; padding: 14px; }
-.admin-stats span { display: block; font-size: 13px; color: #776b5c; }
+.admin-stats div, .admin-card { background: #fffef9; border: 1px solid #d8e0d2; border-radius: 12px; padding: 14px; }
+.admin-stats span { display: block; font-size: 13px; color: #627264; }
 .admin-stats strong { display: block; margin-top: 6px; font-size: 24px; }
 .admin-card { margin-top: 16px; scroll-margin-top: 16px; }
-.admin-tenant { padding: 14px 0; border-top: 1px solid #eee3d3; }
+.admin-tenant { padding: 14px 0; border-top: 1px solid #d8e0d2; }
 .admin-tenant p, .admin-confirm p { font-size: 13px; line-height: 1.8; margin: 6px 0; }
 .admin-console label { display: block; font-size: 14px; margin: 12px 0; }
-.admin-console input:not([type="checkbox"]), .admin-console select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: 42px; padding: 8px; margin-top: 6px; border: 1px solid #d9c8ae; border-radius: 8px; background: #fff; font-size: 16px; color: #5a4126; }
+.admin-console input:not([type="checkbox"]), .admin-console select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: 42px; padding: 8px; margin-top: 6px; border: 1px solid #cad5c6; border-radius: 8px; background: #fff; font-size: 16px; color: #304639; }
 .admin-console fieldset { border: 0; padding: 0; min-width: 0; }
-.admin-console fieldset fieldset { border: 1px solid #ebdfcd; padding: 8px; border-radius: 8px; margin: 12px 0; }
+.admin-console fieldset fieldset { border: 1px solid #d8e0d2; padding: 8px; border-radius: 8px; margin: 12px 0; }
 .admin-console .admin-check { display: flex; gap: 8px; align-items: center; }
 .admin-check input { width: 18px; height: 18px; flex-shrink: 0; }
-.admin-confirm { background: #fff8e9; border: 1px solid #d9c8ae; padding: 12px; margin-top: 16px; border-radius: 10px; }
-.admin-audit { font-size: 12px; line-height: 1.8; border-top: 1px solid #eee3d3; padding: 8px 0; }
+.admin-confirm { background: #f0f4e9; border: 1px solid #cad5c6; padding: 12px; margin-top: 16px; border-radius: 10px; }
+.admin-audit { font-size: 12px; line-height: 1.8; border-top: 1px solid #d8e0d2; padding: 8px 0; }

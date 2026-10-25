@@ -1,0 +1,89 @@
+.seasonal-welcome { margin: 0 0 20px; color: #263f36; }
+.seasonal-card, .seasonal-background { color: var(--ink-text); }
+.seasonal-card { position: relative; isolation: isolate; overflow: hidden; border: 1px solid #dce2d6; border-radius: 20px; background: linear-gradient(115deg, #fcfcf5, var(--season-wash)); box-shadow: 0 8px 28px #243f3210; }
+.home-page { --home-surface: var(--ink-surface); --home-reading-surface: var(--ink-reading); position: relative; isolation: isolate; }
+.ink-app { --booking-border: var(--ink-line); --booking-background: var(--ink-surface); --booking-color: var(--ink-accent); position: relative; isolation: isolate; min-height: 100vh; color: var(--ink-text); }
+.ink-app :is(button, a, input, select, textarea):focus-visible { outline: 2px solid #38634e; outline-offset: 3px; }
+.ink-app .announcement-card { background: var(--ink-surface); border-color: var(--ink-line); border-left-color: #66816b; box-shadow: none; }
+.ink-app .announcement-card-label, .ink-app .announcement-card-time, .ink-app .announcement-card-action { color: #42604c; }
+.ink-app .announcement-card-title { color: var(--ink-text); }
+.ink-app .home-copy-booking { min-height: 44px; }
+.account-page button:where(:not(.module-shortcut)) { min-height: 44px; border: 1px solid var(--ink-line); border-radius: 10px; background: var(--ink-surface); color: var(--ink-accent); font: inherit; cursor: pointer; }
+.account-page button:disabled { cursor: default; opacity: .55; }
+.account-page button[type="submit"] { background: var(--ink-accent); color: #fffef5; }
+.account-page input { border: 1px solid var(--ink-line); border-radius: 9px; background: var(--ink-reading); color: var(--ink-text); }
+.ink-app .detail-card, .ink-app .tech-card { border: 1px solid var(--ink-line); }
+.ink-app .venue-card__icon svg { color: var(--ink-accent); }
+.home-page .home-notice-icon { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto 12px; border: 1px solid #52695a26; border-radius: 50%; color: #52695a; background: #eef1e366; }
+.home-notice-icon svg { width: 28px; height: 28px; }
+.home-page h3 > svg { vertical-align: -3px; margin-right: 5px; }
+.home-page a:focus-visible, .home-page button:focus-visible { outline: 2px solid #38634e; outline-offset: 3px; }
+.home-page .home-copy-booking { min-height: 44px; }
+.home-service-card { position: relative; isolation: isolate; overflow: hidden; padding: 14px 16px; border: 1px solid var(--ink-line); border-radius: 10px; background: linear-gradient(110deg, var(--ink-reading), var(--ink-wash)), repeating-linear-gradient(96deg, #8d82670a 0 1px, transparent 1px 5px); box-shadow: 0 3px 12px #2c413008; }
+.home-service-card > .service-ink-scenery { position: absolute; z-index: -1; right: 0; bottom: 0; width: 200px; height: 90px; opacity: .65; }
+.home-service-card-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.home-service-card-name { min-width: 0; font-family: "STSong", "Songti SC", "SimSun", serif; font-size: 15px; font-weight: 600; color: var(--ink-text); overflow-wrap: anywhere; }
+.home-service-card-price { flex-shrink: 0; font-size: 15px; font-weight: 700; color: var(--ink-accent); font-variant-numeric: tabular-nums; }
+.home-service-card-description { margin-top: 4px; font-size: 12px; color: var(--ink-muted); }
+.home-service-card-duration { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 12px; color: var(--ink-muted); }
+.home-service-card-duration svg { width: 15px; height: 15px; }
+.seasonal-background { position: absolute; inset: 0; overflow: hidden; z-index: -1; pointer-events: none; }
+.seasonal-background { background-color: var(--ink-paper); background-image: radial-gradient(ellipse at 15% 24%, var(--ink-surface), transparent 55%), repeating-linear-gradient(96deg, #8d826706 0 1px, transparent 1px 5px); }
+.ink-landscape { position: absolute; top: 80px; right: 0; width: 100%; height: max(820px, calc(100vh - 80px)); max-height: 1250px; pointer-events: none; }
+.ink-scenery { pointer-events: none; }
+.ink-scene { display: none; }
+html:not([data-ink-layout]) .ink-scene-mountains,
+html[data-ink-layout="mountains"] .ink-scene-mountains,
+html[data-ink-layout="bamboo"] .ink-scene-bamboo,
+html[data-ink-layout="river"] .ink-scene-river,
+html[data-ink-layout="lotus"] .ink-scene-lotus,
+html[data-ink-layout="pines"] .ink-scene-pines,
+html[data-ink-layout="courtyard"] .ink-scene-courtyard,
+html[data-ink-layout="moonlake"] .ink-scene-moonlake { display: inline; }
+.ink-scene-solid { fill: var(--ink-accent); opacity: .12; }
+.ink-scene-disc { fill: var(--ink-accent); opacity: .14; }
+.is-compact .ink-scene-moonlake .ink-scene-disc { transform: translateY(180px); }
+.ink-scene-detail { fill: var(--ink-accent); opacity: .25; }
+.ink-scene-line { fill: none; stroke: var(--ink-accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: .22; }
+.ink-scene-bamboo-stems, .ink-scene-tree { stroke-width: 5; }
+html[data-ink-layout="bamboo"] { --ink-ornament-left: 0px; --ink-ornament-right: auto; --ink-ornament-top: 14%; }
+html[data-ink-layout="river"] { --ink-ornament-left: auto; --ink-ornament-right: 4%; --ink-ornament-top: 26%; }
+html[data-ink-layout="lotus"] { --ink-ornament-left: 2%; --ink-ornament-right: auto; --ink-ornament-top: 3%; }
+html[data-ink-layout="pines"] { --ink-ornament-left: 0px; --ink-ornament-right: auto; --ink-ornament-top: 22%; }
+html[data-ink-layout="courtyard"] { --ink-ornament-left: auto; --ink-ornament-right: 6%; --ink-ornament-top: 8%; }
+html[data-ink-layout="moonlake"] { --ink-ornament-left: auto; --ink-ornament-right: 0px; --ink-ornament-top: 28%; }
+.seasonal-background > .seasonal-ornament { top: calc(95px + var(--ink-ornament-top, 0%)); left: var(--ink-ornament-left, auto); right: var(--ink-ornament-right, 0px); }
+.seasonal-ornament { position: absolute; top: 95px; right: 0; width: min(38%, 190px); height: auto; color: var(--ink-accent); opacity: .18; pointer-events: none; }
+.seasonal-ornament > g { display: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+html[data-seasonal-motif="blossom"] .ornament-blossom,
+html[data-seasonal-motif="rain"] .ornament-rain,
+html[data-seasonal-motif="leaf"] .ornament-leaf,
+html[data-seasonal-motif="lotus"] .ornament-lotus,
+html[data-seasonal-motif="wheat"] .ornament-wheat,
+html[data-seasonal-motif="sun"] .ornament-sun,
+html[data-seasonal-motif="reed"] .ornament-reed,
+html[data-seasonal-motif="chrysanthemum"] .ornament-chrysanthemum,
+html[data-seasonal-motif="snow"] .ornament-snow,
+html[data-seasonal-motif="lantern"] .ornament-lantern,
+html[data-seasonal-motif="moon"] .ornament-moon,
+html[data-seasonal-motif="stars"] .ornament-stars,
+html[data-seasonal-motif="boat"] .ornament-boat,
+html[data-seasonal-motif="bowl"] .ornament-bowl,
+html[data-seasonal-motif="cloud"] .ornament-cloud { display: inline; }
+.seasonal-card > .seasonal-ornament { top: 25px; width: 100px; }
+.seasonal-date-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px 0; position: relative; z-index: 1; }
+.seasonal-date { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; color: #365248; }
+.seasonal-date > span { font-size: 11px; color: #667267; }
+.seasonal-copy { position: relative; z-index: 1; padding: 18px 18px 25px; max-width: 82%; }
+.seasonal-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.seasonal-tags > span { padding: 3px 8px; border: 1px solid #78907a33; border-radius: 6px; background: #fff9; color: #456650; font-size: 10px; }
+.seasonal-tags .seasonal-festival { color: #984b38; border-color: #b77e554d; background: #fff5e8; }
+.seasonal-copy h2 { max-width: 230px; font-family: "STSong", "Songti SC", "SimSun", serif; font-size: 22px; font-weight: 600; line-height: 1.55; letter-spacing: 1px; text-wrap: balance; }
+.seasonal-copy > p { max-width: 200px; margin-top: 9px; color: #52665b; font-size: 11px; line-height: 1.9; }
+.seasonal-calendar-note { position: relative; z-index: 1; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 5px 12px; padding: 10px 16px; border-top: 1px solid #647a5b1c; background: #fffff575; color: #5e6c60; font-size: 10px; }
+.seasonal-calendar-note button { min-height: 44px; background: transparent; border: 0; color: #315b49; font: inherit; text-decoration: underline; cursor: pointer; }
+.seasonal-landscape { position: absolute; right: 0; bottom: 30px; width: 100%; max-width: 520px; height: 210px; z-index: 0; pointer-events: none; opacity: .65; }
+.seasonal-card.is-festive { border-color: #c4a17b; }
+.seasonal-welcome button:focus-visible, .home-page select:focus-visible { outline: 2px solid #38634e; outline-offset: 3px; }
+@media (min-width: 600px) { .seasonal-copy { padding-bottom: 32px; } .seasonal-copy h2 { max-width: none; } .seasonal-copy > p { max-width: 300px; } }
+@media (prefers-reduced-motion: reduce) { .home-page *, .module-navigation *, .module-panel * { scroll-behavior: auto; } }

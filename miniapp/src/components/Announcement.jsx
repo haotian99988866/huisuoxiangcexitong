@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { announcementText, hasAnnouncementAccess, tenantPath } from '../utils/tenant'
 import { requestAnnouncements } from '../utils/announcements'
 import './Announcement.css'
+import ModuleIcon from './ModuleIcon'
 
 let snapshot = { text: '资讯加载中 · 点击查看历史', id: null, publishedAt: null }
 const listeners = new Set()
@@ -68,7 +69,7 @@ function AnnouncementPreview() {
   if (!allowed) return <div className="announcement-notice">{announcementText()}</div>
   return <Link className="announcement-card" to={tenantPath(latest.id ? `/announcements/${latest.id}` : '/announcements')}
     aria-label={`东南亚大事件：${latest.text}${latest.publishedAt ? `，发布于${new Date(latest.publishedAt).toLocaleString('zh-CN')}` : ''}，查看${latest.id ? '详情' : '列表'}`}>
-    <span className="announcement-card-label" aria-hidden="true">📢</span>
+    <span className="announcement-card-label announcement-card-icon" aria-hidden="true"><ModuleIcon name="announcements" /></span>
     <ScrollingTitle text={latest.text} publishedAt={latest.publishedAt} />
     <span className="announcement-card-action" aria-hidden="true">›</span>
   </Link>

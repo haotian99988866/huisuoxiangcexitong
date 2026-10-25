@@ -14,21 +14,34 @@ html::-webkit-scrollbar,
 }
 
 :root {
-  --primary: #d4a574;
-  --primary-light: #f5e8da;
+  --ink-text: #304639;
+  --ink-muted: #627264;
+  --ink-accent: #365544;
+  --ink-paper: #f8f6ef;
+  --ink-wash: #e1e8d8;
+  --ink-line: rgba(82,105,90,.2);
+  --ink-surface: rgba(255,254,249,.75);
+  --ink-reading: rgba(255,254,249,.85);
+  --ink-header: rgba(250,249,243,.97);
+  --season-ink: #496b5b;
+  --season-wash: #e1e8d8;
+  --season-hill: #b5c7b2;
+  --season-accent: #bea26a;
+  --primary: #365544;
+  --primary-light: #e6ecdf;
   --secondary: #6b7280;
   --accent: #f8bbd0;
-  --bg: #faf7f2;
+  --bg: #f8f6ef;
   --card: #ffffff;
   --text: #2d2d2d;
-  --text-light: #8a8a8a;
-  --shadow: 0 4px 20px rgba(212, 165, 116, 0.12);
+  --text-light: #627264;
+  --shadow: 0 3px 14px rgba(44, 65, 48, 0.04);
   --radius: 16px;
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  background: linear-gradient(135deg, #faf7f2 0%, #f8f0e6 100%);
+  background: var(--bg);
   min-height: 100vh;
   color: var(--text);
   line-height: 1.6;
@@ -131,7 +144,7 @@ a {
 }
 
 .btn-primary {
-  background: linear-gradient(90deg, #b8860b, #d4a574);
+  background: #365544;
   color: white;
 }
 
@@ -140,12 +153,12 @@ a {
 }
 
 .btn-success {
-  background: linear-gradient(90deg, #2f855a, #48bb78);
+  background: #365544;
   color: white;
 }
 
 .btn-outline {
-  background: white;
+  background: var(--ink-surface, white);
   border: 2px solid var(--primary);
   color: var(--primary);
 }
@@ -183,7 +196,7 @@ a {
 }
 
 .detail-card {
-  background: white;
+  background: var(--ink-reading, white);
   border-radius: var(--radius);
   padding: 24px;
   margin-bottom: 16px;
@@ -199,7 +212,7 @@ a {
 
 /* 技师卡片 */
 .tech-card {
-  background: white;
+  background: var(--ink-surface, white);
   border-radius: var(--radius);
   padding: 20px;
   margin-bottom: 14px;

@@ -1,4 +1,5 @@
 .announcement-container { min-width: 0; margin-bottom: 8px; }
+.announcement-card-icon { display: inline-flex; align-items: center; }
 .announcement-card { display: flex; align-items: center; gap: 7px; min-width: 0; height: 38px; box-sizing: border-box; padding: 0 9px; border: 1px solid #ddc895; border-left: 3px solid #b28a38; border-radius: 9px; background: linear-gradient(115deg, #fff5da, #fffdf6); box-shadow: 0 2px 6px #785a320a; }
 .announcement-card-label { flex-shrink: 0; font-size: 14px; font-weight: 700; color: #805819; }
 .announcement-card-action { flex-shrink: 0; font-size: 18px; color: #866526; }

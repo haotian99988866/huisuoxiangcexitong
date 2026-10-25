@@ -13,6 +13,7 @@ import MusicPlayer from './components/MusicPlayer'
 import { isTenantEntry } from './utils/tenant'
 import { modules } from './utils/modules'
 import TenantGate from './components/TenantGate'
+import SeasonalWelcome from './components/SeasonalWelcome'
 
 // 机器人按钮带 startapp=movies 时直接进入观影页
 function StartParamRedirect() {
@@ -57,5 +58,8 @@ function Content() {
       </Routes>
     </>
   )
-  return isTenantEntry() ? routes : <MusicPlayer>{routes}</MusicPlayer>
+  return <div className="ink-app">
+    <SeasonalWelcome background />
+    {isTenantEntry() ? routes : <MusicPlayer>{routes}</MusicPlayer>}
+  </div>
 }

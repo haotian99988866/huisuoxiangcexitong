@@ -8,12 +8,12 @@ import { requestWallet } from '../utils/wallet'
 
 const cardStyle = {
   padding: '20px', marginBottom: '16px', borderRadius: '16px',
-  background: '#fff', border: '1px solid #ebdfcd',
+  background: 'var(--ink-reading)', border: '1px solid var(--ink-line)',
 }
-const detailStyle = { color: '#776b5c', fontSize: '14px', lineHeight: 1.8 }
+const detailStyle = { color: 'var(--ink-muted)', fontSize: '14px', lineHeight: 1.8 }
 const actionStyle = {
   display: 'block', padding: '12px', borderRadius: '10px', textAlign: 'center',
-  background: '#9a6f35', color: '#fff', fontWeight: 700, marginTop: '12px',
+  background: 'var(--ink-accent)', color: '#fffef5', fontWeight: 700, marginTop: '12px',
 }
 
 export default function Personal() {
@@ -37,17 +37,17 @@ export default function Personal() {
   useEffect(() => bindBackButton(() => navigate('/', { replace: true })), [navigate])
 
   return (
-    <main style={{ maxWidth: '480px', margin: '0 auto', padding: '12px 12px 32px' }}>
+    <main className="account-page" style={{ maxWidth: '480px', margin: '0 auto', padding: '12px 12px 32px' }}>
       {isFullscreen && <FullscreenAnnouncementBar />}
       <ModuleTabs active="personal" />
       {!isFullscreen && <AnnouncementCard />}
       {!hasTelegramBackButton && (
         <button type="button" onClick={() => navigate('/', { replace: true })}
-          style={{ border: 0, background: 'transparent', color: '#9a6f35', padding: '8px 0' }}>
+          style={{ border: 0, background: 'transparent', color: 'var(--ink-accent)', padding: '8px 0' }}>
           ← 返回首页
         </button>
       )}
-      <h1 style={{ fontSize: '24px', color: '#5a4126', margin: '16px 4px' }}>个人中心</h1>
+      <h1 style={{ fontSize: '24px', color: 'var(--ink-text)', margin: '16px 4px' }}>个人中心</h1>
       <section aria-label="我的账户" style={cardStyle}>
         <h2 style={{ fontSize: '19px', overflowWrap: 'anywhere' }}>
           {wallet && user ? [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Telegram 用户' : '我的账户'}
@@ -59,7 +59,7 @@ export default function Personal() {
           </div>
         )}
         <p style={{ ...detailStyle, marginTop: '12px' }}>账户余额</p>
-        <p style={{ fontSize: '30px', color: '#9a6f35' }}>
+        <p style={{ fontSize: '30px', color: 'var(--ink-accent)' }}>
           {busy ? '加载中…' : wallet ? `${wallet.balance} U` : '—'}
         </p>
         {error && <p role="alert" style={{ color: '#b42318' }}>{error}</p>}

@@ -7,14 +7,14 @@ import { requestWallet } from '../utils/wallet'
 import DepositRecords from '../components/DepositRecords'
 
 const panelStyle = {
-  background: '#fff',
-  border: '1px solid rgba(174, 151, 122, 0.25)',
+  background: 'var(--ink-reading)',
+  border: '1px solid var(--ink-line)',
   borderRadius: '16px',
   padding: '20px',
   marginBottom: '16px',
 }
 
-const mutedStyle = { color: '#776b5c', fontSize: '14px', lineHeight: 1.8 }
+const mutedStyle = { color: 'var(--ink-muted)', fontSize: '14px', lineHeight: 1.8 }
 const buttonStyle = {
   width: '100%',
   padding: '12px',
@@ -23,8 +23,8 @@ const buttonStyle = {
   borderRadius: '10px',
   fontSize: '15px',
   fontWeight: 700,
-  background: '#eee8df',
-  color: '#746b60',
+  background: '#e3e8df',
+  color: '#627264',
   cursor: 'not-allowed',
 }
 
@@ -64,7 +64,7 @@ export default function Recharge() {
   useEffect(() => bindBackButton(() => navigate('/', { replace: true })), [navigate])
 
   return (
-    <main style={{ maxWidth: '480px', margin: '0 auto', padding: '12px 12px 32px' }}>
+    <main className="account-page" style={{ maxWidth: '480px', margin: '0 auto', padding: '12px 12px 32px' }}>
       {isFullscreen && <FullscreenAnnouncementBar />}
       <ModuleTabs active="recharge" />
       {!isFullscreen && <AnnouncementCard />}
@@ -72,13 +72,13 @@ export default function Recharge() {
         <button
           type="button"
           onClick={() => navigate('/', { replace: true })}
-          style={{ border: 0, background: 'transparent', color: '#9a6f35', padding: '8px 0' }}
+          style={{ border: 0, background: 'transparent', color: 'var(--ink-accent)', padding: '8px 0' }}
         >
           ← 返回首页
         </button>
       )}
       <header style={{ padding: '12px 4px 20px' }}>
-        <h1 style={{ fontSize: '24px', color: '#5a4126' }}>充值中心</h1>
+        <h1 style={{ fontSize: '24px', color: 'var(--ink-text)' }}>充值中心</h1>
         <p style={mutedStyle}>Telegram Premium · 柬埔寨手机话费</p>
       </header>
       <div role="status" style={{
@@ -89,7 +89,7 @@ export default function Recharge() {
       </div>
       <section aria-labelledby="wallet-heading" style={panelStyle}>
         <h2 id="wallet-heading" style={{ fontSize: '19px' }}>我的余额</h2>
-        <p style={{ fontSize: '28px', color: '#9a6f35' }}>{wallet ? `${wallet.balance} U` : '—'}</p>
+        <p style={{ fontSize: '28px', color: 'var(--ink-accent)' }}>{wallet ? `${wallet.balance} U` : '—'}</p>
         <p style={mutedStyle}>实际到账 1 USDT = 1 U，不另收充值手续费。不支持自助提现；退回链上须联系管理员人工处理。余额不用于购买 Premium。</p>
         <button type="button" disabled={busy} onClick={refresh} style={{ padding: '8px 14px', marginTop: '10px' }}>
           {busy ? '处理中…' : '刷新余额与记录'}

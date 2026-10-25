@@ -45,12 +45,12 @@ async function post(body) {
 
 const chipStyle = active => ({
   flex: '0 0 auto',
-  height: '30px',
+  minHeight: '44px',
   padding: '0 12px',
   borderRadius: '15px',
-  border: active ? '1px solid #9a6f35' : '1px solid rgba(174, 151, 122, 0.35)',
-  background: active ? '#9a6f35' : '#fff',
-  color: active ? '#fff' : '#5a4126',
+  border: active ? '1px solid var(--ink-accent)' : '1px solid var(--ink-line)',
+  background: active ? 'var(--ink-accent)' : 'var(--ink-surface)',
+  color: active ? '#fffef5' : 'var(--ink-text)',
   fontSize: '13px',
   fontWeight: 600,
   whiteSpace: 'nowrap',
@@ -59,7 +59,7 @@ const chipStyle = active => ({
 
 function Thumb({ src, style }) {
   return (
-    <div style={{ background: '#e9dfd0', overflow: 'hidden', ...style }}>
+    <div style={{ background: '#e2e7dc', overflow: 'hidden', ...style }}>
       {src && (
         <img
           src={coverUrl(src)}
@@ -128,16 +128,16 @@ export default function MovieList() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#faf6f0', padding: '12px', boxSizing: 'border-box' }}>
+    <div className="movies-page" style={{ minHeight: '100vh', padding: '12px', boxSizing: 'border-box' }}>
       <div style={{
         position: 'sticky',
         top: 0,
         zIndex: 20,
         padding: '10px 12px',
         margin: '-12px -12px 12px',
-        background: 'linear-gradient(180deg, #fffdf8 0%, #faf6f0 100%)',
-        borderBottom: '1px solid rgba(158, 132, 101, 0.16)',
-        boxShadow: '0 4px 14px rgba(120, 90, 50, 0.07)'
+        background: 'var(--ink-header)',
+        borderBottom: '1px solid var(--ink-line)',
+        boxShadow: '0 3px 12px rgba(44,65,48,0.03)'
       }}>
         {isFullscreen && <FullscreenAnnouncementBar />}
         <ModuleTabs active="movies" />
@@ -153,7 +153,7 @@ export default function MovieList() {
               </button>
             )}
             <div style={{
-              fontSize: '15px', fontWeight: 700, color: '#5a4126',
+              fontSize: '15px', fontWeight: 700, color: 'var(--ink-text)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
             }}>
               {openSeries.name}
@@ -164,12 +164,12 @@ export default function MovieList() {
             <input
               value={queryInput}
               onChange={e => setQueryInput(e.target.value)}
-              placeholder="🔍 搜索片名"
+              placeholder="搜索片名"
               aria-label="搜索片名"
               style={{
                 width: '100%', boxSizing: 'border-box', height: '36px', padding: '0 12px',
-                border: '1px solid rgba(174, 151, 122, 0.32)', borderRadius: '12px',
-                fontSize: '16px', color: '#5a4126', outline: 'none', background: '#fff'
+                border: '1px solid var(--ink-line)', borderRadius: '12px',
+                fontSize: '16px', color: 'var(--ink-text)', background: 'var(--ink-reading)'
               }}
             />
             <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginTop: '8px', paddingBottom: '2px' }}>
@@ -192,7 +192,7 @@ export default function MovieList() {
 
       {openSeries ? (
         episodesLoading ? (
-          <div style={{ textAlign: 'center', color: '#a08a6b', padding: '40px 0' }}>加载中...</div>
+          <div style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '40px 0' }}>加载中...</div>
         ) : (
           <div style={{ display: 'grid', gap: '10px' }}>
             {episodes.map(episode => (
@@ -201,7 +201,7 @@ export default function MovieList() {
                 onClick={() => openMovie(episode.url)}
                 style={{
                   display: 'flex', gap: '10px', padding: '8px', textAlign: 'left',
-                  background: '#fff', border: '1px solid rgba(174, 151, 122, 0.22)',
+                  background: 'var(--ink-surface)', border: '1px solid var(--ink-line)',
                   borderRadius: '12px', cursor: 'pointer'
                 }}
               >
@@ -219,22 +219,22 @@ export default function MovieList() {
                     }}>{formatDuration(episode.duration)}</span>
                   ) : null}
                 </div>
-                <div style={{ flex: 1, minWidth: 0, fontSize: '14px', fontWeight: 600, color: '#5a4126', lineHeight: 1.4 }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: '14px', fontWeight: 600, color: 'var(--ink-text)', lineHeight: 1.4 }}>
                   {episode.title}
                 </div>
               </button>
             ))}
             {episodes.length === 0 && (
-              <div style={{ textAlign: 'center', color: '#a08a6b', padding: '40px 0' }}>暂无内容</div>
+              <div style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '40px 0' }}>暂无内容</div>
             )}
           </div>
         )
       ) : loading ? (
-        <div style={{ textAlign: 'center', color: '#a08a6b', padding: '40px 0' }}>加载中...</div>
+        <div style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '40px 0' }}>加载中...</div>
       ) : error ? (
         <div style={{ textAlign: 'center', color: '#b35a4a', padding: '40px 0' }}>{error}</div>
       ) : data.series.length === 0 ? (
-        <div style={{ textAlign: 'center', color: '#a08a6b', padding: '40px 0' }}>
+        <div style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '40px 0' }}>
           {query ? '没有找到相关内容' : '暂无内容'}
         </div>
       ) : (
@@ -243,7 +243,7 @@ export default function MovieList() {
             <button
               key={`${item.category}-${item.name}`}
               onClick={() => openItem(item)}
-              style={{ padding: 0, border: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer' }}
+              style={{ padding: '8px', border: '1px solid var(--ink-line)', borderRadius: '14px', background: 'var(--ink-surface)', textAlign: 'left', cursor: 'pointer' }}
             >
               <div style={{ position: 'relative' }}>
                 <Thumb src={item.cover} style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: '10px' }} />
@@ -255,12 +255,12 @@ export default function MovieList() {
                 )}
               </div>
               <div style={{
-                marginTop: '5px', fontSize: '13px', fontWeight: 700, color: '#5a4126', lineHeight: 1.35,
+                marginTop: '5px', fontSize: '13px', fontWeight: 700, color: 'var(--ink-text)', lineHeight: 1.35,
                 display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
               }}>
                 {item.name}
               </div>
-              <div style={{ fontSize: '11px', color: '#a08a6b', marginTop: '1px' }}>{item.category}</div>
+              <div style={{ fontSize: '11px', color: 'var(--ink-muted)', marginTop: '1px' }}>{item.category}</div>
             </button>
           ))}
         </div>

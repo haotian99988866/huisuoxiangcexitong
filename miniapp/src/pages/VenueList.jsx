@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useModuleState, useModuleScroll } from '../utils/moduleState'
 import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
+import ModuleIcon from '../components/ModuleIcon'
+import InkScenery from '../components/InkScenery'
 import CopyBooking from '../components/CopyBooking'
 import { bookingUrl } from '../utils/booking'
 import { contactName, contactUrl, mediaUrl, tenantPath } from '../utils/tenant'
@@ -54,9 +56,10 @@ const contactButtonStyle = {
   alignItems: 'center',
   gap: '5px',
   padding: '8px 18px',
+  minHeight: '44px',
   borderRadius: '20px',
-  background: '#80643c',
-  color: '#fff',
+  background: 'var(--ink-accent)',
+  color: '#fffef5',
   fontSize: '13px',
   fontWeight: 600,
   textDecoration: 'none',
@@ -73,11 +76,11 @@ function ContactButton() {
         rel="noreferrer"
         style={contactButtonStyle}
       >
-        <span aria-hidden="true">✈</span>{isIOS ? '直接联系' : '联系'}{contactName()}
+        <ModuleIcon name="contact" />{isIOS ? '直接联系' : '联系'}{contactName()}
       </a>
       {isIOS && (
         <a href={contactUrl()} target="_blank" rel="noreferrer" data-telegram-browser="true"
-          style={contactButtonStyle}>
+          style={{ ...contactButtonStyle, background: 'var(--ink-surface)', color: 'var(--ink-accent)', border: '1px solid var(--ink-line)' }}>
           通过网页联系{contactName()}
         </a>
       )}
@@ -91,19 +94,20 @@ function NoticeCard({ icon, title, updatedAt, children }) {
       marginBottom: '24px',
       padding: '28px 18px',
       textAlign: 'center',
-      background: '#fff9e6',
-      border: '1px solid #f0dfb7',
+      background: 'var(--home-surface)',
+      border: '1px solid rgba(102, 119, 93, 0.18)',
       borderRadius: '14px',
-      color: '#9a6b18'
+      color: 'var(--ink-accent)',
+      boxShadow: '0 3px 14px rgba(44, 65, 48, 0.03)'
     }}>
-      <div style={{ fontSize: '34px', marginBottom: '8px' }}>{icon}</div>
+      <div className="home-notice-icon"><ModuleIcon name={icon} /></div>
       <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '8px' }}>{title}</div>
-      <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.7, color: '#987f54' }}>
+      <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.7, color: '#627264' }}>
         {children}
       </p>
       <ContactButton />
       {updatedAt && (
-        <div style={{ marginTop: '14px', fontSize: '11px', color: '#a89574' }}>
+        <div style={{ marginTop: '14px', fontSize: '11px', color: '#667367' }}>
           最近更新：{updatedAt}
         </div>
       )}
@@ -124,25 +128,30 @@ const photoViewerButtonStyle = {
 
 const attendancePanelStyle = {
   marginBottom: '20px',
-  background: '#fff',
+  background: 'var(--home-surface)',
+  border: '1px solid rgba(102, 119, 93, 0.14)',
+  boxShadow: '0 3px 14px rgba(44, 65, 48, 0.03)',
   borderRadius: '12px',
   padding: '16px'
 }
 
 const greenSectionHeadingStyle = {
   fontSize: '15px',
-  color: '#2f855a',
+  color: 'var(--ink-accent)',
   margin: 0,
   fontWeight: 600
 }
 
 const ktvBookingButtonStyle = {
-  display: 'inline-block',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: '44px',
   marginTop: '6px',
   padding: '6px 14px',
   borderRadius: '16px',
-  background: '#80643c',
-  color: '#fff',
+  background: 'var(--ink-accent)',
+  color: '#fffef5',
   fontSize: '13px',
   textDecoration: 'none',
   cursor: 'pointer'
@@ -644,37 +653,24 @@ export default function VenueList() {
   }
 
   const renderServiceItem = item => (
-    <div key={item.id} style={{
-      background: '#fff',
-      borderRadius: '10px',
-      padding: '14px 16px'
-    }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        gap: '8px'
-      }}>
-        <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
+    <div key={item.id} className="home-service-card">
+      <InkScenery className="service-ink-scenery" compact />
+      <div className="home-service-card-heading">
+        <div className="home-service-card-name">
           {item.name}
         </div>
-        <div style={{
-          fontSize: '15px',
-          fontWeight: 700,
-          color: '#c53030',
-          flexShrink: 0
-        }}>
+        <div className="home-service-card-price">
           {item.price != null ? `$${Number(item.price).toFixed(2)}` : item.duration || '面议'}
         </div>
       </div>
       {item.description && (
-        <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+        <div className="home-service-card-description">
           {item.description}
         </div>
       )}
       {item.price && (
-        <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>
-          ⏱ {item.duration}
+        <div className="home-service-card-duration">
+          <ModuleIcon name="clock" /> {item.duration}
         </div>
       )}
     </div>
@@ -696,7 +692,7 @@ export default function VenueList() {
         }}>
           <h3 style={{
             fontSize: '15px',
-            color: '#b7791f',
+            color: 'var(--ink-accent)',
             margin: 0,
             fontWeight: 600
           }}>
@@ -768,9 +764,9 @@ export default function VenueList() {
   }
 
   return (
-    <div style={{
+    <div className="home-page" style={{
       minHeight: '100vh',
-      background: '#faf6f0',
+      background: 'transparent',
       padding: '12px',
       boxSizing: 'border-box'
     }}>
@@ -781,8 +777,7 @@ export default function VenueList() {
         zIndex: 20,
         padding: '10px 12px 10px',
         margin: '-12px -12px 14px',
-        background: 'linear-gradient(180deg, #fffdf8 0%, #faf6f0 100%)',
-        backdropFilter: 'blur(12px)',
+        background: 'rgba(250, 249, 243, 0.97)',
         borderBottom: '1px solid rgba(158, 132, 101, 0.16)',
         boxShadow: '0 4px 14px rgba(120, 90, 50, 0.07)'
       }}>
@@ -815,15 +810,15 @@ export default function VenueList() {
                 minWidth: '0',
                 height: '40px',
                 padding: '0 30px 0 12px',
-                border: '1px solid rgba(174, 151, 122, 0.32)',
+                border: '1px solid rgba(82, 105, 90, 0.25)',
                 borderRadius: '12px',
-                color: '#5a4126',
+                color: 'var(--ink-accent)',
                 fontSize: '14px',
                 fontWeight: 600,
                 outline: 'none',
                 appearance: 'none',
                 WebkitAppearance: 'none',
-                background: "#fff url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23a07a45' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") no-repeat right 12px center",
+                background: "rgba(255,254,249,.85) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2352695a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") no-repeat right 12px center",
                 boxShadow: '0 1px 3px rgba(120, 90, 50, 0.06)'
               }}
             >
@@ -834,7 +829,7 @@ export default function VenueList() {
               ) : (
                 list.map(v => (
                   <option key={v.id} value={String(v.id)}>
-                    🏠 {v.name}
+                    {v.name}
                   </option>
                 ))
               )}
@@ -890,9 +885,10 @@ export default function VenueList() {
                     onClick={() => setDeliveryCategoryId(deliveryCategoryKey(venue))}
                     style={{
                       flex: '1 1 0', minWidth: 0, whiteSpace: 'nowrap', padding: '7px 2px', borderRadius: '18px', cursor: 'pointer',
-                      border: active ? '1px solid #80643c' : '1px solid #eadfca',
-                      background: active ? '#80643c' : '#fff',
-                      color: active ? '#fff' : '#80643c',
+                      minHeight: '44px',
+                      border: '1px solid var(--ink-line)',
+                      background: active ? 'var(--ink-accent)' : 'var(--home-surface)',
+                      color: active ? '#fffef5' : 'var(--ink-accent)',
                       fontSize: '14px', fontWeight: 600
                     }}
                   >
@@ -915,7 +911,7 @@ export default function VenueList() {
         </div>
       ) : list.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
-          <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔍</div>
+          <div className="home-notice-icon"><ModuleIcon name="search" /></div>
           <p>暂无会所数据</p>
         </div>
       ) : !selectedVenue ? (
@@ -926,14 +922,14 @@ export default function VenueList() {
         <div>
           {/* 今日在岗技师 / 未发布提示 */}
           {isDeliveryDayShift ? (
-            <NoticeCard icon="☀️" title="西港外送只展示晚班出勤">
+            <NoticeCard icon="daylight" title="西港外送只展示晚班出勤">
               当前为白班时间（06:00–18:00），白班外送请单独联系{contactName()}，<br />
               晚班（18:00 起）内容将在此展示。
             </NoticeCard>
           ) : Array.isArray(selectedVenue.delivery_posts) ? (
             <div style={{ marginBottom: '24px' }}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
-                <h3 style={attendanceInlineHeadingStyle}>📸 最新上新</h3>
+                <h3 style={attendanceInlineHeadingStyle}><ModuleIcon name="photo" />最新上新</h3>
                 <span style={recentUpdateStyle}>
                   最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
                 </span>
@@ -948,7 +944,7 @@ export default function VenueList() {
                         key={post.id}
                         onClick={() => openDeliveryViewer(post)}
                         style={{
-                          background: '#fff',
+                          background: 'var(--home-surface)',
                           borderRadius: '14px',
                           overflow: 'hidden',
                           boxShadow: '0 2px 10px rgba(80, 60, 30, 0.1)',
@@ -986,13 +982,13 @@ export default function VenueList() {
                               background: 'rgba(0,0,0,0.55)', color: '#fff',
                               fontSize: '12px', padding: '2px 8px', borderRadius: '10px',
                             }}>
-                              🖼 {post.media.length}
+                              <ModuleIcon name="photo" /> {post.media.length}
                             </span>
                           )}
                           {post.price && (
                             <span style={{
                               position: 'absolute', left: '8px', bottom: '8px',
-                              background: '#c9a24d', color: '#fff',
+                              background: 'var(--ink-accent)', color: '#fffef5',
                               fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '10px',
                             }}>
                               {post.price}$
@@ -1028,7 +1024,7 @@ export default function VenueList() {
                   })}
                 </div>
               ) : (
-                <NoticeCard icon="⏳" title="暂无内容">
+                <NoticeCard icon="waiting" title="暂无内容">
                   新内容发布后将在此展示，<br />如需了解详情请直接联系{contactName()}。
                 </NoticeCard>
               )}
@@ -1137,7 +1133,7 @@ export default function VenueList() {
                           objectFit: 'cover',
                           borderRadius: '8px',
                           opacity: index === deliveryIndex ? 1 : 0.5,
-                          border: index === deliveryIndex ? '2px solid #c9a24d' : '2px solid transparent',
+                          border: index === deliveryIndex ? '2px solid #8fa790' : '2px solid transparent',
                           boxSizing: 'border-box',
                           background: '#222',
                         }
@@ -1211,7 +1207,7 @@ export default function VenueList() {
                       style={{
                         display: 'block',
                         textAlign: 'center',
-                        background: '#c9a24d',
+                        background: 'var(--ink-accent)',
                         color: '#fff',
                         fontWeight: 700,
                         fontSize: '16px',
@@ -1251,7 +1247,7 @@ export default function VenueList() {
           ) : String(selectedVenue.id) === '3' ? (
             <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
-                <h3 style={attendanceInlineHeadingStyle}>🎤 KTV包房视频</h3>
+                <h3 style={attendanceInlineHeadingStyle}><ModuleIcon name="movies" />KTV包房视频</h3>
                 <span style={recentUpdateStyle}>
                   最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
                 </span>
@@ -1262,7 +1258,7 @@ export default function VenueList() {
                     const info = ktvVideoInfo(video)
                     return (
                     <div key={video.id} style={{
-                      background: '#fff', borderRadius: '14px', overflow: 'hidden',
+                      background: 'var(--home-surface)', borderRadius: '14px', overflow: 'hidden',
                       border: '1px solid #eee3cf', boxShadow: '0 4px 14px rgba(128, 100, 60, 0.12)'
                     }}>
                       <div
@@ -1295,8 +1291,8 @@ export default function VenueList() {
                         )}
                         <span style={{
                           position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
-                          width: '42px', height: '42px', borderRadius: '50%',
-                          background: 'rgba(255,255,255,0.88)', color: '#80643c', fontSize: '16px',
+                          width: '44px', height: '44px', borderRadius: '50%',
+                          background: 'var(--ink-reading)', color: 'var(--ink-accent)', fontSize: '16px',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           paddingLeft: '3px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
                         }}>▶</span>
@@ -1392,17 +1388,17 @@ export default function VenueList() {
               )}
               {(selectedVenue.ktv_texts || []).length > 0 && (
                 <div style={{ marginTop: '20px' }}>
-                  <h3 style={{ ...attendanceInlineHeadingStyle, marginBottom: '10px' }}>💰 消费模式及价格</h3>
+                  <h3 style={{ ...attendanceInlineHeadingStyle, marginBottom: '10px' }}><ModuleIcon name="recharge" />消费模式及价格</h3>
                   <div style={{
-                    background: '#fffaf0', border: '1px solid #eee3cf',
+                    background: 'var(--home-reading-surface)', border: '1px solid #dfe4d7',
                     borderRadius: '14px', padding: '6px 14px'
                   }}>
                     {selectedVenue.ktv_texts.flatMap(ktvPriceLines).map((line, index) => (
                       <p key={index} style={{
                         margin: 0, padding: '8px 0', fontSize: '13px', lineHeight: 1.6,
-                        color: line.includes('消费明细') ? '#80643c' : '#555',
+                        color: line.includes('消费明细') ? 'var(--ink-accent)' : '#555',
                         fontWeight: line.includes('消费明细') ? 700 : 400,
-                        borderBottom: '1px dashed #eadfca'
+                        borderBottom: '1px dashed #52695a30'
                       }}>
                         {line}
                       </p>
@@ -1410,8 +1406,8 @@ export default function VenueList() {
                   </div>
                 </div>
               )}
-              <div style={{ marginTop: '20px', padding: '20px', textAlign: 'center', background: '#fffaf0', borderRadius: '14px' }}>
-                <p style={{ color: '#80643c', marginBottom: '12px' }}>想了解更多包房、消费价格或预订详情？</p>
+              <div style={{ marginTop: '20px', padding: '20px', textAlign: 'center', background: 'var(--home-surface)', borderRadius: '14px' }}>
+                <p style={{ color: 'var(--ink-accent)', marginBottom: '12px' }}>想了解更多包房、消费价格或预订详情？</p>
                 <ContactButton />
               </div>
             </div>
@@ -1419,7 +1415,7 @@ export default function VenueList() {
             <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
                 <h3 style={attendanceInlineHeadingStyle}>
-                  👥 {dutyLabel}技师 ({onDutyCount}张照片)
+                  <ModuleIcon name="personal" />{dutyLabel}技师 ({onDutyCount}张照片)
                 </h3>
                 <span style={recentUpdateStyle}>
                   最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
@@ -1441,7 +1437,7 @@ export default function VenueList() {
                 <div key={category.name} style={{ marginBottom: '14px' }}>
                   <h4 style={{
                     margin: '0 0 8px',
-                    color: '#80643c',
+                    color: 'var(--ink-accent)',
                     fontSize: '13px',
                     fontWeight: 600
                   }}>
@@ -1478,7 +1474,7 @@ export default function VenueList() {
             <div style={attendancePanelStyle}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
                 <h3 style={attendanceInlineHeadingStyle}>
-                  👥 {dutyLabel}技师 ({technicianList.length}人)
+                  <ModuleIcon name="personal" />{dutyLabel}技师 ({technicianList.length}人)
                   {!currentShift && dutyShiftToday && (
                     <span style={{ fontSize: '11px', color: '#666', marginLeft: '8px' }}>
                       （{dutyShiftToday}）
@@ -1494,7 +1490,7 @@ export default function VenueList() {
                   <div key={group.group_name} style={{ marginBottom: '14px' }}>
                     <h4 style={{
                       margin: '0 0 8px',
-                      color: '#80643c',
+                      color: 'var(--ink-accent)',
                       fontSize: '13px',
                       fontWeight: 600
                     }}>
@@ -1524,7 +1520,7 @@ export default function VenueList() {
             </div>
           ) : (
             <NoticeCard
-              icon="⏳"
+              icon="waiting"
               title={`${dutyLabel}尚未发布`}
               updatedAt={formatChannelMessageTime(selectedVenue.last_channel_message_at)}
             >
@@ -1539,7 +1535,7 @@ export default function VenueList() {
           {attendanceServiceGroups.length > 0 ? (
             <div style={{
               marginBottom: '24px',
-              background: '#fff',
+              background: 'var(--home-surface)',
               borderRadius: '12px',
               padding: '16px'
             }}>
@@ -1547,7 +1543,7 @@ export default function VenueList() {
                 <div key={group.group_name} style={{ marginBottom: '14px' }}>
                   <h3 style={{
                     margin: '0 0 8px',
-                    color: '#b7791f',
+                    color: 'var(--ink-accent)',
                     fontSize: '15px',
                     fontWeight: 600
                   }}>
@@ -1570,11 +1566,11 @@ export default function VenueList() {
           ) : Object.keys(serviceGroups).length > 0 && (
             <div style={{ marginBottom: '24px' }}>
               {[
-                { key: 'small', title: '⭐️ 小项' },
-                { key: 'medium', title: '⭐️ 中项' },
-                { key: 'high', title: '⭐️ 高项' },
-                { key: 'tcm', title: '🤩 中医按摩' },
-                { key: 'pedicure', title: '🌸 修脚师' }
+                { key: 'small', title: '小项' },
+                { key: 'medium', title: '中项' },
+                { key: 'high', title: '高项' },
+                { key: 'tcm', title: '中医按摩' },
+                { key: 'pedicure', title: '修脚师' }
               ].map(({ key, title }) => serviceGroups[key] && (
                 <div key={key} style={{ marginBottom: '18px' }}>
                   {renderCategoryTechnicians(serviceGroups[key].items, title)}
@@ -1859,14 +1855,14 @@ export default function VenueList() {
                 minHeight: '46px',
                 marginTop: '10px',
                 borderRadius: '12px',
-                background: 'linear-gradient(135deg, #38835d, #4a9870)',
+                background: 'var(--ink-accent)',
                 color: '#fff',
                 fontSize: '15px',
                 fontWeight: 700,
                 textDecoration: 'none'
               }}
             >
-              <span aria-hidden="true">✈</span>
+              <ModuleIcon name="contact" />
               联系业务经理{contactName()}
             </a>
           </section>
