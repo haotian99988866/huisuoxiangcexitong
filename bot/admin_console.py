@@ -88,7 +88,8 @@ def save_from_request(data, actor_id):
     if not isinstance(mode, str) or mode not in {"create", "update"} or not isinstance(data.get("tenant"), dict):
         raise ValueError("请选择创建或更新，并提交有效租户配置")
     raw = data["tenant"]
-    keys = ("slug", "brand_name", "contact_name", "contact_username", "venue_ids", "status", "expires_at")
+    keys = ("slug", "brand_name", "contact_name", "contact_username", "venue_ids", "status", "expires_at",
+            "announcements_enabled")
     if any(key not in raw for key in keys):
         raise ValueError("租户配置不完整，请刷新后重试")
     config = {key: raw[key] for key in keys}

@@ -117,9 +117,24 @@ class AdminConsoleTests(unittest.TestCase):
             {"tenant": {**payload["tenant"], "expires_at": "2030-02-30T00:00:00Z"}},
             {"tenant": {**payload["tenant"], "expires_at": "2030-01-01T00:00:00+07:00"}},
             {"tenant": {"slug": "test-shop"}},
+            {"tenant": {key: value for key, value in payload["tenant"].items() if key != "announcements_enabled"}},
         ]:
             with self.subTest(changed=changed), self.assertRaises(ValueError):
                 admin_console.save_from_request({**payload, **changed}, 123)
+
+    def test_announcement_permission_is_saved_and_audited(self):
+        row = tenant()
+        updated = {**row, "announcements_enabled": True}
+        payload = {"mode": "update", "tenant": tenant_snapshot(updated), "revision": tenant_revision(row)}
+        with patch.object(admin_console, "save_tenant") as save:
+            admin_console.save_from_request(payload, 123)
+            self.assertIs(save.call_args.args[0]["announcements_enabled"], True)
+        conn, cur = self.connection(row)
+        cur.fetchall.return_value = [{"id": 3}]
+        with patch("tenants.get_conn", return_value=conn):
+            save_tenant(updated, actor_id=123, expected_revision=tenant_revision(row))
+        self.assertIs(json.loads(cur.execute.call_args.args[1][4])["announcements_enabled"], False)
+        self.assertIs(json.loads(cur.execute.call_args.args[1][5])["announcements_enabled"], True)
 
     def test_revision_conflict_rolls_back_before_update_and_audit(self):
         row = tenant()

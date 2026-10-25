@@ -8,6 +8,7 @@ import Recharge from './pages/Recharge'
 import Personal from './pages/Personal'
 import Admin from './pages/Admin'
 import Music from './pages/Music'
+import Announcements from './pages/Announcements'
 import MusicPlayer from './components/MusicPlayer'
 import { isTenantEntry } from './utils/tenant'
 import { modules } from './utils/modules'
@@ -49,6 +50,8 @@ function Content() {
         <Route path="/personal" element={<Personal />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/music" element={<Music />} />
+        <Route path="/announcements" element={<Announcements />} />
+        <Route path="/announcements/:id" element={<Announcements />} />
         <Route path="/venue/:id" element={<VenueDetail />} />
         <Route path="/venue/:venue_id/technicians" element={<TechnicianList />} />
       </Routes>

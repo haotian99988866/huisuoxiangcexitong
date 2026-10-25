@@ -1,6 +1,47 @@
-import { announcementText } from '../utils/tenant'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { announcementText, hasAnnouncementAccess, tenantPath } from '../utils/tenant'
+import { requestAnnouncements } from '../utils/announcements'
 
-export const ANNOUNCEMENT_TEXT = '充值模块开发中，商品购买暂未开放'
+let snapshot = { text: '公告资讯 · 点击查看历史', id: null }
+const listeners = new Set()
+let fetching = false
+let updated = 0
+async function refreshAnnouncement() {
+  if (fetching || Date.now() - updated < 60000) return
+  fetching = true
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15000)
+  try {
+    const result = await requestAnnouncements('get_announcements', {}, controller.signal)
+    const latest = result.items[0]
+    snapshot = { text: latest?.summary || '暂无公告 · 查看历史', id: latest?.id || null }
+    updated = Date.now()
+  } catch (error) {
+    console.error('[Announcement preview]', error)
+    snapshot = { text: '公告暂不可用 · 点击查看并重试', id: null }
+  } finally {
+    clearTimeout(timer)
+    fetching = false
+    listeners.forEach(listener => listener(snapshot))
+  }
+}
+
+function AnnouncementPreview() {
+  const [latest, setLatest] = useState(snapshot)
+  const allowed = hasAnnouncementAccess()
+  useEffect(() => {
+    if (!allowed) return
+    listeners.add(setLatest)
+    refreshAnnouncement()
+    const timer = setInterval(refreshAnnouncement, 60000)
+    return () => { listeners.delete(setLatest); clearInterval(timer) }
+  }, [allowed])
+  if (!allowed) return announcementText()
+  return <Link to={tenantPath(latest.id ? `/announcements/${latest.id}` : '/announcements')}
+    style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
+    aria-label={`公告：${latest.text}`}>{latest.text}</Link>
+}
 
 // 全屏时 Telegram 的关闭/菜单按钮会浮在页面顶部:用等高的公告栏避让;非全屏显示公告卡片
 export function FullscreenAnnouncementBar() {
@@ -17,6 +58,7 @@ export function FullscreenAnnouncementBar() {
           padding: '0 64px',
           boxSizing: 'border-box',
           display: 'flex',
+          minWidth: 0,
           alignItems: 'center',
           justifyContent: 'center',
           gap: '6px',
@@ -28,7 +70,7 @@ export function FullscreenAnnouncementBar() {
         }}
       >
         <span aria-hidden="true">📢</span>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{announcementText()}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}><AnnouncementPreview /></span>
       </div>
     </div>
   )
@@ -40,6 +82,7 @@ export function AnnouncementCard() {
       aria-label="公告"
       style={{
         display: 'flex',
+        minWidth: 0,
         alignItems: 'center',
         gap: '8px',
         padding: '8px 12px',
@@ -57,8 +100,8 @@ export function AnnouncementCard() {
       <span aria-hidden="true">📢</span>
       <span style={{ fontWeight: 700 }}>公告</span>
       <span style={{ width: '1px', height: '12px', background: '#e6d3a3' }} />
-      <span style={{ minWidth: 0, color: '#987f54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {announcementText()}
+      <span style={{ flex: 1, minWidth: 0, color: '#987f54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <AnnouncementPreview />
       </span>
     </div>
   )

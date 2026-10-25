@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useModuleState, useModuleScroll } from '../utils/moduleState'
-import { FullscreenAnnouncementBar } from '../components/Announcement'
+import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
 import CopyBooking from '../components/CopyBooking'
 import { bookingUrl } from '../utils/booking'
-import { announcementText, contactName, contactUrl, mediaUrl, tenantPath } from '../utils/tenant'
+import { contactName, contactUrl, mediaUrl, tenantPath } from '../utils/tenant'
 import { API_BASE_URL, bindBackButton, closeMiniApp, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
 
 // 首页默认显示“名玺水汇会所”，找不到时退回列表第一个
@@ -872,32 +872,7 @@ export default function VenueList() {
             </div>
           </div>
           </div>
-          {!isFullscreen && (
-            <div
-              aria-label="公告"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 12px',
-                background: '#fff',
-                border: '1px solid rgba(154, 107, 24, 0.18)',
-                borderLeft: '3px solid #c9a24d',
-                borderRadius: '10px',
-                boxShadow: '0 1px 3px rgba(120, 90, 50, 0.05)',
-                fontSize: '12px',
-                color: '#9a6b18',
-                lineHeight: 1.4
-              }}
-            >
-              <span aria-hidden="true">📢</span>
-              <span style={{ fontWeight: 700 }}>公告</span>
-              <span style={{ width: '1px', height: '12px', background: '#e6d3a3' }} />
-              <span style={{ minWidth: 0, color: '#987f54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {announcementText()}
-              </span>
-            </div>
-          )}
+          {!isFullscreen && <AnnouncementCard />}
           {deliveryCategories.length > 0 && !isDeliveryDayShift && (
             <div style={{
               display: 'flex',

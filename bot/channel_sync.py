@@ -194,6 +194,83 @@ async def worker(user, bot, source, target, store, directory):
             logger.exception("Job %s is %s; inspect before retrying", job["job_key"], status)
 
 
+async def index_announcements(bot, target, store):
+    from announcements import indexed_keys
+    known = await asyncio.to_thread(indexed_keys)
+    jobs = store.connection.execute(
+        "SELECT * FROM jobs WHERE target=? AND status='sent' ORDER BY rowid",
+        (str(target.id),),
+    ).fetchall()
+    failed = 0
+    for job in jobs:
+        key = f"{target.id}:{job['job_key']}"
+        if key in known:
+            continue
+        try:
+            await index_announcement(bot, target, job, key)
+        except errors.FloodWaitError:
+            raise
+        except Exception:
+            failed += 1
+            logger.exception("Failed to index published job %s; forwarding status unchanged", job["job_key"])
+    if failed:
+        raise ValueError(f"{failed} announcement(s) could not be indexed; retry required.")
+
+
+async def index_announcement(bot, target, job, key):
+    from announcements import local_media_path, save
+    ids = json.loads(job["result_ids"])
+    messages = await bot.get_messages(target, ids=ids)
+    if not ids or len(messages) != len(ids) or any(message is None for message in messages):
+        raise ValueError(f"Published messages unavailable for announcement job {job['job_key']}")
+    media = []
+    for message in messages:
+        if message.photo or message.video or message.gif:
+            kind = "photo" if message.photo else "video"
+            extension = "jpg" if message.photo else (
+                "webm" if message.file.mime_type == "video/webm" else "mp4"
+            )
+            path = local_media_path(f"{target.id}-{message.id}.{extension}")
+            size = message.file.size
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists() or path.stat().st_size != size:
+                total = sum(item.stat().st_size for item in path.parent.iterdir() if item.is_file())
+                if size > 200 * 1024 * 1024 or total + size > 2 * 1024 ** 3:
+                    raise ValueError("Announcement media storage limit exceeded (200 MB/file, 2 GB total).")
+                temporary = path.with_suffix(".part")
+                try:
+                    await bot.download_media(message, file=str(temporary))
+                    if temporary.stat().st_size != size:
+                        raise ValueError("Announcement media download incomplete.")
+                    temporary.replace(path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+            media.append({"kind": kind, "filename": path.name})
+    body = "\n\n".join(message.message for message in messages if message.message)
+    if not body and not media:
+        raise ValueError("Published announcement has no supported content.")
+    await asyncio.to_thread(save, key, ids, body, media, messages[0].date)
+    logger.info("Indexed announcement from published job %s", job["job_key"])
+
+
+async def announcement_worker(bot, target, store):
+    from announcements import ensure_tables
+    ready = False
+    while True:
+        delay = 30
+        try:
+            if not ready:
+                await asyncio.to_thread(ensure_tables)
+                ready = True
+            await index_announcements(bot, target, store)
+        except errors.FloodWaitError as error:
+            delay = max(delay, error.seconds + 1)
+            logger.warning("Announcement rate limited; waiting %s seconds", delay)
+        except Exception:
+            logger.exception("Announcement indexing failed; retrying in 30 seconds")
+        await asyncio.sleep(delay)
+
+
 async def run(mode, directory):
     api_id, api_hash = credentials()
     user = TelegramClient(str(directory / "user"), api_id, api_hash)
@@ -251,6 +328,7 @@ async def run(mode, directory):
         logger.info("READY: @svip -> @haotiancm99988866; only messages newer than %s", boundary)
         async with asyncio.TaskGroup() as tasks:
             tasks.create_task(worker(user, bot, source, target, store, directory))
+            tasks.create_task(announcement_worker(bot, target, store))
             await user.run_until_disconnected()
             raise ConnectionError("Listener disconnected; stop and inspect before restarting.")
     finally:

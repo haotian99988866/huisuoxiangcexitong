@@ -8,7 +8,7 @@ import './Admin.css'
 const labels = { draft: '草稿', active: '已启用', suspended: '已暂停', expired: '已到期' }
 const empty = () => ({
   slug: '', brand_name: '', contact_name: '', contact_username: '',
-  venue_ids: [], status: 'draft', expires_at: '',
+  venue_ids: [], status: 'draft', expires_at: '', announcements_enabled: false,
 })
 const formatDate = iso => iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '未设置'
 
@@ -93,6 +93,7 @@ export default function Admin() {
           contact_name: value.contact_name.trim(),
           contact_username: value.contact_username.trim().replace(/^@/, ''),
           venue_ids: value.venue_ids, status: value.status, expires_at,
+          announcements_enabled: Boolean(value.announcements_enabled),
         },
       })
     } catch (failure) { setError(failure.message) }
@@ -172,7 +173,7 @@ export default function Admin() {
               <div className="admin-header"><h3>{row.brand_name}</h3><span>{labels[row.effective_status]}</span></div>
               <p>{row.slug} · @{row.contact_username}</p>
               <p>到期：{formatDate(row.expires_at)}</p>
-              <p>展示项目：{row.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || `项目 ${id}`).join('、')}</p>
+              <p>展示项目：{row.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || `项目 ${id}`).join('、')} · 公告{row.announcements_enabled ? '已开放' : '未开放'}</p>
               <div className="admin-actions">
                 <button type="button" disabled={saving || loading} onClick={() => edit(row)}>编辑 / 续期 / 暂停</button>
                 <button type="button" disabled={saving} onClick={() => copy(row.slug)}>复制入口</button>
@@ -200,6 +201,8 @@ export default function Admin() {
                   ))}
                 </fieldset>
                 ))}
+                <label className="admin-check"><input type="checkbox" checked={Boolean(editor.values.announcements_enabled)}
+                  onChange={event => field('announcements_enabled', event.target.checked)} />开放频道公告、详情与历史列表（默认关闭）</label>
                 <div>
                   {editor.values.venue_ids.filter(id => !data.venues.some(venue => venue.id === id)).map(id => (
                     <label key={id} className="admin-check"><input type="checkbox" checked onChange={() => field('venue_ids', editor.values.venue_ids.filter(value => value !== id))} />项目 {id} 已停用，请取消选择</label>
@@ -218,7 +221,7 @@ export default function Admin() {
               <p>{confirmation.tenant.brand_name} · {labels[confirmation.tenant.status]}</p>
               <p>联系人：{confirmation.tenant.contact_name} / @{confirmation.tenant.contact_username}</p>
               <p>到期：{formatDate(confirmation.tenant.expires_at)}</p>
-              <p>展示项目：{confirmation.tenant.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || id).join('、')}</p>
+              <p>展示项目：{confirmation.tenant.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || id).join('、')} · 公告{confirmation.tenant.announcements_enabled ? '已开放' : '未开放'}</p>
               <p>启用、暂停及续期会影响入口访问。本操作不收款、不扣款。</p>
               <div className="admin-actions"><button type="button" disabled={saving} onClick={save}>{saving ? '保存中…' : '确认保存'}</button><button type="button" disabled={saving} onClick={() => setConfirmation(null)}>返回修改</button></div>
             </div>}

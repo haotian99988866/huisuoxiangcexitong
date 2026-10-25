@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveTenant, initializeTenant, setTenant, tenantPath, mediaUrl, contactUrl, tenantHeaders, announcementText, hasDeliveryAccess, hasVenueAccess } from './tenant.js'
+import { resolveTenant, initializeTenant, setTenant, tenantPath, mediaUrl, contactUrl, tenantHeaders, announcementText, hasDeliveryAccess, hasVenueAccess, hasAnnouncementAccess } from './tenant.js'
 import { bookingUrl } from './booking.js'
 import { displayModules } from './modules.js'
 
@@ -33,6 +33,8 @@ test('scoped routes, media, contacts and booking messages preserve tenant contex
     assert.deepEqual(tenantHeaders(), { 'X-Tenant': 'shop-one' })
     assert.equal(contactUrl(), 'https://t.me/contact_one')
     assert.equal(hasDeliveryAccess(), false)
+    assert.equal(hasAnnouncementAccess(), false)
+    assert.equal(displayModules().some(item => item.key === 'announcements'), false)
     assert.equal(hasVenueAccess(), true)
     assert.equal(displayModules().some(item => item.key === 'music'), false)
     assert.ok(announcementText().includes('测试品牌'))
@@ -41,15 +43,18 @@ test('scoped routes, media, contacts and booking messages preserve tenant contex
     assert.ok(booking.searchParams.get('text').includes('tenant=shop-one'))
     setTenant({
       slug: 'shop-one', brand_name: '测试品牌', contact_name: '客服甲',
-      contact_username: 'contact_one', venue_ids: [7, 10],
+      contact_username: 'contact_one', venue_ids: [7, 10], announcements_enabled: true,
     })
     assert.equal(hasDeliveryAccess(), true)
+    assert.equal(hasAnnouncementAccess(), true)
+    assert.equal(displayModules().some(item => item.key === 'announcements'), true)
     assert.equal(hasVenueAccess(), false)
     const delivery = new URL(mediaUrl('/api/delivery-media/1'))
     assert.equal(delivery.searchParams.get('tenant'), 'shop-one')
     window.location.search = ''
     initializeTenant()
     setTenant(null)
+    assert.equal(hasAnnouncementAccess(), true)
     assert.equal(tenantPath('/movies'), '/movies')
     assert.equal(contactUrl(), 'https://t.me/haotian99988866')
     assert.deepEqual(displayModules().filter(item => item.common).map(item => item.key), ['venue', 'delivery', 'movies', 'music'])

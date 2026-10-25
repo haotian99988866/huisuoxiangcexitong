@@ -29,6 +29,7 @@ def tenant_snapshot(row):
     result["venue_ids"] = sorted(set(json.loads(ids) if isinstance(ids, str) else ids))
     expiry = row["expires_at"]
     result["expires_at"] = expiry.isoformat(timespec="seconds") + "Z" if expiry else None
+    result["announcements_enabled"] = bool(row.get("announcements_enabled", False))
     return result
 
 
@@ -64,12 +65,17 @@ def ensure_tables():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_tenant_audit (tenant_slug, id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("SHOW COLUMNS FROM display_tenants LIKE 'announcements_enabled'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE display_tenants ADD COLUMN announcements_enabled TINYINT(1) NOT NULL DEFAULT 0")
         conn.commit()
     finally:
         conn.close()
 
 
 def validate_config(config):
+    if type(config.get("announcements_enabled", False)) is not bool:
+        raise ValueError("公告权限必须为布尔值")
     if not isinstance(config.get("slug"), str) or not SLUG.fullmatch(config["slug"]):
         raise ValueError("入口标识需为 3–32 位小写字母、数字或连字符，首位不能为连字符")
     for field, limit in (("brand_name", 80), ("contact_name", 40)):
@@ -108,14 +114,15 @@ def load_tenant(slug):
     if not row["expires_at"] or row["expires_at"] <= now:
         raise TenantUnavailable("此服务已到期，请联系服务提供方续费")
     row["venue_ids"] = json.loads(row["venue_ids"]) if isinstance(row["venue_ids"], str) else row["venue_ids"]
+    row["announcements_enabled"] = bool(row.get("announcements_enabled", False))
     validate_config(row)
     return row
 
 
 def public_config(row):
-    return {key: row[key] for key in (
+    return {**{key: row[key] for key in (
         "slug", "brand_name", "contact_name", "contact_username", "venue_ids"
-    )}
+    )}, "announcements_enabled": bool(row.get("announcements_enabled", False))}
 
 
 def save_tenant(config, create=False, actor_id=None, expected_revision=None):
@@ -131,12 +138,13 @@ def save_tenant(config, create=False, actor_id=None, expected_revision=None):
                 raise ValueError("所选会所不存在或未启用")
             values = tuple(config[key] for key in (
                 "brand_name", "contact_name", "contact_username"
-            )) + (json.dumps(sorted(set(config["venue_ids"]))), config["status"], config["expires_at"])
+            )) + (json.dumps(sorted(set(config["venue_ids"]))), config["status"], config["expires_at"],
+                  config.get("announcements_enabled", False))
             if create:
                 cur.execute(
                     "INSERT INTO display_tenants "
-                    "(brand_name,contact_name,contact_username,venue_ids,status,expires_at,slug) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s)", values + (config["slug"],),
+                    "(brand_name,contact_name,contact_username,venue_ids,status,expires_at,announcements_enabled,slug) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", values + (config["slug"],),
                 )
             else:
                 cur.execute("SELECT * FROM display_tenants WHERE slug=%s FOR UPDATE", (config["slug"],))
@@ -147,7 +155,7 @@ def save_tenant(config, create=False, actor_id=None, expected_revision=None):
                     raise TenantConflict("配置已被其他操作更新，请刷新后重新编辑")
                 cur.execute(
                     "UPDATE display_tenants SET brand_name=%s,contact_name=%s,contact_username=%s,"
-                    "venue_ids=%s,status=%s,expires_at=%s WHERE slug=%s", values + (config["slug"],),
+                    "venue_ids=%s,status=%s,expires_at=%s,announcements_enabled=%s WHERE slug=%s", values + (config["slug"],),
                 )
             cur.execute(
                 "INSERT INTO tenant_admin_audit "
@@ -179,6 +187,7 @@ def main():
         sub.add_argument("--venues", required=True, help="逗号分隔的会所 ID 1–6、外送 ID 7–10；未列出的外送默认不开放")
         sub.add_argument("--status", choices=["draft", "active", "suspended"], default="draft")
         sub.add_argument("--expires", help="UTC 到期时间 YYYY-MM-DDTHH:MM:SS，不含时区")
+        sub.add_argument("--announcements", action="store_true", help="开放频道公告")
     args = parser.parse_args()
     if args.command == "init":
         ensure_tables()
@@ -198,6 +207,7 @@ def main():
         "contact_username": args.contact_username,
         "venue_ids": [int(value) for value in args.venues.split(",")],
         "status": args.status, "expires_at": datetime.fromisoformat(args.expires) if args.expires else None,
+        "announcements_enabled": args.announcements,
     }
     save_tenant(config, create=args.command == "create")
     print(f"配置已保存：{args.slug}（{args.status}）")

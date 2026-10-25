@@ -3,6 +3,7 @@ import os
 import re
 import tempfile
 import threading
+import announcements
 from datetime import date
 
 import pymysql
@@ -54,6 +55,7 @@ CORS(
         r"/ktv-videos/*": {"origins": cors_origins},
         r"/delivery-media/*": {"origins": cors_origins},
         r"/music-audio/*": {"origins": cors_origins},
+        r"/announcement-media/*": {"origins": cors_origins},
     },
 )
 
@@ -118,6 +120,8 @@ def tenant_context():
             return jsonify({"error": "Request body must be a JSON object"}), 400
         allowed = {"tenant_config", "get_venues", "get_venue_detail", "get_technicians",
                    "get_movies", "get_movie_series"}
+        if g.tenant.get("announcements_enabled"):
+            allowed.update({"get_announcements", "get_announcement"})
         if not isinstance(body.get("action"), str) or body["action"] not in allowed:
             return jsonify({"error": "此入口仅提供会所与观影展示，不开放账户或充值"}), 403
         if body.get("action") in {"get_venue_detail", "get_technicians"}:
@@ -127,6 +131,8 @@ def tenant_context():
                 return jsonify({"error": "A valid venue id is required"}), 400
             if venue_id not in g.tenant["venue_ids"]:
                 return jsonify({"error": "此入口未开放该会所"}), 403
+    elif request.endpoint == "announcement_media" and not g.tenant.get("announcements_enabled"):
+        return jsonify({"error": "此入口未开放公告"}), 403
     elif request.endpoint == "music_audio":
         return jsonify({"error": "此租户入口暂未开放音乐"}), 403
     elif request.endpoint in {"technician_photo_image", "ktv_video", "delivery_media"}:
@@ -779,6 +785,28 @@ def _proxy_telegram_media(file_id):
     return response
 
 
+@app.get("/announcement-media/<int:ident>/<int:index>")
+def announcement_media(ident, index):
+    try:
+        media = announcements.media_file(ident, index)
+        if media is None:
+            return jsonify({"error": "公告媒体不存在或已下架"}), 404
+        path = announcements.local_media_path(media["filename"])
+        if not path.is_file():
+            return jsonify({"error": "公告媒体暂不可用，请稍后重试"}), 503
+        content_type = "image/jpeg" if media["kind"] == "photo" else (
+            "video/webm" if path.suffix == ".webm" else "video/mp4"
+        )
+        response = send_file(path, mimetype=content_type,
+                             conditional=True, max_age=0)
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+    except pymysql.MySQLError:
+        logger.exception("Announcement media unavailable")
+        return jsonify({"error": "公告媒体暂不可用"}), 503
+
+
 @app.post("/webhook")
 def webhook():
     data = request.get_json(silent=True)
@@ -813,6 +841,19 @@ def webhook():
             return jsonify({"error": "管理服务暂不可用，请稍后重试"}), 503
     if action == "tenant_config":
         return jsonify({"tenant": public_config(g.tenant) if g.tenant else None})
+    if action in {"get_announcements", "get_announcement"}:
+        try:
+            result = announcements.catalog(data.get("page", 1)) if action == "get_announcements" else announcements.detail(data.get("id"))
+            if result is None:
+                return jsonify({"error": "公告不存在或已下架"}), 404
+            response = jsonify(result)
+            response.headers["Cache-Control"] = "private, no-store"
+            return response
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("Announcement service unavailable")
+            return jsonify({"error": "公告暂不可用，请稍后重试"}), 503
     if action == "get_music":
         try:
             response = jsonify({"tracks": music_catalog()})
@@ -1294,6 +1335,7 @@ if __name__ == "__main__":
     ensure_table()
     ensure_movie_tables()
     ensure_music_tables()
+    announcements.ensure_tables()
     from music_social import ensure_tables as ensure_music_social_tables
     ensure_music_social_tables()
     ensure_image_hash_columns()
