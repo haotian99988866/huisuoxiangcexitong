@@ -24,7 +24,7 @@ export default defineConfig(({ mode }) => {
     preview: {
       port: 4173,
       host: '127.0.0.1',
-      allowedHosts: ['.trycloudflare.com'],
+      allowedHosts: ['.trycloudflare.com', 'app.haotianzhushou.com'],
       proxy: apiProxy
     }
   }
