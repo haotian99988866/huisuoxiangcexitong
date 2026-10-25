@@ -1,0 +1,41 @@
+.music-layout-active { padding-bottom: calc(120px + env(safe-area-inset-bottom)); }
+.music-page { max-width: 480px; margin: 0 auto; padding: 12px 12px 32px; color: #5a4126; }
+.music-page button, .music-mini button { border: 1px solid #e4d5bf; border-radius: 10px; background: #fffaf0; color: #5a4126; min-height: 44px; padding: 8px 12px; cursor: pointer; }
+.music-page button:disabled { opacity: .5; cursor: default; }
+.music-heading, .music-actions, .music-time { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.music-heading { margin-top: 16px; }
+.music-hint { font-size: 13px; color: #80705c; line-height: 1.7; margin: 12px 0; }
+.music-search { display: block; margin: 16px 0; font-size: 14px; }
+.music-search input { display: block; width: 100%; margin-top: 8px; padding: 12px; border: 1px solid #dfd0b9; border-radius: 12px; background: white; font-size: 16px; box-sizing: border-box; }
+.music-now, .music-empty { background: #fffdf8; border: 1px solid #ebdfcd; padding: 20px 16px; border-radius: 18px; margin: 16px 0; }
+.music-now h2, .music-now p { overflow-wrap: anywhere; }
+.music-now h2 { text-align: center; margin: 12px 0 6px; }
+.music-now > p { text-align: center; }
+.music-art { width: 90px; height: 90px; border-radius: 50%; margin: auto; background: #eee1cb; color: #9a6f35; display: grid; place-items: center; font-size: 44px; }
+.music-now label { display: block; font-size: 13px; margin-top: 14px; }
+.music-now input[type="range"] { display: block; width: 100%; margin: 12px 0; accent-color: #9a6f35; }
+.music-time { font-size: 12px; color: #80705c; }
+.music-actions { justify-content: center; flex-wrap: wrap; margin-top: 16px; }
+.music-actions .music-primary { background: #9a6f35; color: white; min-width: 90px; }
+.music-actions button[aria-pressed="true"] { border-color: #9a6f35; background: #f2e2c7; }
+.music-error { color: #b42318; line-height: 1.6; overflow-wrap: anywhere; }
+.music-list { padding: 0; list-style: none; margin: 12px 0; }
+.music-list li { margin-bottom: 8px; }
+.music-list button { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: white; padding: 14px; }
+.music-list button[aria-current="true"] { border-color: #9a6f35; background: #fff4df; }
+.music-list button > span:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.music-list strong, .music-list small, .music-mini small { display: block; }
+.music-list small, .music-mini small { color: #80705c; font-size: 12px; margin-top: 4px; }
+.music-list button > span:last-child { flex-shrink: 0; font-size: 12px; }
+.music-mini { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 480px); box-sizing: border-box; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); z-index: 900; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: #fffdf8; border-top: 1px solid #dfd0b9; box-shadow: 0 -3px 16px #5a412618; }
+.music-mini-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5a4126; font-size: 14px; text-decoration: none; }
+.music-mini button { padding: 6px 9px; font-size: 13px; }
+.music-mini p { flex-basis: 100%; color: #b42318; font-size: 12px; margin: 2px 0; max-height: 40px; overflow-y: auto; }
+.music-library { margin: 16px 0; padding: 16px; border: 1px solid #ebdfcd; background: #fffdf8; border-radius: 18px; }
+.music-library label { display: block; margin: 12px 0; font-size: 14px; }
+.music-library input, .music-page select { box-sizing: border-box; min-height: 44px; max-width: 100%; padding: 8px; border: 1px solid #dfd0b9; border-radius: 8px; background: white; color: #5a4126; font-size: 16px; }
+.music-library input, .music-library select { display: block; width: 100%; margin: 8px 0; }
+.music-track-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; }
+.music-track-tools button { width: auto; padding: 8px; font-size: 13px; }
+.music-track-tools select { flex: 1; min-width: 120px; width: 0; }
+.music-library h3 { overflow-wrap: anywhere; }

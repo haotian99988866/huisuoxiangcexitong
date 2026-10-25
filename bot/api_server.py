@@ -19,6 +19,7 @@ from delivery_age import extract_work_no, parse_price_table, price_for_work_no
 from image_hash import ImageDeduper, ensure_columns as ensure_image_hash_columns
 from image_cache import ImageCache
 from video_cache import VideoCache
+from music import ensure_tables as ensure_music_tables, catalog as music_catalog, audio_file as music_audio_file
 from tenants import load_tenant, public_config, TenantUnavailable
 from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 from visit_stats import ensure_table, record_visit, verify_init_data
@@ -52,6 +53,7 @@ CORS(
         r"/photos/*": {"origins": cors_origins},
         r"/ktv-videos/*": {"origins": cors_origins},
         r"/delivery-media/*": {"origins": cors_origins},
+        r"/music-audio/*": {"origins": cors_origins},
     },
 )
 
@@ -125,6 +127,8 @@ def tenant_context():
                 return jsonify({"error": "A valid venue id is required"}), 400
             if venue_id not in g.tenant["venue_ids"]:
                 return jsonify({"error": "此入口未开放该会所"}), 403
+    elif request.endpoint == "music_audio":
+        return jsonify({"error": "此租户入口暂未开放音乐"}), 403
     elif request.endpoint in {"technician_photo_image", "ktv_video", "delivery_media"}:
         if request.endpoint == "delivery_media" and not DELIVERY_VENUE_IDS.intersection(g.tenant["venue_ids"]):
             return jsonify({"error": "此入口未开放外送"}), 403
@@ -154,7 +158,8 @@ def tenant_context():
 def tenant_cache_policy(response):
     body = request.get_json(silent=True) if request.endpoint == "webhook" else None
     admin_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"] in {"admin_dashboard", "admin_tenant_save"}
-    if admin_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
+    music_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("music_")
+    if admin_request or music_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
     return response
@@ -630,6 +635,24 @@ def movie_thumb(message_id):
     return _telegram_image(file_id)
 
 
+@app.get("/music-audio/<int:track_id>")
+def music_audio(track_id):
+    try:
+        result = music_audio_file(track_id)
+        if result is None:
+            return jsonify({"error": "歌曲不存在或已下架"}), 404
+        path, mimetype = result
+        response = send_file(path, mimetype=mimetype, conditional=True, max_age=0)
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+    except (ValueError, OSError):
+        logger.exception("Local music file unavailable")
+        return jsonify({"error": "音频文件暂不可用，请联系管理员"}), 503
+    except pymysql.MySQLError:
+        logger.exception("Music audio lookup failed")
+        return jsonify({"error": "音乐服务暂不可用"}), 503
+
+
 @app.get("/delivery-media/<int:media_id>")
 def delivery_media(media_id):
     conn = None
@@ -790,6 +813,38 @@ def webhook():
             return jsonify({"error": "管理服务暂不可用，请稍后重试"}), 503
     if action == "tenant_config":
         return jsonify({"tenant": public_config(g.tenant) if g.tenant else None})
+    if action == "get_music":
+        try:
+            response = jsonify({"tracks": music_catalog()})
+            response.headers["Cache-Control"] = "private, no-store"
+            return response
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("Music catalog unavailable")
+            return jsonify({"error": "音乐列表暂不可用，请稍后重试"}), 503
+    if action in {"music_profile", "music_update", "music_playlist_create",
+                  "music_playlist_save", "music_playlist_delete", "music_shared"}:
+        from admin_console import authenticate, is_tenant_session
+        from music_social import account as music_account, shared_playlist, PlaylistConflict
+        init_data = data.get("init_data")
+        if isinstance(init_data, str) and is_tenant_session(init_data):
+            return jsonify({"error": "租户入口不开放音乐"}), 403
+        user = None if action == "music_shared" else authenticate(init_data, os.getenv("TELEGRAM_BOT_TOKEN"))
+        if action != "music_shared" and user is None:
+            return jsonify({"error": "请从 Telegram 重新打开小程序，以保存你的音乐数据"}), 401
+        try:
+            result = shared_playlist(data.get("token")) if action == "music_shared" else music_account(user["id"], action, data)
+            response = jsonify(result)
+            response.headers["Cache-Control"] = "private, no-store"
+            return response
+        except PlaylistConflict as exc:
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("Music account database operation failed")
+            return jsonify({"error": "音乐账户服务暂不可用，请稍后重试"}), 503
     if action in {"wallet_account", "wallet_submit"}:
         from wallet import account, submit
         init_data = data.get("init_data")
@@ -1238,6 +1293,9 @@ if __name__ == "__main__":
     ensure_wallet_tables()
     ensure_table()
     ensure_movie_tables()
+    ensure_music_tables()
+    from music_social import ensure_tables as ensure_music_social_tables
+    ensure_music_social_tables()
     ensure_image_hash_columns()
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))

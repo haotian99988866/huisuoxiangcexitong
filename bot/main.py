@@ -23,6 +23,7 @@ from technician_photo_ocr import (
 )
 from data_cleanup import start_cleanup_thread
 from movies import ensure_tables as ensure_movie_tables, save_movie_message
+from music import ensure_tables as ensure_music_tables, handle_channel_message as handle_music_message
 from publisher import (
     handle_publisher_command,
     handle_video as publish_video,
@@ -568,6 +569,8 @@ def handle_attendance_text(message):
     )
 )
 def handle_other_channel_post(message):
+    if handle_music_message(bot, message, admin_ids()):
+        return
     record_channel_activity(message)
     if save_movie_message(message):
         print("🎬 观影视频已入库")
@@ -582,8 +585,10 @@ def handle_other_channel_post(message):
 DELIVERY_VENUE_IDS = {7, 8, 9, 10}
 
 
-@bot.edited_channel_post_handler(content_types=['video', 'document'])
+@bot.edited_channel_post_handler(content_types=['video', 'document', 'audio'])
 def handle_edited_movie_post(message):
+    if handle_music_message(bot, message, admin_ids()):
+        return
     if save_movie_message(message):
         print("🎬 观影视频已更新")
 
@@ -752,6 +757,7 @@ if __name__ == "__main__":
     ensure_admin_tables()
     ensure_footer_tables()
     ensure_movie_tables()
+    ensure_music_tables()
     ensure_image_hash_columns()
     start_cleanup_thread()
     bot.infinity_polling()
