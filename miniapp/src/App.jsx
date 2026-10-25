@@ -6,6 +6,7 @@ import TechnicianList from './pages/TechnicianList'
 import MovieList from './pages/MovieList'
 import Recharge from './pages/Recharge'
 import Personal from './pages/Personal'
+import Admin from './pages/Admin'
 import { modules } from './utils/modules'
 import TenantGate from './components/TenantGate'
 
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="/movies" element={<MovieList />} />
           <Route path="/recharge" element={<Recharge />} />
           <Route path="/personal" element={<Personal />} />
+          <Route path="/admin" element={<Admin />} />
           <Route path="/venue/:id" element={<VenueDetail />} />
           <Route path="/venue/:venue_id/technicians" element={<TechnicianList />} />
         </Routes>

@@ -28,7 +28,7 @@ class TenantTests(unittest.TestCase):
         for fields in [
             {"slug": ""}, {"slug": "../shop"}, {"brand_name": ""},
             {"contact_username": "https://t.me/test"}, {"venue_ids": [7]},
-            {"venue_ids": [True]}, {"venue_ids": []}, {"status": "unknown"},
+            {"venue_ids": [True]}, {"venue_ids": []}, {"status": "unknown"}, {"status": []},
             {"expires_at": None}, {"expires_at": datetime(2000, 1, 1)},
             {"expires_at": datetime.now(timezone.utc)},
         ]:
@@ -144,15 +144,16 @@ class TenantTests(unittest.TestCase):
 
     def test_operator_can_create_draft_and_explicitly_activate_or_suspend(self):
         for create, status in ((True, "draft"), (False, "active"), (False, "suspended")):
-            conn = self.connection({"slug": "test-shop"})
+            conn = self.connection(config())
             cur = conn.cursor.return_value.__enter__.return_value
             cur.fetchall.return_value = [{"id": 3}]
             with self.subTest(create=create, status=status), patch("tenants.get_conn", return_value=conn):
                 save_tenant({**config(), "status": status}, create=create)
                 conn.commit.assert_called_once()
-                sql, values = cur.execute.call_args.args
+                sql, values = cur.execute.call_args_list[-2].args
                 self.assertIn("INSERT INTO" if create else "UPDATE display_tenants", sql)
                 self.assertIn(status, values)
+                self.assertIn("tenant_admin_audit", cur.execute.call_args.args[0])
 
     def test_operator_cannot_assign_missing_venue_or_update_unknown_tenant(self):
         for venues, row in (([], {"slug": "test-shop"}), ([{"id": 3}], None)):

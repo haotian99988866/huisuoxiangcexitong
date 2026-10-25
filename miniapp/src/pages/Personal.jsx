@@ -67,6 +67,7 @@ export default function Personal() {
           {busy ? '正在读取账户…' : '刷新账户'}
         </button>
         <Link to="/recharge" style={actionStyle}>余额充值</Link>
+        {wallet?.can_manage && <Link to="/admin" style={actionStyle}>运营管理台</Link>}
       </section>
       <section aria-labelledby="personal-records" style={cardStyle}>
         <h2 id="personal-records" style={{ fontSize: '19px' }}>最近充值记录</h2>

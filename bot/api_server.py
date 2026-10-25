@@ -116,7 +116,7 @@ def tenant_context():
             return jsonify({"error": "Request body must be a JSON object"}), 400
         allowed = {"tenant_config", "get_venues", "get_venue_detail", "get_technicians",
                    "get_movies", "get_movie_series"}
-        if body.get("action") not in allowed:
+        if not isinstance(body.get("action"), str) or body["action"] not in allowed:
             return jsonify({"error": "此入口仅提供会所与观影展示，不开放账户或充值"}), 403
         if body.get("action") in {"get_venue_detail", "get_technicians"}:
             try:
@@ -148,7 +148,9 @@ def tenant_context():
 
 @app.after_request
 def tenant_cache_policy(response):
-    if getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
+    body = request.get_json(silent=True) if request.endpoint == "webhook" else None
+    admin_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"] in {"admin_dashboard", "admin_tenant_save"}
+    if admin_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
     return response
@@ -757,6 +759,31 @@ def webhook():
         return jsonify({"error": "Request body must be a JSON object"}), 400
 
     action = data.get("action")
+    if not isinstance(action, str):
+        return jsonify({"error": "A valid action is required"}), 400
+    if action in {"admin_dashboard", "admin_tenant_save"}:
+        from admin_console import authenticate, allowed_admin, dashboard, is_tenant_session, save_from_request
+        from tenants import TenantConflict
+        init_data = data.get("init_data")
+        user = authenticate(init_data, os.getenv("TELEGRAM_BOT_TOKEN"))
+        if user is None:
+            return jsonify({"error": "请从 Telegram 重新打开主入口，以验证管理员身份"}), 401
+        if not allowed_admin(user) or is_tenant_session(init_data):
+            return jsonify({"error": "仅平台管理员可从主入口访问管理台"}), 403
+        try:
+            if action == "admin_tenant_save":
+                save_from_request(data, user["id"])
+                return jsonify({"ok": True})
+            return jsonify(dashboard())
+        except TenantConflict as exc:
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.IntegrityError:
+            return jsonify({"error": "入口标识已存在，请更换标识或刷新配置"}), 409
+        except pymysql.MySQLError:
+            logger.exception("Admin console database operation failed")
+            return jsonify({"error": "管理服务暂不可用，请稍后重试"}), 503
     if action == "tenant_config":
         return jsonify({"tenant": public_config(g.tenant) if g.tenant else None})
     if action in {"wallet_account", "wallet_submit"}:
@@ -772,7 +799,8 @@ def webhook():
             if action == "wallet_submit":
                 deposit_id = submit(int(user["id"]), data.get("txid"), data.get("amount"))
                 return jsonify({"id": deposit_id})
-            return jsonify(account(int(user["id"])))
+            from visit_stats import admin_ids
+            return jsonify({**account(int(user["id"])), "can_manage": int(user["id"]) in admin_ids()})
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except pymysql.MySQLError:

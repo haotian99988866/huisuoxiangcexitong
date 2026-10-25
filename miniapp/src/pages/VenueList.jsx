@@ -64,15 +64,24 @@ const contactButtonStyle = {
 }
 
 function ContactButton() {
+  const isIOS = window.Telegram?.WebApp?.platform === 'ios'
   return (
-    <a
-      href={contactUrl()}
-      target="_blank"
-      rel="noreferrer"
-      style={contactButtonStyle}
-    >
-      <span aria-hidden="true">✈</span>联系{contactName()}
-    </a>
+    <span style={{ display: 'inline-flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', maxWidth: '100%' }}>
+      <a
+        href={contactUrl()}
+        target="_blank"
+        rel="noreferrer"
+        style={contactButtonStyle}
+      >
+        <span aria-hidden="true">✈</span>{isIOS ? '直接联系' : '联系'}{contactName()}
+      </a>
+      {isIOS && (
+        <a href={contactUrl()} target="_blank" rel="noreferrer" data-telegram-browser="true"
+          style={contactButtonStyle}>
+          通过网页联系{contactName()}
+        </a>
+      )}
+    </span>
   )
 }
 
@@ -1599,25 +1608,6 @@ export default function VenueList() {
                   </div>
                 </div>
               ))}
-            </div>
-          )}
-          {technicianList.length > 0 && ['1', '2'].includes(String(selectedVenue.id)) && (
-            <div style={{
-              marginTop: '4px',
-              padding: '18px 16px',
-              borderRadius: '16px',
-              background: 'linear-gradient(145deg, #fffdf8, #f6ecdb)',
-              border: '1px solid rgba(158, 132, 101, 0.22)',
-              textAlign: 'center'
-            }}>
-              <div style={{ fontSize: '15px', fontWeight: 700, color: '#80643c' }}>
-                ✨ 想了解更多技师？
-              </div>
-              <p style={{ margin: '8px 0 12px', fontSize: '13px', lineHeight: 1.7, color: '#8a7a64' }}>
-                点击技师工号可查看照片与详细资料，
-                <br />名单会随频道实时更新，也可联系{contactName()}预约。
-              </p>
-              <ContactButton />
             </div>
           )}
         </div>

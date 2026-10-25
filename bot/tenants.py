@@ -1,5 +1,6 @@
 """Public display subscriptions, configured only by the local operator."""
 import argparse
+import hashlib
 from datetime import datetime, timezone
 import json
 import re
@@ -13,6 +14,27 @@ CLUB_IDS = {1, 2, 3, 4, 5, 6}
 
 class TenantUnavailable(ValueError):
     pass
+
+
+class TenantConflict(ValueError):
+    pass
+
+
+def tenant_snapshot(row):
+    result = {key: row[key] for key in (
+        "slug", "brand_name", "contact_name", "contact_username", "status"
+    )}
+    ids = row["venue_ids"]
+    result["venue_ids"] = sorted(set(json.loads(ids) if isinstance(ids, str) else ids))
+    expiry = row["expires_at"]
+    result["expires_at"] = expiry.isoformat(timespec="seconds") + "Z" if expiry else None
+    return result
+
+
+def tenant_revision(row):
+    return hashlib.sha256(json.dumps(
+        tenant_snapshot(row), ensure_ascii=False, sort_keys=True,
+    ).encode("utf-8")).hexdigest()
 
 
 def ensure_tables():
@@ -30,6 +52,17 @@ def ensure_tables():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("""CREATE TABLE IF NOT EXISTS tenant_admin_audit (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                tenant_slug VARCHAR(32) NOT NULL,
+                actor_id BIGINT NULL,
+                source VARCHAR(16) NOT NULL,
+                action VARCHAR(16) NOT NULL,
+                before_config JSON NULL,
+                after_config JSON NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_tenant_audit (tenant_slug, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
         conn.commit()
     finally:
         conn.close()
@@ -42,12 +75,12 @@ def validate_config(config):
         value = config.get(field)
         if not isinstance(value, str) or not value.strip() or len(value) > limit:
             raise ValueError(f"{field} 不能为空且不能超过 {limit} 字")
-    if not USERNAME.fullmatch(config.get("contact_username") or ""):
+    if not isinstance(config.get("contact_username"), str) or not USERNAME.fullmatch(config["contact_username"]):
         raise ValueError("请输入有效的 Telegram 联系用户名，不包含 @")
     ids = config.get("venue_ids")
     if not isinstance(ids, list) or not ids or any(type(i) is not int or i not in CLUB_IDS for i in ids):
         raise ValueError("请选择至少一个会所，第一版仅支持会所 ID 1–6，不出租外送")
-    if config.get("status") not in {"draft", "active", "suspended"}:
+    if not isinstance(config.get("status"), str) or config["status"] not in {"draft", "active", "suspended"}:
         raise ValueError("状态仅支持 draft / active / suspended")
     expiry = config.get("expires_at")
     if expiry is not None and (not isinstance(expiry, datetime) or expiry.tzinfo is not None):
@@ -84,11 +117,12 @@ def public_config(row):
     )}
 
 
-def save_tenant(config, create=False):
+def save_tenant(config, create=False, actor_id=None, expected_revision=None):
     validate_config(config)
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            before = None
             cur.execute("SELECT id FROM venues WHERE id IN (" +
                         ",".join(["%s"] * len(config["venue_ids"])) + ") AND status='active'",
                         tuple(config["venue_ids"]))
@@ -104,13 +138,24 @@ def save_tenant(config, create=False):
                     "VALUES (%s,%s,%s,%s,%s,%s,%s)", values + (config["slug"],),
                 )
             else:
-                cur.execute("SELECT slug FROM display_tenants WHERE slug=%s", (config["slug"],))
-                if cur.fetchone() is None:
+                cur.execute("SELECT * FROM display_tenants WHERE slug=%s FOR UPDATE", (config["slug"],))
+                before = cur.fetchone()
+                if before is None:
                     raise ValueError("租户不存在；请先使用 create")
+                if expected_revision is not None and tenant_revision(before) != expected_revision:
+                    raise TenantConflict("配置已被其他操作更新，请刷新后重新编辑")
                 cur.execute(
                     "UPDATE display_tenants SET brand_name=%s,contact_name=%s,contact_username=%s,"
                     "venue_ids=%s,status=%s,expires_at=%s WHERE slug=%s", values + (config["slug"],),
                 )
+            cur.execute(
+                "INSERT INTO tenant_admin_audit "
+                "(tenant_slug,actor_id,source,action,before_config,after_config) VALUES (%s,%s,%s,%s,%s,%s)",
+                (config["slug"], actor_id, "miniapp" if actor_id is not None else "cli",
+                 "create" if create else "update",
+                 json.dumps(tenant_snapshot(before), ensure_ascii=False) if before else None,
+                 json.dumps(tenant_snapshot(config), ensure_ascii=False)),
+            )
         conn.commit()
     except Exception:
         conn.rollback()

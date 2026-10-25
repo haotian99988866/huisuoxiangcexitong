@@ -12,11 +12,12 @@ export const modules = [
   { key: 'movies', label: '观影', icon: '🎬', path: '/movies', startParam: 'movies', group: 'content', common: true, description: '分类找剧与剧集浏览' },
   { key: 'recharge', label: '充值中心', icon: '💳', path: '/recharge', startParam: 'recharge', group: 'convenience', description: '余额充值 · 商品筹备中' },
   { key: 'personal', label: '个人中心', icon: '👤', path: '/personal', startParam: 'personal', group: 'personal', description: '账户余额、充值记录与帮助' },
+  { key: 'admin', label: '运营管理台', path: '/admin', startParam: 'admin', adminOnly: true },
   { key: 'contact', label: '联系昊天', icon: '💬', url: 'https://t.me/haotian99988866', group: 'personal', description: '咨询与人工帮助' },
 ]
 
 export function displayModules() {
-  if (!getTenant()) return modules
+  if (!getTenant()) return modules.filter(item => !item.adminOnly)
   return modules.filter(item => ['venue', 'movies', 'contact'].includes(item.key)).map(item => (
     item.key === 'contact' ? { ...item, label: `联系${contactName()}`, url: contactUrl() } : item
   ))

@@ -1,4 +1,4 @@
-import { isTenantEntry, tenantHeaders } from './tenant'
+import { contactUrl, isTenantEntry, tenantHeaders } from './tenant'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
 
@@ -38,7 +38,16 @@ export function closeMiniApp() {
 // t.me 链接交给 Telegram 内部打开(频道原帖);浏览器里退回新窗口
 export function openTelegramLink(url) {
   const tg = window.Telegram?.WebApp
-  if (tg?.openTelegramLink) tg.openTelegramLink(url)
+  if (tg?.openTelegramLink) {
+    const target = new URL(url)
+    const contact = new URL(contactUrl())
+    const isContact = target.origin === contact.origin && target.pathname.toLowerCase() === contact.pathname.toLowerCase()
+    if (tg.platform === 'ios' && isContact && tg.openLink) {
+      tg.openTelegramLink(url)
+      return 'contact-direct'
+    }
+    tg.openTelegramLink(url)
+  }
   else window.open(url, '_blank', 'noopener')
 }
 
