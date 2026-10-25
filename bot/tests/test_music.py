@@ -97,15 +97,14 @@ class MusicTests(unittest.TestCase):
             catalog.assert_not_called()
             lookup.assert_not_called()
 
-    def test_catalog_never_exposes_file_names_and_has_explicit_limit(self):
+    def test_catalog_never_exposes_file_names_and_supports_over_500_tracks(self):
         conn, cur = self.connection()
         cur.fetchall.return_value = [{"id": 1, "title": "Song", "artist": "Artist", "album": ""}]
         with patch.object(music, "get_conn", return_value=conn):
             self.assertEqual(music.catalog()[0]["title"], "Song")
             self.assertNotIn("file_name", cur.execute.call_args.args[0])
             cur.fetchall.return_value *= 501
-            with self.assertRaises(ValueError):
-                music.catalog()
+            self.assertEqual(len(music.catalog()), 501)
 
     def test_file_paths_missing_disabled_and_tampered(self):
         conn, cur = self.connection()

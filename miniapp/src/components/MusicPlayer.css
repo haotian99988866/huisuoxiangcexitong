@@ -25,6 +25,9 @@
 .music-tabs { display: flex; gap: 6px; border-bottom: 1px solid #e6e7df; padding-bottom: 8px; margin-bottom: 18px; }
 .music-tabs button { background: transparent; color: #8b8c82; padding: 9px 5px; flex: 1; font-size: 14px; border-radius: 10px; white-space: nowrap; }
 .music-tabs button[aria-current="page"] { color: #28594d; background: #e6ebdf; font-weight: 600; }
+.music-language-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 2px; }
+.music-language-tabs button { flex: 1 0 auto; min-height: 44px; padding: 8px 10px; background: transparent; color: #8b8c82; font-size: 12px; white-space: nowrap; }
+.music-language-tabs button[aria-pressed="true"] { background: #e6ebdf; color: #28594d; font-weight: 600; }
 .music-login-hint { display: flex; align-items: center; gap: 8px; color: #8b8c82; font-size: 11px; margin: 10px 0 20px; }
 .music-login-hint p { flex: 1; }
 .music-login-hint button { padding: 6px; background: transparent; color: #28594d; }

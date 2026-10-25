@@ -16,6 +16,7 @@ import pymysql
 from db import get_conn
 from music_dedupe import ensure_schema, import_lock, save_track, song_key
 from music_metadata import identify
+from music_sources import external_forward
 
 MAX_AUDIO_BYTES = 128 * 1024 * 1024
 TELEGRAM_MAX_BYTES = 20 * 1024 * 1024
@@ -24,8 +25,9 @@ MUSIC_CHANNEL_ID = "-1002368924969"
 MUSIC_CHANNEL_USERNAME = "haotiandkhy99988866"
 logger = logging.getLogger(__name__)
 download_lock = threading.Lock()
-MIME_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav", ".ogg": "audio/ogg"}
-STORED_NAME = re.compile(r"[0-9a-f]{32}\.(?:mp3|m4a|wav|ogg)")
+MIME_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav", ".ogg": "audio/ogg",
+              ".flac": "audio/flac"}
+STORED_NAME = re.compile(r"[0-9a-f]{32}\.(?:mp3|m4a|wav|ogg|flac)")
 
 
 def library_dir():
@@ -66,23 +68,25 @@ def ensure_tables():
         conn.close()
 
 
-def validate_audio(path):
+def validate_audio(path, *, strict_suffix=True):
     suffix = path.suffix.lower()
     if suffix not in MIME_TYPES:
-        raise ValueError("仅支持 MP3、M4A、WAV、OGG 音频")
+        raise ValueError("仅支持 MP3、M4A、WAV、OGG、FLAC 音频")
     if not path.is_file() or not 12 <= path.stat().st_size <= MAX_AUDIO_BYTES:
         raise ValueError("音频文件不存在、过小或超过 128 MB")
     with path.open("rb") as stream:
         header = stream.read(16)
-    valid = {
+    signatures = {
         ".mp3": header.startswith(b"ID3") or (header[0] == 0xFF and header[1] & 0xE0 == 0xE0),
         ".m4a": header[4:8] == b"ftyp",
         ".wav": header[:4] == b"RIFF" and header[8:12] == b"WAVE",
         ".ogg": header[:4] == b"OggS",
-    }[suffix]
-    if not valid:
+        ".flac": header[:4] == b"fLaC",
+    }
+    actual = next((extension for extension, matches in signatures.items() if matches), None)
+    if actual is None or (strict_suffix and actual != suffix):
         raise ValueError("文件头与音频扩展名不符，请使用有效音频文件")
-    return suffix
+    return actual
 
 
 def add_track(source, title, artist, album="", rights_confirmed=False):
@@ -126,10 +130,8 @@ def catalog():
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id,title,artist,album FROM music_tracks WHERE enabled=TRUE AND merged_into IS NULL ORDER BY id DESC LIMIT 501")
+            cur.execute("SELECT id,title,artist,album FROM music_tracks WHERE enabled=TRUE AND merged_into IS NULL ORDER BY id DESC")
             rows = list(cur.fetchall())
-        if len(rows) > 500:
-            raise ValueError("当前音乐页最多支持 500 首，请先下架部分歌曲或升级分页")
         return rows
     finally:
         conn.close()
@@ -142,9 +144,10 @@ def telegram_audio_name(media):
         suffix = {
             "audio/mpeg": ".mp3", "audio/mp4": ".m4a", "audio/x-m4a": ".m4a",
             "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/ogg": ".ogg",
+            "audio/flac": ".flac", "audio/x-flac": ".flac",
         }.get(getattr(media, "mime_type", None))
     if suffix is None:
-        raise ValueError("频道歌曲仅支持 MP3、M4A、WAV、OGG，建议 MP3/M4A")
+        raise ValueError("频道歌曲仅支持 MP3、M4A、WAV、OGG、FLAC，建议 MP3/M4A")
     return suffix
 
 
@@ -204,12 +207,73 @@ def download_channel_audio(file_id, name, expected_size):
                 temporary.unlink(missing_ok=True)
 
 
+def download_owned_cached_audio(message_id, name, expected_size):
+    """Bounded cache for collector copies; Telegram remains the durable store."""
+    from music_mtproto import download_owned_audio
+    if not isinstance(expected_size, int) or not 12 <= expected_size <= MAX_AUDIO_BYTES:
+        raise ValueError("音乐大小无效或超过 128 MB")
+    if not isinstance(message_id, int) or message_id <= 0 or not STORED_NAME.fullmatch(name):
+        raise ValueError("自有频道音乐配置无效")
+    destination = library_dir() / name
+    with download_lock:
+        if destination.is_file() and destination.stat().st_size == expected_size:
+            validate_audio(destination, strict_suffix=False)
+            destination.touch()
+            return destination
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        used = sum(path.stat().st_size for path in destination.parent.iterdir()
+                   if path.is_file() and path.suffix in MIME_TYPES)
+        if used + expected_size > CHANNEL_CACHE_BYTES:
+            conn = get_conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT file_name FROM music_tracks WHERE telegram_file_id IS NOT NULL"
+                                " AND channel_id=%s", (MUSIC_CHANNEL_ID,))
+                    recoverable = {row["file_name"] for row in cur.fetchall()}
+            finally:
+                conn.close()
+            candidates = sorted((path for path in destination.parent.iterdir()
+                                 if path.is_file() and path.name in recoverable and STORED_NAME.fullmatch(path.name)),
+                                key=lambda path: path.stat().st_mtime)
+            for path in candidates:
+                if used + expected_size <= CHANNEL_CACHE_BYTES:
+                    break
+                size = path.stat().st_size
+                try:
+                    path.unlink()
+                except PermissionError:
+                    logger.warning("Music cache file in use; cannot evict %s", path.name)
+                    continue
+                used -= size
+            if used + expected_size > CHANNEL_CACHE_BYTES:
+                raise ValueError("音乐缓存空间不足，现有文件正在使用或不能安全淘汰")
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=destination.parent, suffix=destination.suffix, delete=False) as stream:
+                temporary = Path(stream.name)
+            download_owned_audio(message_id, temporary, expected_size)
+            if temporary.stat().st_size != expected_size:
+                raise ValueError("自有频道音频下载不完整")
+            actual = validate_audio(temporary, strict_suffix=False)
+            if actual != destination.suffix:
+                logger.warning("Owned audio %s declares %s but contains %s; serving actual audio type",
+                               message_id, destination.suffix, actual)
+            temporary.replace(destination)
+            return destination
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+
 def save_channel_message(message):
     if str(message.chat.id) != MUSIC_CHANNEL_ID:
         return False
     media = getattr(message, "audio", None) or getattr(message, "document", None)
     if media is None:
         return False
+    if external_forward(message):
+        logger.info("External music copy %s will be indexed by the persistent collector", message.message_id)
+        return True
     suffix = telegram_audio_name(media)
     file_id = media.file_id
     size = getattr(media, "file_size", None)
@@ -293,7 +357,8 @@ def audio_file(track_id):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT target.file_name,target.telegram_file_id,target.file_size FROM music_tracks source "
+            cur.execute("SELECT target.file_name,target.telegram_file_id,target.file_size,"
+                        "target.channel_id,target.message_id FROM music_tracks source "
                         "JOIN music_tracks target ON target.id=COALESCE(source.merged_into,source.id) "
                         "WHERE source.id=%s AND target.enabled=TRUE", (track_id,))
             row = cur.fetchone()
@@ -308,10 +373,14 @@ def audio_file(track_id):
     if path.resolve().parent != library_dir():
         raise ValueError("音乐文件位置无效")
     if not path.is_file() and row.get("telegram_file_id"):
-        path = download_channel_audio(row["telegram_file_id"], name, row["file_size"])
+        if row.get("channel_id") == MUSIC_CHANNEL_ID and row.get("message_id"):
+            path = download_owned_cached_audio(row["message_id"], name, row["file_size"])
+        else:
+            path = download_channel_audio(row["telegram_file_id"], name, row["file_size"])
     if not path.is_file():
         raise FileNotFoundError("本机音频文件缺失或位置无效")
-    return path, MIME_TYPES[path.suffix]
+    path.touch()
+    return path, MIME_TYPES[validate_audio(path, strict_suffix=False)]
 
 
 def set_enabled(track_id, enabled):

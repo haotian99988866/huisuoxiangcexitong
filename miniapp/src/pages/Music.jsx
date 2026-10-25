@@ -8,6 +8,7 @@ import MusicIcon from '../components/MusicIcon'
 import { bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
 import { requestMusic } from '../utils/music'
 import { musicArtist as artistName, playlistLink } from '../utils/musicPlayback'
+import { filterMusicTracks, musicCategories } from '../utils/musicCategories'
 
 export default function Music() {
   const player = useMusic()
@@ -21,6 +22,7 @@ export default function Music() {
   const [sharedError, setSharedError] = useState('')
   const [sharedAttempt, setSharedAttempt] = useState(0)
   const [view, setView] = useState(() => sharedToken ? 'shared' : player.browseState.current.view)
+  const [category, setCategory] = useState(() => sharedToken ? 'all' : player.browseState.current.category || 'all')
   const [sheet, setSheet] = useState(null)
   const [actionTrack, setActionTrack] = useState(null)
   const [name, setName] = useState('')
@@ -36,9 +38,9 @@ export default function Music() {
   const searchRef = useRef(null)
   const songsRef = useRef(null)
   const navigationRef = useRef(null)
-  const previousFilter = useRef({ view, query })
+  const previousFilter = useRef({ view, query, category })
   const browseRef = useRef(null)
-  browseRef.current = { view, query, page: pageNumber }
+  browseRef.current = { view, query, category, page: pageNumber }
   useLayoutEffect(() => {
     window.scrollTo(0, sharedToken ? 0 : player.browseState.current.scroll)
     return () => {
@@ -82,17 +84,17 @@ export default function Music() {
     : view === 'favorites' ? player.profile?.favorites : view === 'recent' ? player.profile?.recent : null)
   const source = ids ? ids.map(id => player.tracks.find(track => track.id === id)).filter(Boolean)
     : view === 'all' ? player.tracks : []
-  const filtered = source.filter(track => [track.title, track.artist, track.album]
-    .some(value => value.toLowerCase().includes(query.trim().toLowerCase())))
+  const filtered = filterMusicTracks(source, view === 'all' ? category : 'all', query)
   const rowsPerPage = 20
   const pageCount = Math.max(1, Math.ceil(filtered.length / rowsPerPage))
   const currentPage = Math.min(pageNumber, pageCount)
   const pageTracks = filtered.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage)
   useEffect(() => {
-    if (previousFilter.current.view === view && previousFilter.current.query === query) return
-    previousFilter.current = { view, query }
+    if (previousFilter.current.view === view && previousFilter.current.query === query
+      && previousFilter.current.category === category) return
+    previousFilter.current = { view, query, category }
     setPageNumber(1); setJumpPage(null); setPageError('')
-  }, [view, query])
+  }, [view, query, category])
   useEffect(() => { setPageNumber(number => Math.min(number, pageCount)) }, [pageCount])
   const goToPage = number => {
     setPageNumber(number)
@@ -102,7 +104,8 @@ export default function Music() {
       top: window.scrollY + songsRef.current.getBoundingClientRect().top - navigationRef.current.offsetHeight - 12,
     })
   }
-  const title = selected?.name || ({ all: '全部歌曲', favorites: '我喜欢', recent: '最近播放',
+  const categoryLabel = musicCategories.find(([key]) => key === category)?.[1] || '全部'
+  const title = selected?.name || ({ all: category === 'all' ? '全部歌曲' : `${categoryLabel}歌曲`, favorites: '我喜欢', recent: '最近播放',
     playlists: '我的歌单', shared: shared?.name || '分享歌单' })[view] || '歌曲列表'
   const activeTab = selected ? 'playlists' : view
   const favorites = player.profile?.favorites || []
@@ -161,6 +164,10 @@ export default function Music() {
             onClick={() => changeView(key)}>{label}</button>
         ))}
       </nav>
+      {view === 'all' && <nav className="music-language-tabs" aria-label="歌曲语言分类">
+        {musicCategories.map(([key, label]) => <button type="button" key={key}
+          aria-pressed={category === key} onClick={() => setCategory(key)}>{label}</button>)}
+      </nav>}
       </div>
       {player.accountError && <div role="alert" className="music-error">{player.accountError}
         <button type="button" disabled={player.busy} onClick={player.loadAccount}>重新同步</button></div>}

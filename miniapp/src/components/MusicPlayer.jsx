@@ -34,7 +34,7 @@ export default function MusicPlayer({ children }) {
   const [queueIds, setQueueIds] = useState(null)
   const [nextIds, setNextIds] = useState([])
   const [expanded, setExpanded] = useState(false)
-  const browseState = useRef({ view: 'all', query: '', page: 1, scroll: 0 })
+  const browseState = useRef({ view: 'all', category: 'all', query: '', page: 1, scroll: 0 })
   const accountChain = useRef(Promise.resolve())
   const restored = useRef(false)
   const pendingSeek = useRef(null)

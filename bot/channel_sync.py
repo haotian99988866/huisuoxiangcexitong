@@ -419,6 +419,8 @@ async def run(mode, directory):
         user.add_event_handler(on_album, events.Album(chats=source))
         logger.info("READY: @svip -> @haotiancm99988866; only messages newer than %s", boundary)
         async with asyncio.TaskGroup() as tasks:
+            from music_ingest import music_worker
+            tasks.create_task(music_worker(user, bot, directory))
             tasks.create_task(worker(user, bot, source, target, store, directory))
             tasks.create_task(announcement_worker(bot, target, store))
             tasks.create_task(reconciliation_worker(user, source, target, store, boundary))
