@@ -606,6 +606,25 @@ def webhook():
         return jsonify({"error": "Request body must be a JSON object"}), 400
 
     action = data.get("action")
+    if action in {"wallet_account", "wallet_submit"}:
+        from wallet import account, submit
+        init_data = data.get("init_data")
+        user = (
+            verify_init_data(init_data, os.getenv("TELEGRAM_BOT_TOKEN"))
+            if isinstance(init_data, str) else None
+        )
+        if not isinstance(user, dict) or int(user["id"]) <= 0:
+            return jsonify({"error": "请从 Telegram 重新打开小程序后操作"}), 401
+        try:
+            if action == "wallet_submit":
+                deposit_id = submit(int(user["id"]), data.get("txid"), data.get("amount"))
+                return jsonify({"id": deposit_id})
+            return jsonify(account(int(user["id"])))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("余额服务数据库操作失败")
+            return jsonify({"error": "余额服务暂不可用，请稍后重试"}), 503
     if action == "track_visit":
         try:
             user = verify_init_data(
@@ -1026,6 +1045,8 @@ def webhook():
 
 
 if __name__ == "__main__":
+    from wallet import ensure_tables as ensure_wallet_tables
+    ensure_wallet_tables()
     ensure_table()
     ensure_movie_tables()
     ensure_image_hash_columns()

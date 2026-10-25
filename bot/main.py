@@ -150,6 +150,85 @@ def handle_help(message):
     send_help(bot, message.chat.id)
 
 
+@bot.message_handler(commands=['wallet'], chat_types=['private'])
+def handle_wallet(message):
+    from wallet import account, pending, review, set_address
+    from telebot import types
+    if message.from_user.id not in admin_ids():
+        bot.reply_to(message, "请通过主菜单的充值中心查看账户余额。")
+        return
+    parts = (message.text or "").split()
+    try:
+        if len(parts) == 3 and parts[1] == "address":
+            set_address(parts[2])
+            bot.reply_to(message, "收款地址已配置，TRC20 余额充值申请已开放。请确认该地址由你控制。")
+        elif len(parts) == 4 and parts[1] == "approve":
+            from wallet import amount_value
+            amount = amount_value(parts[3])
+            deposit_id = int(parts[2])
+            if deposit_id <= 0:
+                raise ValueError("申请编号必须为正整数")
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton(
+                "已核实链上到账，确认入账",
+                callback_data=f"wallet:approve:{deposit_id}:{amount:f}",
+            ))
+            bot.reply_to(
+                message,
+                f"申请 #{deposit_id} 将入账 {amount:f} U。\n"
+                "请在链上独立核对：TRON 主网、官方 USDT 合约、收款地址、"
+                "实际到账金额、交易成功及确认情况，不能仅凭截图。\n确认后余额不可通过此命令撤销。",
+                reply_markup=keyboard,
+            )
+        elif len(parts) == 3 and parts[1] == "reject":
+            review(int(parts[2]), message.from_user.id)
+            bot.reply_to(message, "申请已拒绝，余额未变动。")
+        elif len(parts) == 1:
+            rows = pending()
+            address = account(message.from_user.id)["address"] or "未配置，充值关闭"
+            text = (
+                f"TRC20 收款地址：{address}\n\n"
+                "配置：/wallet address 收款地址\n"
+                "核款：/wallet approve 申请编号 实际到账金额\n"
+                "拒绝：/wallet reject 申请编号\n\n待审核（最多8条，处理后查看下一批）：\n"
+            )
+            for row in rows:
+                text += (
+                    f"\n#{row['id']} 用户 {row['user_id']} 申报 {row['claimed']} U\n"
+                    f"地址：{row['address']}\nTXID：{row['txid']}\n"
+                )
+            bot.send_message(message.chat.id, text, disable_web_page_preview=True)
+        else:
+            raise ValueError("格式错误，请发送 /wallet 查看用法")
+    except ValueError as exc:
+        bot.reply_to(message, str(exc))
+    except pymysql.MySQLError:
+        logger.exception("充值后台操作失败")
+        bot.reply_to(message, "数据库操作失败，请检查申请记录后再操作，勿重复核款。")
+
+
+@bot.callback_query_handler(func=lambda call: (call.data or "").startswith("wallet:"))
+def handle_wallet_confirmation(call):
+    from wallet import review
+    if call.from_user.id not in admin_ids() or call.message.chat.type != "private":
+        bot.answer_callback_query(call.id, "仅管理员可操作", show_alert=True)
+        return
+    try:
+        _, action, deposit_id, amount = call.data.split(":")
+        if action != "approve":
+            raise ValueError("无效操作")
+        review(int(deposit_id), call.from_user.id, amount)
+    except ValueError as exc:
+        bot.answer_callback_query(call.id, str(exc), show_alert=True)
+        return
+    except pymysql.MySQLError:
+        logger.exception("充值确认失败")
+        bot.answer_callback_query(call.id, "数据库操作失败，请先检查记录", show_alert=True)
+        return
+    bot.answer_callback_query(call.id, "入账成功")
+    bot.send_message(call.message.chat.id, f"申请 #{deposit_id} 已入账 {amount} U。")
+
+
 @bot.callback_query_handler(func=lambda call: (call.data or "").startswith("menu:"))
 def handle_menu_callback(call):
     touch_user(call.from_user)
@@ -663,6 +742,8 @@ def save_ktv_video(message):
 
 
 if __name__ == "__main__":
+    from wallet import ensure_tables as ensure_wallet_tables
+    ensure_wallet_tables()
     print("🤖 机器人启动 — 监听会所频道模式")
     print(f"📋 已监听 {len(LISTEN_CHANNELS)} 个频道")
     ensure_table()

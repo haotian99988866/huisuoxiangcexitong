@@ -4,6 +4,7 @@ import VenueList from './pages/VenueList'
 import VenueDetail from './pages/VenueDetail'
 import TechnicianList from './pages/TechnicianList'
 import MovieList from './pages/MovieList'
+import Recharge from './pages/Recharge'
 
 // 机器人按钮带 startapp=movies 时直接进入观影页
 function StartParamRedirect() {
@@ -11,6 +12,7 @@ function StartParamRedirect() {
   useEffect(() => {
     const param = window.Telegram?.WebApp?.initDataUnsafe?.start_param
     if (param === 'movies') navigate('/movies', { replace: true })
+    if (param === 'recharge') navigate('/recharge', { replace: true })
   }, [navigate])
   return null
 }
@@ -22,6 +24,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<VenueList />} />
         <Route path="/movies" element={<MovieList />} />
+        <Route path="/recharge" element={<Recharge />} />
         <Route path="/venue/:id" element={<VenueDetail />} />
         <Route path="/venue/:venue_id/technicians" element={<TechnicianList />} />
       </Routes>

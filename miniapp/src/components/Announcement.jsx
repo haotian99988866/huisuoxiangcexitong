@@ -1,4 +1,4 @@
-export const ANNOUNCEMENT_TEXT = '暂无公告'
+export const ANNOUNCEMENT_TEXT = '充值模块开发中，商品购买暂未开放'
 
 // 全屏时 Telegram 的关闭/菜单按钮会浮在页面顶部:用等高的公告栏避让;非全屏显示公告卡片
 export function FullscreenAnnouncementBar() {

@@ -5,6 +5,7 @@ from telebot import types
 from admin import get_setting
 MINIAPP_URL = "https://t.me/haotianzhaopian_bot?startapp"
 MOVIES_URL = "https://t.me/haotianzhaopian_bot?startapp=movies"
+RECHARGE_URL = "https://t.me/haotianzhaopian_bot?startapp=recharge"
 CONTACT_URL = "https://t.me/haotian99988866"
 CHANNEL_URL = "https://t.me/haotianyl99988866"
 BOT_URL = "https://t.me/haotianzhaopian_bot"
@@ -59,6 +60,9 @@ def home_keyboard():
     keyboard.row(
         types.InlineKeyboardButton("🌴 实时出勤", url=MINIAPP_URL),
         types.InlineKeyboardButton("🎬 观影", url=MOVIES_URL),
+    )
+    keyboard.row(
+        types.InlineKeyboardButton("💳 充值中心（筹备中）", url=RECHARGE_URL),
     )
     keyboard.row(
         types.InlineKeyboardButton("🎉 最新活动", callback_data="menu:promo"),

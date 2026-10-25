@@ -2,7 +2,8 @@ import { useNavigate } from 'react-router-dom'
 
 const tabs = [
   { key: 'venue', label: '🏠 会所/外送', path: '/' },
-  { key: 'movies', label: '🎬 观影', path: '/movies' }
+  { key: 'movies', label: '🎬 观影', path: '/movies' },
+  { key: 'recharge', label: '💳 充值', path: '/recharge' }
 ]
 
 export default function ModuleTabs({ active }) {
