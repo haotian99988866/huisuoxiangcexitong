@@ -18,7 +18,7 @@
 .music-search input { appearance: none; -webkit-appearance: none; font: inherit; font-size: 16px; background: transparent; border: 0; border-radius: 0; padding: 0; flex: 1; width: 100%; min-width: 0; height: 46px; color: #293b34; outline: none; box-shadow: none; }
 .music-search input:focus { outline: none; box-shadow: none; }
 .music-search input::-webkit-search-cancel-button, .music-search input::-webkit-search-decoration { -webkit-appearance: none; }
-.music-search input::placeholder { color: #8b8c82; }
+.music-search input::placeholder { color: #8b8c82; font-size: 14px; font-weight: 400; opacity: 1; }
 .music-search .music-icon-button { width: 44px; flex-basis: 44px; }
 .music-page .music-search-submit { flex-shrink: 0; min-height: 38px; padding: 7px 12px; border-radius: 10px; background: #28594d; color: #fffdf4; font-size: 13px; }
 .music-navigation .music-tabs { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
