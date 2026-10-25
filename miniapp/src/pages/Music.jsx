@@ -5,7 +5,7 @@ import { FullscreenAnnouncementBar } from '../components/Announcement'
 import { useMusic } from '../components/MusicPlayer'
 import MusicSheet from '../components/MusicDialog'
 import MusicIcon from '../components/MusicIcon'
-import { bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
+import { bindBackButton, closeMiniApp, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
 import { requestMusic } from '../utils/music'
 import { musicArtist as artistName, playlistLink } from '../utils/musicPlayback'
 import { filterMusicTracks, musicCategories } from '../utils/musicCategories'
@@ -54,7 +54,11 @@ export default function Music() {
   useEffect(() => {
     if (player.status === 'idle') player.load()
   }, [player.status, player.load])
-  useEffect(() => bindBackButton(() => navigate('/', { replace: true })), [navigate])
+  useEffect(() => bindBackButton(() => {
+    const entry = window.Telegram?.WebApp?.initDataUnsafe?.start_param
+    if (entry === 'music' || /^playlist_[0-9a-f]{32}$/.test(entry || '')) closeMiniApp()
+    else navigate('/', { replace: true })
+  }), [navigate])
   useEffect(() => subscribeFullscreen(setIsFullscreen), [])
   useEffect(() => {
     if (!notice || sheet) return

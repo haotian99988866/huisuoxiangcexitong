@@ -5,6 +5,7 @@ from telebot import types
 from admin import get_setting
 MINIAPP_URL = "https://t.me/haotianzhaopian_bot?startapp"
 MOVIES_URL = "https://t.me/haotianzhaopian_bot?startapp=movies"
+MUSIC_URL = "https://t.me/haotianzhaopian_bot?startapp=music"
 RECHARGE_URL = "https://t.me/haotianzhaopian_bot?startapp=recharge"
 CONTACT_URL = "https://t.me/haotian99988866"
 CHANNEL_URL = "https://t.me/haotianyl99988866"
@@ -19,14 +20,14 @@ SHARE_URL = (
 HOME_TEXT = (
     "🌴 <b>欢迎使用 昊天生活助手</b>\n"
     "昊天生活通 · 西港生活服务与东南亚资讯\n\n"
-    "✅ 今日白班 / 晚班出勤\n"
-    "✅ 技师照片与资料\n"
-    "✅ 价格与服务项目\n"
-    "✅ 西港外送实时信息\n"
-    "✅ 🎬 影视观影，按分类找剧、找综艺\n"
-    "✅ 🎵 音乐播放与歌单\n"
-    "✅ 📰 东南亚大事件与新闻订阅\n\n"
-    "👇 点下面的按钮开始"
+    "🌿 会所服务：当班出勤、技师资料、价格与服务项目\n"
+    "🛵 西港外送：查看晚班实时信息\n"
+    "🎬 影视观影：按分类找剧、找综艺\n"
+    "🎵 在线音乐：语言分类、搜索、收藏与歌单\n"
+    "📰 东南亚大事件：浏览资讯，主动订阅新消息\n"
+    "🔔 出勤提醒：自主订阅，随时管理\n\n"
+    "水墨界面每日换景，节气与节日自动点缀。\n"
+    "👇 选择下方入口，或点左下角【昊天生活通】"
 )
 
 PROMO_TEXT = (
@@ -48,13 +49,20 @@ HELP_TEXT = (
     "<b>3️⃣ 看技师详情</b>\n"
     "点技师工号，查看照片、身高体重、产地和服务介绍。\n\n"
     "<b>4️⃣ 西港外送</b>\n"
-    "小程序里选择【西港外送】，只展示晚班出勤；白班请直接联系昊天。\n\n"
+    "小程序顶部点【外送】，只展示晚班出勤；白班请直接联系昊天。\n\n"
     "<b>5️⃣ 出勤提醒</b>\n"
     "点主菜单【🔔 出勤提醒】订阅会所，名单一发布就通知你。\n\n"
     "<b>6️⃣ 预约 / 咨询</b>\n"
     "点【💬 联系昊天】，或直接在这里发文字、图片、语音留言，我会回复你。\n\n"
     "<b>7️⃣ 大事件新闻订阅</b>\n"
     "点【📰 大事件新闻订阅】或发送 /news，确认后接收新资讯提醒；发送 /news_off 随时取消。\n\n"
+    "<b>8️⃣ 影视观影</b>\n"
+    "点【🎬 观影】进入影视模块，按分类或搜索查找内容，查看剧集后选择播放入口。\n\n"
+    "<b>9️⃣ 在线音乐</b>\n"
+    "点【🎵 音乐】进入播放器，可按语言分类、搜索歌曲，支持播放队列、收藏和歌单；收藏与歌单需在 Telegram 中登录使用。\n\n"
+    "<b>🔟 水墨与今日时令</b>\n"
+    "七套水墨构图按北京时间周一至周日轮换，叠加节气与节日配色。小程序点【全部】→【今日时令】查看农历和当前节气。\n\n"
+    "💳 充值中心可查看余额与充值记录，商品购买仍在筹备中。\n\n"
     "💡 小提示：名单会随频道实时更新，下单前建议再刷新一次。"
 )
 
@@ -66,6 +74,7 @@ def home_keyboard():
         types.InlineKeyboardButton("🎬 观影", url=MOVIES_URL),
     )
     keyboard.row(
+        types.InlineKeyboardButton("🎵 音乐", url=MUSIC_URL),
         types.InlineKeyboardButton("💳 充值中心（筹备中）", url=RECHARGE_URL),
     )
     keyboard.row(
