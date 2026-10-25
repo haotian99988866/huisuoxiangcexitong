@@ -2,12 +2,13 @@ import logging
 import os
 import re
 import tempfile
+import threading
 from datetime import date
 
 import pymysql
 import requests
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, jsonify, request, send_file, stream_with_context
 from flask_cors import CORS
 from PIL import Image, UnidentifiedImageError
 from waitress import serve
@@ -17,6 +18,7 @@ MIN_AGE = 18
 from delivery_age import extract_work_no, parse_price_table, price_for_work_no
 from image_hash import ImageDeduper, ensure_columns as ensure_image_hash_columns
 from image_cache import ImageCache
+from video_cache import VideoCache
 from duty_shift import SHIFT_VENUE_IDS, current_shift_window
 from visit_stats import ensure_table, record_visit, verify_init_data
 from movies import (
@@ -56,6 +58,9 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
 image_cache = ImageCache(os.path.join(
     os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "image-cache"
+))
+video_cache = VideoCache(os.path.join(
+    os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "ktv-video-cache"
 ))
 
 _dihao_categories_by_prefix = {
@@ -466,7 +471,82 @@ def ktv_video(video_id):
             conn.close()
     if row is None:
         return jsonify({"error": "Video not found"}), 404
-    return _proxy_telegram_media(row["file_id"])
+    try:
+        cached = video_cache.get(row["file_id"])
+        if cached is not None:
+            response = send_file(
+                cached, mimetype=MEDIA_CONTENT_TYPES[cached.suffix],
+                conditional=True, max_age=300,
+            )
+            response.headers["Cache-Control"] = "private, max-age=300"
+            response.headers["Accept-Ranges"] = "bytes"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Media-Cache"] = "HIT"
+            return response
+    except OSError:
+        logger.exception("Cannot serve cached KTV video %s; using Telegram stream", video_id)
+    response = app.make_response(_proxy_telegram_media(row["file_id"]))
+    response.headers["X-Media-Cache"] = "MISS"
+    return response
+
+
+def warm_ktv_video_cache():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, file_id FROM ktv_room_videos WHERE venue_id = 3 ORDER BY id DESC")
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        logger.error("Cannot warm KTV videos: Telegram is not configured")
+        return
+    reserved = 0
+    for row in rows:
+        try:
+            cached = video_cache.get(row["file_id"])
+            if cached is not None:
+                reserved += cached.stat().st_size
+                continue
+            with requests.get(
+                f"https://api.telegram.org/bot{token}/getFile",
+                params={"file_id": row["file_id"]}, timeout=(5, 15),
+            ) as info:
+                info.raise_for_status()
+                payload = info.json()
+            result = payload.get("result") or {}
+            path, size = result.get("file_path"), result.get("file_size")
+            if not payload.get("ok") or not path or not isinstance(size, int):
+                raise ValueError("Telegram did not return a video path and size")
+            if size <= 0 or size > video_cache.max_file_bytes:
+                raise ValueError("Video exceeds cache file size limit or has no size")
+            if reserved + size > video_cache.max_bytes:
+                logger.warning("KTV video cache budget reached; remaining videos use Telegram")
+                break
+            with requests.get(
+                f"https://api.telegram.org/file/bot{token}/{quote(path, safe='/')}",
+                stream=True, timeout=(5, 30),
+            ) as upstream:
+                upstream.raise_for_status()
+                video_cache.store(
+                    row["file_id"], upstream.iter_content(chunk_size=256 * 1024),
+                    os.path.splitext(path)[1].lower(), size,
+                )
+            reserved += size
+            logger.info("KTV video %s cached (%s bytes)", row["id"], size)
+        except (requests.RequestException, ValueError, OSError) as exc:
+            logger.error("Cannot cache KTV video %s (%s); will retry", row["id"], type(exc).__name__)
+
+
+def maintain_ktv_video_cache(stop):
+    while not stop.is_set():
+        try:
+            warm_ktv_video_cache()
+        except pymysql.MySQLError:
+            logger.exception("Cannot query KTV videos for cache warmup; will retry")
+        if stop.wait(60):
+            break
 
 
 @app.get("/movie-thumb/<int:message_id>")
@@ -586,8 +666,14 @@ def _proxy_telegram_media(file_id):
 
     extension = os.path.splitext(file_path)[1].lower()
     content_type = MEDIA_CONTENT_TYPES.get(extension, "video/mp4")
+    def stream():
+        try:
+            yield from upstream.iter_content(chunk_size=64 * 1024)
+        finally:
+            upstream.close()
+
     response = Response(
-        stream_with_context(upstream.iter_content(chunk_size=64 * 1024)),
+        stream_with_context(stream()),
         status=upstream.status_code,
         mimetype=content_type,
     )
@@ -597,6 +683,7 @@ def _proxy_telegram_media(file_id):
     response.headers["Accept-Ranges"] = "bytes"
     response.headers["Cache-Control"] = "private, max-age=300"
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.call_on_close(upstream.close)
     return response
 
 
@@ -1054,4 +1141,12 @@ if __name__ == "__main__":
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))
     logger.info("Starting API server on %s:%s", host, port)
-    serve(app, host=host, port=port, threads=16)
+    stop_cache = threading.Event()
+    threading.Thread(
+        target=maintain_ktv_video_cache, args=(stop_cache,),
+        name="ktv-cache", daemon=True,
+    ).start()
+    try:
+        serve(app, host=host, port=port, threads=16)
+    finally:
+        stop_cache.set()
