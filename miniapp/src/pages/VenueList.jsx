@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useModuleState, useModuleScroll } from '../utils/moduleState'
 import { FullscreenAnnouncementBar, ANNOUNCEMENT_TEXT } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
+import CopyBooking from '../components/CopyBooking'
+import { bookingUrl } from '../utils/booking'
 import { API_BASE_URL, bindBackButton, closeMiniApp, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
 
 // 首页默认显示“名玺水汇会所”，找不到时退回列表第一个
@@ -537,24 +539,44 @@ export default function VenueList() {
       ?.technician_codes || []
   )
 
+  const deliveryBookingUrl = deliveryViewer ? bookingUrl({
+    title: `你好，我想预约${baseVenue?.name || '西港外送'}`,
+    links: deliveryViewer.link ? [deliveryViewer.link] : deliveryViewer.media.map(media => (
+      new URL(`${API_BASE_URL}/delivery-media/${media.id}`, window.location.origin).href
+    )),
+    details: [
+      deliveryViewer.work_no && `工号：${deliveryViewer.work_no}`,
+      deliveryViewer.price && `价格：${deliveryViewer.price}$`,
+      deliveryViewer.description,
+    ],
+  }) : ''
+
   const contactManagerUrl = selectedTechnicianCode && selectedVenue
     ? (() => {
-        const photoLinks = selectedVenue.technician_photo_links?.[selectedTechnicianCode] || []
-        const message = [
-          '你好，我想咨询这位技师：',
+        const originalLinks = selectedVenue.technician_photo_links?.[selectedTechnicianCode] || []
+        const photoLinks = originalLinks.length ? originalLinks : technicianPhotos.map(id => (
+          new URL(`${API_BASE_URL}/photos/${id}/image`, window.location.origin).href
+        ))
+        return bookingUrl({
+          title: `你好，我想咨询这位技师：${selectedVenue.name} · 工号${selectedTechnicianCode}`,
+          links: photoLinks,
+          details: [
           `会所：${selectedVenue.name}`,
           `工号：${selectedTechnicianCode}`,
+          ...[['age', '年龄'], ['height', '身高'], ['bust', '胸围'], ['weight', '体重'], ['origin', '产地']]
+            .filter(([field]) => technicianProfile[field])
+            .map(([field, label]) => `${label}：${technicianProfile[field]}${field === 'height' ? ' cm' : field === 'age' ? ' 岁' : ''}`),
+          ...(technicianProfile.service_description
+            ? [`资料描述：${technicianProfile.service_description}`] : []),
           ['4', '5', '6'].includes(String(selectedVenue.id))
             ? '来源：会所频道照片'
             : `出勤：${dutyShiftToday || '今日在岗'}`,
           ...(technicianServiceCategories.length > 0
             ? [`可服务类别：${technicianServiceCategories.join('、')}`]
             : []),
-          ...(photoLinks.length > 0
-            ? ['', '频道照片原帖：', ...photoLinks.map((link, index) => `${index + 1}. ${link}`)]
-            : ['技师暂无照片'])
-        ].join('\n')
-        return `https://t.me/haotian99988866?text=${encodeURIComponent(message)}`
+          ...(photoLinks.length ? [] : ['该技师暂无可用照片链接']),
+          ],
+        })
       })()
     : 'https://t.me/haotian99988866'
 
@@ -1196,14 +1218,9 @@ export default function VenueList() {
                         {deliveryViewer.description}
                       </div>
                     )}
+                    <CopyBooking url={deliveryBookingUrl} />
                     <a
-                      href={`https://t.me/haotian99988866?text=${encodeURIComponent(
-                        `你好，我想预约${baseVenue?.name || '西港外送'}：${[
-                          deliveryViewer.work_no && `工号${deliveryViewer.work_no}`,
-                          deliveryViewer.price && `${deliveryViewer.price}$`,
-                          (deliveryViewer.description || '').slice(0, 40),
-                        ].filter(Boolean).join(' ')}${deliveryViewer.link ? `\n\n原帖：${deliveryViewer.link}` : ''}`
-                      )}`}
+                      href={deliveryBookingUrl}
                       target="_blank"
                       rel="noreferrer"
                       style={{
@@ -1214,6 +1231,7 @@ export default function VenueList() {
                         fontWeight: 700,
                         fontSize: '16px',
                         padding: '12px',
+                        marginTop: '10px',
                         borderRadius: '12px',
                         textDecoration: 'none',
                       }}
@@ -1407,6 +1425,10 @@ export default function VenueList() {
                   </div>
                 </div>
               )}
+              <div style={{ marginTop: '20px', padding: '20px', textAlign: 'center', background: '#fffaf0', borderRadius: '14px' }}>
+                <p style={{ color: '#80643c', marginBottom: '12px' }}>想了解更多包房、消费价格或预订详情？</p>
+                <ContactButton />
+              </div>
             </div>
           ) : ['4', '5', '6'].includes(String(selectedVenue.id)) && onDutyCount > 0 ? (
             <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
@@ -1858,6 +1880,7 @@ export default function VenueList() {
               </div>
             )}
 
+            <CopyBooking url={contactManagerUrl} />
             <a
               href={contactManagerUrl}
               target="_blank"
@@ -1868,7 +1891,7 @@ export default function VenueList() {
                 justifyContent: 'center',
                 gap: '8px',
                 minHeight: '46px',
-                marginTop: '20px',
+                marginTop: '10px',
                 borderRadius: '12px',
                 background: 'linear-gradient(135deg, #38835d, #4a9870)',
                 color: '#fff',
@@ -1880,14 +1903,6 @@ export default function VenueList() {
               <span aria-hidden="true">✈</span>
               联系业务经理昊天
             </a>
-            <div style={{
-              marginTop: '7px',
-              color: '#888',
-              fontSize: '12px',
-              textAlign: 'center'
-            }}>
-              将在 Telegram 中预填技师信息和频道照片原帖链接
-            </div>
           </section>
         </div>
       )}
