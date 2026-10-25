@@ -17,6 +17,16 @@ CONTACT_ENTITIES = {
     "MessageEntityMention", "MessageEntityMentionName",
 }
 
+ADVERTISEMENT = re.compile(
+    r"^[\s*_\#【\[]*(?:付费广告|付費廣告|商业广告|商業廣告|广告推广|廣告推廣|广告|廣告)"
+    r"(?=$|[\s*_\#】\]:：])"
+)
+
+
+def is_advertisement(text):
+    """Only treat an explicit leading advertisement label as an opt-out."""
+    return bool(ADVERTISEMENT.match((text or "").lstrip()))
+
 
 def clean_text(text, entities=()):
     """Remove contact spans using Telegram's UTF-16 offsets before editing text."""

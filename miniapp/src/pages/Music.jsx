@@ -16,7 +16,7 @@ export default function Music() {
   const sharedToken = params.get('playlist')
   const [query, setQuery] = useState(() => sharedToken ? '' : player.browseState.current.query)
   const [searchInput, setSearchInput] = useState(query)
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const [shared, setShared] = useState(null)
   const [sharedError, setSharedError] = useState('')
   const [sharedAttempt, setSharedAttempt] = useState(0)

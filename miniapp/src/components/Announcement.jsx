@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { announcementText, hasAnnouncementAccess, tenantPath } from '../utils/tenant'
 import { requestAnnouncements } from '../utils/announcements'
+import './Announcement.css'
 
-let snapshot = { text: '公告资讯 · 点击查看历史', id: null }
+let snapshot = { text: '资讯加载中 · 点击查看历史', id: null, publishedAt: null }
 const listeners = new Set()
 let fetching = false
 let updated = 0
@@ -15,16 +16,43 @@ async function refreshAnnouncement() {
   try {
     const result = await requestAnnouncements('get_announcements', {}, controller.signal)
     const latest = result.items[0]
-    snapshot = { text: latest?.summary || '暂无公告 · 查看历史', id: latest?.id || null }
+    snapshot = { text: latest?.title || latest?.summary || '暂无公告 · 查看历史', id: latest?.id || null, publishedAt: latest?.published_at || null }
     updated = Date.now()
   } catch (error) {
     console.error('[Announcement preview]', error)
-    snapshot = { text: '公告暂不可用 · 点击查看并重试', id: null }
+    snapshot = { text: '公告暂不可用 · 点击查看并重试', id: null, publishedAt: null }
   } finally {
     clearTimeout(timer)
     fetching = false
     listeners.forEach(listener => listener(snapshot))
   }
+}
+
+function ScrollingTitle({ text, publishedAt }) {
+  const viewport = useRef(null)
+  const content = useRef(null)
+  const [distance, setDistance] = useState(0)
+  useLayoutEffect(() => {
+    const measure = () => setDistance(Math.max(0, content.current.scrollWidth - viewport.current.clientWidth))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(viewport.current)
+    observer.observe(content.current)
+    return () => observer.disconnect()
+  }, [text, publishedAt])
+  return <span ref={viewport} className="announcement-ticker">
+    <span key={text} ref={content} className={`announcement-card-title${distance ? ' is-scrolling' : ''}`}
+      style={{ '--ticker-offset': `-${distance}px`, '--ticker-duration': `${Math.max(12, distance / 26 + 5)}s` }}>
+      <span className="announcement-card-label">东南亚大事件 · </span>
+      {publishedAt && <time className="announcement-card-time" dateTime={publishedAt}>
+        {new Date(publishedAt).toLocaleString('zh-CN', {
+          month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+        })}
+      </time>}
+      {publishedAt && '· '}
+      {text}
+    </span>
+  </span>
 }
 
 function AnnouncementPreview() {
@@ -37,40 +65,20 @@ function AnnouncementPreview() {
     const timer = setInterval(refreshAnnouncement, 60000)
     return () => { listeners.delete(setLatest); clearInterval(timer) }
   }, [allowed])
-  if (!allowed) return announcementText()
-  return <Link to={tenantPath(latest.id ? `/announcements/${latest.id}` : '/announcements')}
-    style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
-    aria-label={`公告：${latest.text}`}>{latest.text}</Link>
+  if (!allowed) return <div className="announcement-notice">{announcementText()}</div>
+  return <Link className="announcement-card" to={tenantPath(latest.id ? `/announcements/${latest.id}` : '/announcements')}
+    aria-label={`东南亚大事件：${latest.text}${latest.publishedAt ? `，发布于${new Date(latest.publishedAt).toLocaleString('zh-CN')}` : ''}，查看${latest.id ? '详情' : '列表'}`}>
+    <span className="announcement-card-label" aria-hidden="true">📢</span>
+    <ScrollingTitle text={latest.text} publishedAt={latest.publishedAt} />
+    <span className="announcement-card-action" aria-hidden="true">›</span>
+  </Link>
 }
 
-// 全屏时 Telegram 的关闭/菜单按钮会浮在页面顶部:用等高的公告栏避让;非全屏显示公告卡片
 export function FullscreenAnnouncementBar() {
   return (
-    <div style={{
-      margin: '0 -12px 4px',
-      paddingTop: 'var(--tg-safe-area-inset-top, 0px)',
-      boxSizing: 'border-box'
-    }}>
-      <div
-        aria-label="公告"
-        style={{
-          height: 'max(var(--tg-content-safe-area-inset-top, 0px), 44px)',
-          padding: '0 64px',
-          boxSizing: 'border-box',
-          display: 'flex',
-          minWidth: 0,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '6px',
-          fontSize: '13px',
-          color: '#9a6b18',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis'
-        }}
-      >
-        <span aria-hidden="true">📢</span>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}><AnnouncementPreview /></span>
+    <div className="announcement-fullscreen">
+      <div className="announcement-native-clearance">
+        <AnnouncementCard />
       </div>
     </div>
   )
@@ -78,31 +86,8 @@ export function FullscreenAnnouncementBar() {
 
 export function AnnouncementCard() {
   return (
-    <div
-      aria-label="公告"
-      style={{
-        display: 'flex',
-        minWidth: 0,
-        alignItems: 'center',
-        gap: '8px',
-        padding: '8px 12px',
-        marginBottom: '8px',
-        background: '#fff',
-        border: '1px solid rgba(154, 107, 24, 0.18)',
-        borderLeft: '3px solid #c9a24d',
-        borderRadius: '10px',
-        boxShadow: '0 1px 3px rgba(120, 90, 50, 0.05)',
-        fontSize: '12px',
-        color: '#9a6b18',
-        lineHeight: 1.4
-      }}
-    >
-      <span aria-hidden="true">📢</span>
-      <span style={{ fontWeight: 700 }}>公告</span>
-      <span style={{ width: '1px', height: '12px', background: '#e6d3a3' }} />
-      <span style={{ flex: 1, minWidth: 0, color: '#987f54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        <AnnouncementPreview />
-      </span>
+    <div className="announcement-container" aria-label="公告">
+      <AnnouncementPreview />
     </div>
   )
 }

@@ -16,7 +16,10 @@ export function useModuleState(key, initialValue) {
 
 export function useModuleScroll(key, ready) {
   useLayoutEffect(() => {
-    if (!ready) return
+    if (!ready) {
+      window.scrollTo(0, 0)
+      return
+    }
     window.scrollTo(0, positions.get(key) || 0)
     const onScroll = () => rememberModuleScroll(key)
     window.addEventListener('scroll', onScroll, { passive: true })

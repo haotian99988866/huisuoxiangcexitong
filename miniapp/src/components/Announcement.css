@@ -1,0 +1,26 @@
+.announcement-container { min-width: 0; margin-bottom: 8px; }
+.announcement-card { display: flex; align-items: center; gap: 7px; min-width: 0; height: 38px; box-sizing: border-box; padding: 0 9px; border: 1px solid #ddc895; border-left: 3px solid #b28a38; border-radius: 9px; background: linear-gradient(115deg, #fff5da, #fffdf6); box-shadow: 0 2px 6px #785a320a; }
+.announcement-card-label { flex-shrink: 0; font-size: 14px; font-weight: 700; color: #805819; }
+.announcement-card-action { flex-shrink: 0; font-size: 18px; color: #866526; }
+.announcement-card-time { margin-right: 8px; font-size: 11px; color: #866526; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.announcement-ticker { display: block; flex: 1; min-width: 0; overflow: hidden; }
+.announcement-card-title { display: block; width: max-content; min-width: 100%; font-size: 13px; font-weight: 500; line-height: 24px; color: #443c2e; white-space: nowrap; }
+.announcement-card-title.is-scrolling { animation: announcement-scroll var(--ticker-duration) linear infinite; }
+.announcement-card:hover .announcement-card-title, .announcement-card:focus .announcement-card-title { animation-play-state: paused; }
+@keyframes announcement-scroll {
+  0%, 12% { transform: translateX(0); }
+  85%, 100% { transform: translateX(var(--ticker-offset)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .announcement-card-title.is-scrolling { animation: none; }
+  .announcement-ticker { overflow-x: auto; }
+}
+.announcement-card:focus-visible, .announcement-native-clearance a:focus-visible { outline: 2px solid #9a6b18; outline-offset: 2px; }
+.announcement-card:active { background: #f7ebcf; }
+.announcement-notice { padding: 8px 12px; border: 1px solid #e6d3a3; border-radius: 10px; background: #fff; font-size: 12px; line-height: 1.5; color: #987f54; overflow-wrap: anywhere; }
+.announcement-fullscreen { position: relative; padding-top: var(--tg-safe-area-inset-top, 0px); }
+.announcement-fullscreen::after { content: ''; position: absolute; left: -12px; right: -12px; bottom: 4px; height: 1px; background: rgba(158, 132, 101, .18); pointer-events: none; }
+.announcement-native-clearance { display: flex; align-items: center; justify-content: center; height: max(var(--tg-content-safe-area-inset-top, 0px), 44px); padding: 0 94px; box-sizing: border-box; margin: 0 -12px; }
+.announcement-native-clearance .announcement-container { width: 100%; margin-bottom: 0; transform: translateY(-10px); }
+.announcement-native-clearance .announcement-card { gap: 4px; height: 32px; padding: 0 5px; }
+.announcement-native-clearance .announcement-notice { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

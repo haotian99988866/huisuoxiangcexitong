@@ -22,7 +22,7 @@ export default function Admin() {
   const [editor, setEditor] = useState(null)
   const [confirmation, setConfirmation] = useState(null)
   const [copyFallback, setCopyFallback] = useState('')
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const inFlight = useRef(false)
   const mounted = useRef(true)
   const formRef = useRef(null)

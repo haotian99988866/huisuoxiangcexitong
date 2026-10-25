@@ -74,7 +74,7 @@ function Thumb({ src, style }) {
 }
 
 export default function MovieList() {
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   useEffect(() => subscribeFullscreen(setIsFullscreen), [])
   const [category, setCategory] = useModuleState('movies.category', '')
   const [queryInput, setQueryInput] = useModuleState('movies.searchInput', '')

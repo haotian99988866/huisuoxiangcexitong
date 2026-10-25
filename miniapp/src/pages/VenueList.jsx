@@ -320,7 +320,7 @@ export default function VenueList() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const requestedModule = searchParams.get('module')
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   useEffect(() => subscribeFullscreen(setIsFullscreen), [])
   const [list, setList] = useState([])
   const [selectedId, setSelectedId] = useModuleState('venue.selection', '')

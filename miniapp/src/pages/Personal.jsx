@@ -18,7 +18,7 @@ const actionStyle = {
 
 export default function Personal() {
   const navigate = useNavigate()
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const [wallet, setWallet] = useState(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')

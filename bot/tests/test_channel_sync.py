@@ -1,16 +1,27 @@
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from telethon import types
 
-from channel_sync import JobStore, deliver, enqueue_new_messages, single_instance
-from channel_sync_clean import clean_text
+from channel_sync import JobStore, deliver, enqueue_new_messages, reconcile_messages, single_instance
+from channel_sync_clean import clean_text, is_advertisement
 
 
 class CleanTextTests(unittest.TestCase):
+    def test_advertisement_labels_and_news_distinguished(self):
+        for text in ["#付费广告\n推广内容", "**#付费广告**\n推广内容",
+                     "\n 【商业广告】\n推广内容", "#付費廣告：推广内容", "#广告 推广内容"]:
+            with self.subTest(text=text):
+                self.assertTrue(is_advertisement(text))
+        for text in [None, "", "#新闻：广告诈骗被查处", "广告公司被查处",
+                     "警方提醒\n不要相信付费广告", "#广告诈骗案件通报"]:
+            with self.subTest(text=text):
+                self.assertFalse(is_advertisement(text))
+
     def test_promotional_footer_and_links_removed(self):
         original = (
             "正文保留\n关注大事件频道➡️ @Svip 投稿：@tx188\n"
@@ -64,6 +75,83 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
 
     def status(self):
         return self.store.connection.execute("SELECT status FROM jobs").fetchone()["status"]
+
+    def historical(self, ident, album=None, recent=False, service=False):
+        return SimpleNamespace(id=ident, grouped_id=album, action=service,
+                               date=datetime.now(timezone.utc) - timedelta(seconds=0 if recent else 60))
+
+    def history(self, messages):
+        async def iterate(*args, **kwargs):
+            for message in messages:
+                if message.id > kwargs["min_id"]:
+                    yield message
+        self.user.iter_messages = iterate
+
+    async def test_reconciliation_recovers_missing_album_without_repeating_sent_jobs(self):
+        self.store.progress(1, "2", 20)
+        for ids in [[21], [24]]:
+            self.store.enqueue(1, "2", ids)
+            self.store.update(self.store.next(1, "2"), "sent", result_ids=[100 + ids[0]])
+        self.history([self.historical(21), self.historical(22, 500),
+                      self.historical(23, 500), self.historical(24)])
+        await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        rows = self.store.connection.execute("SELECT job_key,status FROM jobs ORDER BY rowid").fetchall()
+        self.assertEqual([(row["job_key"], row["status"]) for row in rows],
+                         [("21", "sent"), ("24", "sent"), ("22,23", "queued")])
+        self.assertEqual(self.store.progress(1, "2", 999)["scanned_id"], 24)
+        await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        self.assertEqual(self.store.connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 3)
+
+    async def test_reconciliation_waits_for_album_to_settle(self):
+        self.store.progress(1, "2", 20)
+        self.history([self.historical(21, 500), self.historical(22, 500, recent=True)])
+        await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        self.assertIsNone(self.store.next(1, "2"))
+        self.assertEqual(self.store.progress(1, "2", 20)["scanned_id"], 20)
+
+    async def test_full_scan_batch_never_splits_album(self):
+        self.store.progress(1, "2", 20)
+        self.history([self.historical(i) for i in range(21, 220)] +
+                     [self.historical(220, 500), self.historical(221, 500)])
+        with patch("channel_sync.logger.info"):
+            await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        self.assertEqual(self.store.progress(1, "2", 20)["scanned_id"], 219)
+        self.history([self.historical(i, 500) for i in range(220, 223)])
+        await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        self.assertEqual(self.store.connection.execute(
+            "SELECT job_key FROM jobs ORDER BY rowid DESC LIMIT 1").fetchone()[0], "220,221,222")
+
+    def test_persistent_progress_initial_baseline_and_upgrade(self):
+        progress = self.store.progress(1, "2", 20)
+        self.assertEqual((progress["boundary"], progress["scanned_id"]), (20, 20))
+        self.store.advance(1, "2", 22)
+        another = JobStore(self.directory / "test.sqlite3")
+        try:
+            self.assertEqual(another.progress(1, "2", 99)["boundary"], 20)
+            self.assertEqual(another.progress(1, "2", 99)["scanned_id"], 22)
+        finally:
+            another.close()
+        self.store.enqueue(3, "2", [32, 33])
+        self.assertEqual(self.store.progress(3, "2", 99)["boundary"], 31)
+
+    async def test_enqueue_failure_retains_cursor_and_uncertain_not_requeued(self):
+        self.store.progress(1, "2", 20)
+        self.store.enqueue(1, "2", [21])
+        self.store.update(self.store.next(1, "2"), "uncertain", error="manual review")
+        self.history([self.historical(21), self.historical(22)])
+        with patch.object(self.store, "advance", side_effect=RuntimeError("disk failure")):
+            with self.assertRaises(RuntimeError):
+                await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        self.assertEqual(self.store.progress(1, "2", 99)["scanned_id"], 20)
+        await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        rows = self.store.connection.execute("SELECT job_key,status FROM jobs ORDER BY rowid").fetchall()
+        self.assertEqual([(row["job_key"], row["status"]) for row in rows], [("21", "uncertain"), ("22", "queued")])
+
+    def test_overlapping_album_jobs_are_rejected_instead_of_resent(self):
+        self.store.enqueue(1, "2", [21])
+        with self.assertRaisesRegex(ValueError, "Overlapping"):
+            self.store.enqueue(1, "2", [21, 22])
+        self.assertEqual(self.store.connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 1)
 
     def message(self, text="正文 @contact", media=None):
         return SimpleNamespace(
@@ -119,6 +207,31 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         await self.publish([self.message("https://example.com @contact")])
         self.bot.send_message.assert_not_awaited()
         self.assertEqual(self.status(), "skipped")
+
+    async def test_paid_ad_text_is_skipped_before_cleaning(self):
+        await self.publish([self.message(
+            "**#付费广告**\n首存5000 赠送彩金588\n"
+            "实力盘口出款有保障 https://example.com @service"
+        )])
+        self.bot.send_message.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+        self.assertEqual(self.status(), "skipped")
+
+    async def test_paid_ad_album_is_skipped_as_a_whole(self):
+        photo = types.MessageMediaPhoto()
+        await self.publish([self.message(None, photo),
+                            self.message("#付费广告\n首存活动", photo)], (10, 11))
+        self.user.download_media.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+        self.assertEqual(self.status(), "skipped")
+
+    async def test_news_reporting_advertising_is_not_skipped(self):
+        text = "#新闻：警方查处赌博推广\n平台以付费广告、首存赠送彩金诱导充值。"
+        await self.publish([self.message(text)])
+        self.bot.send_message.assert_awaited_once_with(
+            self.target, text, parse_mode=None, link_preview=False,
+        )
+        self.assertEqual(self.status(), "sent")
 
     async def test_protected_message_not_downloaded(self):
         message = self.message()

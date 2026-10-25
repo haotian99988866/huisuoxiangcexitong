@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import ModuleTabs from '../components/ModuleTabs'
+import { FullscreenAnnouncementBar } from '../components/Announcement'
 import { API_BASE_URL, bindBackButton, registerBackOverlay, subscribeFullscreen } from '../utils/twa'
 import { getTenant, hasAnnouncementAccess, mediaUrl, tenantPath } from '../utils/tenant'
 import { rememberModuleScroll, useModuleScroll, useModuleState } from '../utils/moduleState'
@@ -40,7 +41,7 @@ export default function Announcements() {
   const result = loaded.key === requestKey ? loaded.data : null
   const error = loaded.key === requestKey ? loaded.error : ''
   const [attempt, setAttempt] = useState(0)
-  const [fullscreen, setFullscreen] = useState(false)
+  const [fullscreen, setFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const [fontSize, setFontSize] = useModuleState('announcements.fontSize', 18)
   const [viewer, setViewer] = useState(null)
   const allowed = hasAnnouncementAccess()
@@ -77,11 +78,12 @@ export default function Announcements() {
   const openPhoto = item => setViewer(photos.indexOf(item))
   return <main className={`announcements-page${id ? ' news-reading' : ''}${fullscreen ? ' news-fullscreen' : ''}`}>
     <div className="news-sticky">
-      {fullscreen && <div className="news-telegram-clearance" />}
+      {fullscreen && (id ? <div className="news-telegram-clearance" /> : <FullscreenAnnouncementBar />)}
       {!id && <ModuleTabs active="announcements" />}
       <div className="news-toolbar">
-        <button className="news-icon-button" aria-label={id ? '返回资讯列表' : '返回首页'} onClick={goBack}><NewsIcon name="back" /></button>
-        {id ? <Link className="news-toolbar-title" to={tenantPath(historyPath)}>{getTenant()?.brand_name || '公告资讯'}</Link> : <span className="news-toolbar-title">公告资讯<span className="news-live-dot" /></span>}
+        {id && <button className="news-icon-button" aria-label="返回资讯列表" onClick={goBack}><NewsIcon name="back" /></button>}
+        {id ? <Link className="news-toolbar-title" to={tenantPath(historyPath)}>{getTenant()?.brand_name || '东南亚大事件'}</Link>
+          : <div className="news-list-heading"><h1>{fullscreen ? '最新资讯' : '东南亚大事件'}</h1><span>{result ? `${result.total} 条` : '按时间更新'}</span></div>}
         {id ? <button className="news-font-button" onClick={() => setFontSize(value => value === 20 ? 16 : value + 2)}
           aria-label={`正文字号 ${fontSize}，点击切换`}><span>Aa</span><small>字号</small></button>
           : <button className="news-icon-button" aria-label="刷新资讯" disabled={!allowed || (!result && !error)}
@@ -89,10 +91,6 @@ export default function Announcements() {
       </div>
       {id && <ReadingProgress articleId={id} ready={Boolean(result)} />}
     </div>
-    {!id && <header className="news-masthead">
-      <div><span className="news-eyebrow">NEWS & UPDATES</span><h1>每一条动态，都在这里</h1></div>
-      <p>频道资讯 · 按时间更新</p>
-    </header>}
     {!allowed ? <div className="news-state" role="alert"><h2>此入口暂未开放资讯</h2><p>请联系服务提供方了解详情。</p></div>
       : error ? <div className="news-state" role="alert"><h2>暂时无法加载</h2><p>{error}</p><button className="news-primary-button" onClick={() => setAttempt(value => value + 1)}>重新加载</button></div>
         : !result ? <NewsSkeleton detail={Boolean(id)} />
@@ -116,7 +114,6 @@ export default function Announcements() {
               <button className="news-text-button" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><NewsIcon name="up" />回到顶部</button>
             </footer>
           </> : <>
-            <div className="news-feed-label"><h2>最新发布</h2><span>{result.total} 条资讯</span></div>
             {!result.items.length ? <div className="news-state"><NewsIcon name="image" /><h2>新的动态，敬请期待</h2><p>频道消息收录后，会出现在这里。</p></div>
               : <div className="news-feed">{result.items.map((item, index) => <Link className={`news-feed-item${!item.cover ? ' news-text-only' : ''}`} key={item.id}
                 onClick={() => rememberModuleScroll(scrollKey)} to={tenantPath(`/announcements/${item.id}?page=${result.page}`)}>

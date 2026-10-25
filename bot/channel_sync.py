@@ -14,7 +14,7 @@ import tempfile
 from dotenv import load_dotenv
 from telethon import TelegramClient, events, errors, types
 
-from channel_sync_clean import clean_text
+from channel_sync_clean import clean_text, is_advertisement
 
 
 logger = logging.getLogger("channel_sync")
@@ -48,16 +48,65 @@ class JobStore:
                 PRIMARY KEY (source, target, job_key)
             )
         """)
+        self.connection.execute("""
+            CREATE TABLE IF NOT EXISTS sync_progress (
+                source INTEGER NOT NULL, target TEXT NOT NULL,
+                boundary INTEGER NOT NULL, scanned_id INTEGER NOT NULL,
+                PRIMARY KEY (source,target)
+            )
+        """)
         self.connection.commit()
 
     def enqueue(self, source, target, ids):
         ids = sorted(set(ids))
+        key = ",".join(map(str, ids))
         with self.connection:
+            existing = self.connection.execute(
+                "SELECT job_key FROM jobs WHERE source=? AND target=? AND job_key=?",
+                (source, target, key),
+            ).fetchone()
+            if existing:
+                return False
+            overlap = self.connection.execute(
+                "SELECT job_key FROM jobs, json_each(jobs.message_ids) AS message"
+                " WHERE source=? AND target=? AND message.value IN ("
+                + ",".join("?" for _ in ids) + ") LIMIT 1",
+                (source, target, *ids),
+            ).fetchone() if ids else None
+            if overlap:
+                raise ValueError(f"Overlapping sync jobs {key} and {overlap['job_key']}; inspect before sending.")
             self.connection.execute(
                 "INSERT OR IGNORE INTO jobs (source,target,job_key,message_ids,created)"
                 " VALUES (?,?,?,?,?)",
-                (source, target, ",".join(map(str, ids)), json.dumps(ids),
+                (source, target, key, json.dumps(ids),
                  datetime.now(timezone.utc).isoformat()),
+            )
+        return True
+
+    def progress(self, source, target, latest):
+        row = self.connection.execute(
+            "SELECT boundary,scanned_id FROM sync_progress WHERE source=? AND target=?",
+            (source, target),
+        ).fetchone()
+        if row:
+            return row
+        oldest = self.connection.execute(
+            "SELECT MIN(message.value) FROM jobs,json_each(jobs.message_ids) AS message"
+            " WHERE source=? AND target=?", (source, target),
+        ).fetchone()[0]
+        boundary = oldest - 1 if oldest is not None else latest
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO sync_progress (source,target,boundary,scanned_id) VALUES (?,?,?,?)",
+                (source, target, boundary, boundary),
+            )
+        return self.progress(source, target, latest)
+
+    def advance(self, source, target, message_id):
+        with self.connection:
+            self.connection.execute(
+                "UPDATE sync_progress SET scanned_id=MAX(scanned_id,?) WHERE source=? AND target=?",
+                (message_id, source, target),
             )
 
     def next(self, source, target):
@@ -92,8 +141,46 @@ def enqueue_new_messages(store, source_id, target_id, boundary, messages):
         return
     if any(getattr(message, "action", None) for message in messages):
         return
-    store.enqueue(source_id, str(target_id), [message.id for message in messages])
-    logger.info("Queued source message(s) %s", [message.id for message in messages])
+    if store.enqueue(source_id, str(target_id), [message.id for message in messages]):
+        logger.info("Queued source message(s) %s", [message.id for message in messages])
+
+
+async def reconcile_messages(user, source, target, store, boundary):
+    progress = store.progress(source.id, str(target.id), boundary)
+    messages = [message async for message in user.iter_messages(
+        source, min_id=progress["scanned_id"], reverse=True, limit=201,
+    )]
+    groups = []
+    for message in messages:
+        if message.grouped_id and groups and groups[-1][0].grouped_id == message.grouped_id:
+            groups[-1].append(message)
+        else:
+            groups.append([message])
+    now = datetime.now(timezone.utc)
+    for index, group in enumerate(groups):
+        if (now - group[-1].date).total_seconds() < 10:
+            break
+        # A full batch may end halfway through an album. Leave its last group for the next scan.
+        if len(messages) == 201 and index == len(groups) - 1:
+            break
+        enqueue_new_messages(store, source.id, target.id, boundary, group)
+        store.advance(source.id, str(target.id), group[-1].id)
+    return len(messages)
+
+
+async def reconciliation_worker(user, source, target, store, boundary):
+    while True:
+        delay = 30
+        try:
+            count = await reconcile_messages(user, source, target, store, boundary)
+            if count == 201:
+                delay = 1
+        except errors.FloodWaitError as error:
+            delay = max(delay, error.seconds + 1)
+            logger.warning("Source reconciliation rate limited; waiting %s seconds", delay)
+        except Exception:
+            logger.exception("Source reconciliation failed; cursor retained, retrying in 30 seconds")
+        await asyncio.sleep(delay)
 
 
 @contextmanager
@@ -130,6 +217,10 @@ async def deliver(user, bot, source, target, store, job, directory):
     if any(getattr(message, "noforwards", False) for message in messages):
         store.update(job, "skipped", error="Source message has protected content.")
         logger.warning("Skipped protected job %s", job["job_key"])
+        return
+    if any(is_advertisement(message.message) for message in messages):
+        store.update(job, "skipped", error="Explicit advertisement label; entire job excluded.")
+        logger.info("Skipped advertisement job %s", job["job_key"])
         return
     captions = [clean_text(message.message, message.entities) for message in messages]
     media_messages = [message for message in messages if message.media
@@ -310,7 +401,8 @@ async def run(mode, directory):
         if not permissions.is_admin or not permissions.post_messages:
             raise ValueError("Bot requires target-channel post_messages permission.")
         latest = await user.get_messages(source, limit=1)
-        boundary = latest[0].id if latest else 0
+        progress = store.progress(source.id, str(target.id), latest[0].id if latest else 0)
+        boundary = progress["boundary"]
         store.recover()
 
         async def receive(messages):
@@ -329,6 +421,7 @@ async def run(mode, directory):
         async with asyncio.TaskGroup() as tasks:
             tasks.create_task(worker(user, bot, source, target, store, directory))
             tasks.create_task(announcement_worker(bot, target, store))
+            tasks.create_task(reconciliation_worker(user, source, target, store, boundary))
             await user.run_until_disconnected()
             raise ConnectionError("Listener disconnected; stop and inspect before restarting.")
     finally:

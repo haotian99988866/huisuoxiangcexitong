@@ -30,7 +30,7 @@ const buttonStyle = {
 
 export default function Recharge() {
   const navigate = useNavigate()
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const [wallet, setWallet] = useState(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')

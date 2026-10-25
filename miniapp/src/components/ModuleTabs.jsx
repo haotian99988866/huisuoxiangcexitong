@@ -20,7 +20,7 @@ export default function ModuleTabs({ active }) {
     const previousOverflow = document.body.style.overflow
     const unregisterBack = registerBackOverlay(() => setExpanded(false))
     document.body.style.overflow = 'hidden'
-    dialog.current?.querySelector('button')?.focus()
+    dialog.current?.querySelector('button')?.focus({ preventScroll: true })
     const onKey = event => {
       if (event.key === 'Escape') setExpanded(false)
       if (event.key !== 'Tab') return
@@ -41,7 +41,7 @@ export default function ModuleTabs({ active }) {
       document.body.style.overflow = previousOverflow
       unregisterBack()
       document.removeEventListener('keydown', onKey)
-      trigger.current?.focus()
+      trigger.current?.focus({ preventScroll: true })
     }
   }, [expanded])
 
