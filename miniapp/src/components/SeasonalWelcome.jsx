@@ -15,7 +15,7 @@ export default function SeasonalWelcome({ background = false }) {
         if (!active) return
         try {
           const next = seasonalCalendar()
-          setCalendar(current => current?.dateKey === next.dateKey ? current : next)
+          setCalendar(current => current?.appearanceKey === next.appearanceKey ? current : next)
           setCalendarError(false)
         } catch (error) {
           console.error('[Seasonal calendar]', error)
@@ -49,6 +49,7 @@ export default function SeasonalWelcome({ background = false }) {
       'data-seasonal-theme': calendar.theme.id,
       'data-seasonal-motif': calendar.theme.motif,
       'data-ink-layout': calendar.layout.id,
+      'data-daylight-phase': calendar.theme.daylight.name,
     }
     const previousAttributes = Object.fromEntries(Object.keys(attributes).map(key => [key, root.getAttribute(key)]))
     Object.entries(calendar.theme.tokens).forEach(([key, value]) => root.style.setProperty(key, value))
@@ -93,6 +94,7 @@ export default function SeasonalWelcome({ background = false }) {
       </div>
       <footer className="seasonal-calendar-note">
         <span>中国时令 · 北京时间</span>
+        {calendar && <span>昼夜配色 · 柬埔寨时间 · {calendar.theme.daylight.name}</span>}
         {calendar && <span>{calendar.weekday} · {calendar.layout.name}</span>}
         {calendar && <span>{calendar.daysUntilNextTerm} 天后 · {calendar.nextTerm}</span>}
         {calendarError && <button type="button" onClick={() => window.location.reload()}>刷新重试</button>}

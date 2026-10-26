@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chinaDateKey, seasonalCalendar, seasonalTheme } from './seasonalCalendar.js'
+import { chinaDateKey, daylightTheme, seasonalCalendar, seasonalTheme } from './seasonalCalendar.js'
 
 const day = value => seasonalCalendar(new Date(`${value}T12:00:00+08:00`))
 
@@ -163,4 +163,63 @@ test('weekly composition uses Beijing midnight and survives month/year and festi
     ][date.getUTCDay()])
   }
   assert.equal(seen.size, 7)
+})
+
+test('daylight uses Cambodia time independently of Beijing date and retains seasonal identity', () => {
+  const date = new Date('2026-10-25T16:30:00Z')
+  const current = seasonalCalendar(date)
+  assert.equal(current.dateKey, '2026-10-26')
+  assert.equal(current.layout.id, 'mountains')
+  assert.equal(current.theme.daylight.hour, 23.5)
+  assert.equal(current.theme.daylight.timeZone, 'Asia/Phnom_Penh')
+  const base = seasonalTheme('霜降')
+  for (const hour of [0, 5, 8, 12, 17.5, 21, 23.5]) {
+    const result = daylightTheme(base, new Date(Date.UTC(2026, 9, 26, 0, hour * 60 - 420)))
+    assert.equal(result.id, base.id)
+    assert.equal(result.motif, base.motif)
+    assert.equal(result.kind, base.kind)
+    assert.equal(result.name, base.name)
+    assert.equal(result.daylight.hour, hour)
+  }
+  const colors = hour => daylightTheme(base, new Date(`2026-10-26T${hour}:00:00+07:00`))
+  assert.ok(luminance(colors('00').paper) < luminance(colors('12').paper))
+  assert.notEqual(colors('08').accent, colors('12').accent)
+  assert.notEqual(colors('17').accent, colors('21').accent)
+  assert.deepEqual(base, seasonalTheme('霜降'), 'base palette remains unchanged')
+})
+
+test('all seasonal and festival palettes stay readable throughout the Cambodia day', () => {
+  const bases = new Map()
+  for (let offset = 0; offset < 365; offset++) {
+    const current = seasonalCalendar(new Date(Date.UTC(2026, 0, 1 + offset, 4)))
+    bases.set(current.theme.id, seasonalTheme(current.currentTerm, current.festivals))
+  }
+  assert.equal(bases.size, 34)
+  for (const base of bases.values()) {
+    for (let minute = 0; minute < 1440; minute++) {
+      const theme = daylightTheme(base, new Date(Date.UTC(2026, 9, 26, 0, minute - 420)))
+      assertReadableTheme(theme)
+    }
+  }
+})
+
+test('daylight interpolation is continuous at stops and Cambodia midnight', () => {
+  const base = seasonalTheme('霜降')
+  const distance = (a, b) => Math.max(...['accent', 'paper', 'wash'].flatMap(key => {
+    const channels = color => color.slice(1).match(/../g).map(channel => parseInt(channel, 16))
+    const target = channels(b[key])
+    return channels(a[key]).map((value, index) => Math.abs(value - target[index]))
+  }))
+  for (const minute of [0, 300, 480, 720, 1050, 1260, 1440]) {
+    const at = Date.UTC(2026, 9, 26, 0, minute - 420)
+    assert.ok(distance(daylightTheme(base, new Date(at - 1000)), daylightTheme(base, new Date(at))) <= 1)
+    assert.ok(distance(daylightTheme(base, new Date(at)), daylightTheme(base, new Date(at + 1000))) <= 1)
+  }
+  const first = seasonalCalendar(new Date('2026-10-26T01:00:00Z'))
+  const sameMinute = seasonalCalendar(new Date('2026-10-26T01:00:59Z'))
+  const later = seasonalCalendar(new Date('2026-10-26T02:00:00Z'))
+  assert.equal(first.appearanceKey, sameMinute.appearanceKey)
+  assert.notEqual(first.appearanceKey, later.appearanceKey)
+  assert.notEqual(first.theme.paper, later.theme.paper)
+  assert.equal(first.dateKey, later.dateKey)
 })

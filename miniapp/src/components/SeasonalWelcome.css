@@ -1,3 +1,29 @@
+/* Registered colors interpolate between minute updates; older WebViews still receive each palette. */
+@property --ink-accent { syntax: "<color>"; inherits: true; initial-value: #365544; }
+@property --ink-paper { syntax: "<color>"; inherits: true; initial-value: #f8f6ef; }
+@property --ink-wash { syntax: "<color>"; inherits: true; initial-value: #e1e8d8; }
+@property --ink-surface { syntax: "<color>"; inherits: true; initial-value: #fffef9bf; }
+@property --ink-reading { syntax: "<color>"; inherits: true; initial-value: #fffef9d9; }
+@property --ink-header { syntax: "<color>"; inherits: true; initial-value: #faf9f3f7; }
+@property --ink-line { syntax: "<color>"; inherits: true; initial-value: #52695a33; }
+@property --season-ink { syntax: "<color>"; inherits: true; initial-value: #496b5b; }
+@property --season-wash { syntax: "<color>"; inherits: true; initial-value: #e1e8d8; }
+@property --season-hill { syntax: "<color>"; inherits: true; initial-value: #b5c7b2; }
+@property --season-accent { syntax: "<color>"; inherits: true; initial-value: #bea26a; }
+@property --primary { syntax: "<color>"; inherits: true; initial-value: #365544; }
+@property --primary-light { syntax: "<color>"; inherits: true; initial-value: #e6ecdf; }
+@property --bg { syntax: "<color>"; inherits: true; initial-value: #f8f6ef; }
+html[data-daylight-phase] {
+  transition-property: --ink-accent, --ink-paper, --ink-wash, --ink-surface, --ink-reading,
+    --ink-header, --ink-line, --season-ink, --season-wash, --season-hill, --season-accent,
+    --primary, --primary-light, --bg;
+  transition-duration: 60s;
+  transition-timing-function: linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-daylight-phase] { transition: none; }
+}
+
 .seasonal-welcome { margin: 0 0 20px; color: #263f36; }
 .seasonal-card, .seasonal-background { color: var(--ink-text); }
 .seasonal-card { position: relative; isolation: isolate; overflow: hidden; border: 1px solid #dce2d6; border-radius: 20px; background: linear-gradient(115deg, #fcfcf5, var(--season-wash)); box-shadow: 0 8px 28px #243f3210; }

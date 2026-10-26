@@ -70,26 +70,66 @@ const festivalThemes = new Map(festivalStyles.map(([name, accent, paper, wash, m
 export function seasonalTheme(currentTerm, festivals = []) {
   const theme = festivalThemes.get(festivals[0]) || termThemes.get(currentTerm)
   if (!theme) throw new Error(`无法识别时令主题：${currentTerm}`)
+  return { ...theme, tokens: themeTokens(theme) }
+}
+
+function themeTokens(theme) {
   return {
-    ...theme,
-    tokens: {
-      '--ink-accent': theme.accent,
-      '--ink-paper': theme.paper,
-      '--ink-wash': theme.wash,
-      '--ink-surface': `${theme.paper}bf`,
-      '--ink-reading': `${theme.paper}d9`,
-      '--ink-header': `${theme.paper}f7`,
-      '--ink-line': `${theme.accent}33`,
-      '--ink-text': '#304039',
-      '--ink-muted': '#4d5a52',
-      '--season-ink': theme.accent,
-      '--season-wash': theme.wash,
-      '--season-hill': theme.wash,
-      '--season-accent': theme.accent,
-      '--primary': theme.accent,
-      '--primary-light': theme.wash,
-      '--bg': theme.paper,
-    },
+    '--ink-accent': theme.accent,
+    '--ink-paper': theme.paper,
+    '--ink-wash': theme.wash,
+    '--ink-surface': `${theme.paper}bf`,
+    '--ink-reading': `${theme.paper}d9`,
+    '--ink-header': `${theme.paper}f7`,
+    '--ink-line': `${theme.accent}33`,
+    '--ink-text': '#304039',
+    '--ink-muted': '#4d5a52',
+    '--season-ink': theme.accent,
+    '--season-wash': theme.wash,
+    '--season-hill': theme.wash,
+    '--season-accent': theme.accent,
+    '--primary': theme.accent,
+    '--primary-light': theme.wash,
+    '--bg': theme.paper,
+  }
+}
+
+const cambodiaClock = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Phnom_Penh', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+})
+const daylightStops = [
+  { hour: 0, name: '静夜', accent: '#28364e', paper: '#b9c8dc', wash: '#b9c8dc', strength: .5 },
+  { hour: 5, name: '晨曦', accent: '#405d68', paper: '#dae7ee', wash: '#c8d9e5', strength: .3 },
+  { hour: 8, name: '清晨', accent: '#3d6765', paper: '#e3eff2', wash: '#cbdfe0', strength: .25 },
+  { hour: 12, name: '日光', accent: '#000000', paper: '#ffffff', wash: '#ffffff', strength: 0 },
+  { hour: 17.5, name: '暮色', accent: '#80472d', paper: '#ffe2bf', wash: '#efd0ae', strength: .3 },
+  { hour: 21, name: '入夜', accent: '#28364e', paper: '#b9c8dc', wash: '#b9c8dc', strength: .45 },
+  { hour: 24, name: '静夜', accent: '#28364e', paper: '#b9c8dc', wash: '#b9c8dc', strength: .5 },
+]
+
+function mixColor(first, second, amount) {
+  const channels = color => color.slice(1).match(/../g).map(channel => parseInt(channel, 16))
+  const target = channels(second)
+  return `#${channels(first).map((value, index) =>
+    Math.round(value + (target[index] - value) * amount).toString(16).padStart(2, '0')).join('')}`
+}
+
+export function daylightTheme(theme, date = new Date()) {
+  const parts = Object.fromEntries(cambodiaClock.formatToParts(date).map(part => [part.type, part.value]))
+  const hour = Number(parts.hour) + Number(parts.minute) / 60 + Number(parts.second) / 3600
+  const index = daylightStops.findIndex(stop => stop.hour > hour)
+  const start = daylightStops[index - 1]
+  const end = daylightStops[index]
+  const progress = (hour - start.hour) / (end.hour - start.hour)
+  const amount = progress * progress * (3 - 2 * progress)
+  const colors = Object.fromEntries(['accent', 'paper', 'wash'].map(key => [
+    key, mixColor(mixColor(theme[key], start[key], start.strength),
+      mixColor(theme[key], end[key], end.strength), amount),
+  ]))
+  const result = { ...theme, ...colors }
+  return {
+    ...result, tokens: themeTokens(result),
+    daylight: { name: start.name, timeZone: 'Asia/Phnom_Penh', hour },
   }
 }
 
@@ -125,11 +165,12 @@ export function seasonalCalendar(date = new Date()) {
   ].filter(Boolean)
   const season = seasons.find(item => item.terms.includes(currentTerm))
   if (!season) throw new Error(`无法识别节气：${currentTerm}`)
-  const theme = seasonalTheme(currentTerm, festivals)
+  const theme = daylightTheme(seasonalTheme(currentTerm, festivals), date)
   const daysUntilNextTerm = Math.round((Date.UTC(nextSolar.getYear(), nextSolar.getMonth() - 1, nextSolar.getDay())
     - Date.UTC(year, month - 1, day)) / 86400000)
   return {
-    dateKey, solarLabel: `${month}月${day}日`, weekday: `星期${solar.getWeekInChinese()}`,
+    dateKey, appearanceKey: `${dateKey}:${Math.floor(date.getTime() / 60000)}`,
+    solarLabel: `${month}月${day}日`, weekday: `星期${solar.getWeekInChinese()}`,
     lunarLabel: `农历${lunar.getMonthInChinese()}月${lunar.getDayInChinese()}`,
     currentTerm, termToday, festivals, season: season.key, theme,
     layout: { ...weeklyLayouts[(solar.getWeek() + 6) % 7] },
