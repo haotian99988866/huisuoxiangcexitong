@@ -172,7 +172,7 @@ def tenant_cache_policy(response):
     body = request.get_json(silent=True) if request.endpoint == "webhook" and request.is_json else None
     admin_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("admin_")
     music_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("music_")
-    payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_"))
+    payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_", "phone_"))
     if request.path == "/member-deposit" or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
@@ -944,11 +944,11 @@ def webhook():
             return jsonify({"error": "音乐账户服务暂不可用，请稍后重试"}), 503
     if action in {
         "member_login", "member_logout", "member_account", "member_deposit",
-        "member_catalog", "member_purchase", "member_orders", "member_order", "member_ledger",
+        "member_catalog", "member_purchase", "phone_purchase", "member_orders", "member_order", "member_ledger",
         "member_test_account", "member_test_purchase",
     }:
         from member_accounts import authenticate as browser_auth, exchange_link, logout, site_origin
-        from premium_balance import catalog, create_order, get_order, recent_orders, recent_ledger
+        from premium_balance import catalog, create_order, get_order, order_public, recent_orders, recent_ledger
         from wallet import account, submit
         try:
             from admin_console import authenticate as telegram_auth, is_tenant_session
@@ -959,7 +959,7 @@ def webhook():
                 if telegram_user is None:
                     return jsonify({"error": "未能验证 Telegram 账户，请重新打开小程序登录"}), 401
                 if is_tenant_session(init_data):
-                    return jsonify({"error": "会所入口不开放账户或会员购买"}), 403
+                    return jsonify({"error": "会所入口不开放账户或服务购买"}), 403
                 if action in {"member_login", "member_logout"}:
                     return jsonify({"error": "小程序账户由 Telegram 管理，请在客户端切换账户"}), 400
             elif request.headers.get("Origin") != site_origin():
@@ -1013,30 +1013,27 @@ def webhook():
                 order = get_order(data.get("order_id"), user_id)
                 if not order:
                     return jsonify({"error": "订单不存在"}), 404
-                result = {
-                    "order_id": order["order_id"], "months": order["months"],
-                    "recipient_username": order["recipient_username"],
-                    "price_usd": str(order["price_usd"]), "status": order["status"],
-                }
+                result = order_public(order)
             else:
                 import telebot
                 bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
                 if not bot_token:
                     raise RuntimeError("Telegram bot token is not configured")
-                order = create_order(
-                    telebot.TeleBot(bot_token), user_id, data.get("recipient_username"),
-                    data.get("months"), data.get("order_id"))
-                result = {
-                    "order_id": order["order_id"], "months": order["months"],
-                    "recipient_username": order["recipient_username"],
-                    "price_usd": str(order["price_usd"]), "status": order["status"],
-                }
+                if action == "phone_purchase":
+                    order = create_order(
+                        None, user_id, None, None, data.get("order_id"), product_kind="phone",
+                        phone=data.get("phone"), amount=data.get("amount"))
+                else:
+                    order = create_order(
+                        telebot.TeleBot(bot_token), user_id, data.get("recipient_username"),
+                        data.get("months"), data.get("order_id"))
+                result = order_public(order)
             return jsonify(result)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception:
             logger.exception("Browser member operation failed action=%s", action)
-            return jsonify({"error": "会员服务暂不可用；购买请求异常时请先查询订单，勿重新扣款"}), 503
+            return jsonify({"error": "账户服务暂不可用；购买请求异常时请先查询订单，勿重新扣款"}), 503
     if action in {"wallet_account", "wallet_submit"}:
         from wallet import account, submit
         init_data = data.get("init_data")

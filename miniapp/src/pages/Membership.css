@@ -43,6 +43,12 @@
 .account-profile { display: flex; align-items: center; gap: 14px; padding: 10px 2px 24px; }
 .account-profile h1 { font-size: 23px; margin: 0 0 4px; overflow-wrap: anywhere; }
 .account-profile p { font-size: 12px; color: var(--ink-muted); overflow-wrap: anywhere; }
+.personal-page { display: flex; flex-direction: column; min-height: calc(100dvh - 100px - var(--tg-safe-area-inset-bottom, 0px)); }
+.personal-footer { margin-top: auto; padding-top: 28px; text-align: center; color: var(--ink-muted); font-size: 12px; }
+.personal-footer button, .personal-footer a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 12px; border: 0; background: none; color: var(--ink-muted); text-decoration: none; }
+.personal-footer .personal-support { color: var(--ink-accent); }
+.personal-account-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.personal-footer :is(button, a):focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 2px; border-radius: 8px; }
 .account-avatar { display: grid; place-items: center; flex-shrink: 0; width: 54px; height: 54px; border-radius: 18px; color: var(--ink-accent); background: #f3ede3; border: 1px solid #e3d4bb; font-size: 24px; }
 .wallet-card { background: linear-gradient(125deg, #f9f4ec, #fff); border-color: #e4d7c3; position: relative; overflow: hidden; isolation: isolate; }
 .account-primary-link { display: block; text-align: center; padding: 13px; border-radius: 12px; margin: 12px 0; }
@@ -59,7 +65,6 @@
 .account-menu { display: grid; }
 .account-menu > a, .account-menu > button { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 50px; background: none; border: 0; border-radius: 0; border-bottom: 1px solid var(--ink-line); padding: 10px 0; text-align: left; color: var(--ink-text); }
 .account-menu > :last-child { border-bottom: 0; }
-.account-menu > a::after, .account-menu > button::after { content: '\203A'; color: var(--ink-muted); font-size: 22px; }
 .service-product { display: flex; align-items: center; gap: 14px; padding: 12px 0; }
 .service-product > div { flex: 1; min-width: 0; }
 .service-product h3 { font-size: 20px; margin: 0 0 6px; color: var(--ink-text); }

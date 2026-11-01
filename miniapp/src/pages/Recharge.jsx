@@ -21,12 +21,12 @@ export default function Recharge() {
     <header className="membership-header">
       {!hasTelegramBackButton && <Link to="/personal">← 我的钱包</Link>}
       <h1>{progressOnly ? '充值复核进度' : '充值余额'}</h1>
-      {!progressOnly && <p>充值的是账户 USD 余额，不是直接开通会员。</p>}
+      {!progressOnly && <p>充值的是账户 USD 余额，不是直接开通会员或充值手机话费。</p>}
     </header>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
       {!progressOnly && <section className="membership-panel">
-        <div className="membership-row"><h2>可用余额</h2><Link to="/wallet-history?view=deposits">充值记录 →</Link></div>
+        <div className="membership-row"><h2>可用余额</h2><Link to="/wallet-history?view=deposits">充值记录</Link></div>
         <p className="membership-balance">${money(account.balance)}</p>
         <button type="button" disabled={busy} onClick={async () => {
           setBusy(true)

@@ -51,11 +51,13 @@ export default function WalletHistory() {
         {!ledger && !ledgerError && <p role="status">正在读取流水…</p>}
         {ledger?.length === 0 && <p>暂无资金流水。</p>}
         {ledger?.map(entry => <article className="membership-order" key={`${entry.event}-${entry.id}`}>
-          <div className="membership-row"><strong>{labels[entry.event] || entry.event}</strong>
+          <div className="membership-row"><strong>{entry.product_kind === 'phone'
+            ? entry.event === 'refund' ? '话费代充退款（含手续费）' : '话费代充（含手续费）'
+            : labels[entry.event] || entry.event}</strong>
             <strong>{Number(entry.amount) > 0 ? '+' : ''}{money(entry.amount)} USD</strong></div>
           <p>{entry.created_at}</p>
           {entry.event === 'deposit' ? <p>充值 #{entry.reference}</p>
-            : <Link to={`/orders/${entry.reference}`}>查看订单 →</Link>}
+            : <Link to={`/orders/${entry.reference}`}>查看订单</Link>}
         </article>)}
       </> : <DepositRecords deposits={account.deposits} />}
       <button type="button" disabled={busy} onClick={async () => {

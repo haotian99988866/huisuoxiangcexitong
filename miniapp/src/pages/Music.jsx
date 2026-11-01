@@ -262,7 +262,7 @@ export default function Music() {
                 <span aria-hidden="true">/ {pageCount}</span>
               </label>
               <button type="submit" className="music-page-go">跳转</button>
-              <button type="button" aria-label="下一页" disabled={currentPage === pageCount} onClick={() => goToPage(currentPage + 1)}>›</button>
+              <button type="button" aria-label="下一页" disabled={currentPage === pageCount} onClick={() => goToPage(currentPage + 1)}>下一页</button>
             </form>
             {pageError && <p id="music-page-error" role="alert" className="music-error">{pageError}</p>}
           </nav>}

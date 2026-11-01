@@ -10,7 +10,7 @@ export function isTelegramMemberEntry() {
 }
 
 export async function requestMember(action, fields = {}) {
-  if (isTenantEntry()) throw new Error('会所入口不开放账户或会员购买。')
+  if (isTenantEntry()) throw new Error('会所入口不开放账户或服务购买。')
   const initData = window.Telegram?.WebApp?.initData
   const session = sessionStorage.getItem(SESSION_KEY)
   const controller = new AbortController()
@@ -27,7 +27,7 @@ export async function requestMember(action, fields = {}) {
     const result = await response.json()
     if (!response.ok) {
       if (response.status === 401) sessionStorage.removeItem(SESSION_KEY)
-      const error = new Error(result.error || '会员请求失败，请先核实订单状态。')
+      const error = new Error(result.error || '服务请求失败，请先核实订单状态。')
       error.status = response.status
       throw error
     }

@@ -18,7 +18,7 @@ export default function AppNavigation({ children }) {
       homePath.current = `${location.pathname}${location.search}`
     }
   }, [location, section])
-  const checkout = location.pathname === '/membership'
+  const checkout = ['/membership', '/phone-topup'].includes(location.pathname)
   return <div className={`app-shell${fullscreen ? ' app-shell-fullscreen' : ''}`}>
     {children}
     {!checkout && !player?.expanded && <nav className="app-bottom-nav" aria-label="主导航">

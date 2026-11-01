@@ -77,7 +77,7 @@ export default function MemberSimulation({ userId }) {
     </form>
     <button type="button" disabled={busy} onClick={() => refresh().catch(failure => setError(failure.message))}>刷新测试记录</button>
     {account?.orders.map(order => <article key={order.order_id} className="membership-order">
-      <strong>{order.months}个月 → @{order.username}</strong>
+      <strong>{order.months}个月 · @{order.username}</strong>
       <p>${Number(order.price_usd).toFixed(2)} · {statuses[order.status]}</p>
       <small className="membership-reference">{order.order_id}</small>
     </article>)}

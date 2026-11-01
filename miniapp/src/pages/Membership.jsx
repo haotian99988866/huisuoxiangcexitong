@@ -26,7 +26,7 @@ export default function Membership() {
   const submitting = useRef(false)
   const selected = catalog?.plans.find(plan => plan.months === months)
   const insufficient = Boolean(selected && account && Number(account.balance) < Number(selected.price_usd))
-  const attention = orders.find(order => order.status === 'delivery_unknown')
+  const attention = orders.find(order => order.product_kind !== 'phone' && order.status === 'delivery_unknown')
   useModuleScroll('membership', !loading)
 
   useEffect(() => bindBackButton(() => navigate('/services', { replace: true })), [navigate])
@@ -134,7 +134,7 @@ export default function Membership() {
     {(error || localError) && <p className="membership-error" role="alert">{localError || error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
       {attention && <p className="membership-notice" role="status">
-        你有一笔开通结果待核实的订单，请勿重复购买。<Link to={`/orders/${attention.order_id}`}>查看订单 →</Link>
+        你有一笔开通结果待核实的订单，请勿重复购买。<Link to={`/orders/${attention.order_id}`}>查看订单</Link>
       </p>}
       <section className="membership-panel">
           <div className="membership-row"><h2>选择时长</h2><span className="membership-tag">PREMIUM</span></div>
@@ -150,8 +150,8 @@ export default function Membership() {
       </section>
       {pending && <p className="membership-notice" role="status">有一笔购买结果待确认，请勿重新下单。
         <button type="button" disabled={busy} onClick={() => setConfirmationOpen(true)}>核实这笔订单</button></p>}
-      {recoveryError && <Link to="/orders">先查询订单并联系客服 →</Link>}
-      <Link to="/orders">我的订单 →</Link>
+      {recoveryError && <Link to="/orders">先查询订单并联系客服</Link>}
+      <Link to="/orders">我的订单</Link>
       {confirmationOpen && <MusicDialog className="account-sheet" title="确认会员套餐" onClose={() => setConfirmationOpen(false)}>
         {(error || localError) && <p className="membership-error" role="alert">{localError || error}</p>}
         <form onSubmit={purchase}>

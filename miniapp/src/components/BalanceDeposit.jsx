@@ -135,7 +135,7 @@ export default function BalanceDeposit({ account, onRefresh, onFailure, onPendin
       : <>
         <h3>联系后付款</h3>
         <p role="status">如需ABA充值请联系昊天</p>
-        <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系昊天 →</button>
+        <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系昊天</button>
         <p>确认美元付款方式后付款，再提交金额。</p>
       </>}
     {error && <p className="membership-error" role="alert">{error}</p>}

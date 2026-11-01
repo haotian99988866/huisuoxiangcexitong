@@ -30,7 +30,7 @@
 .home-service-card-duration svg { width: 15px; height: 15px; }
 .ink-app .detail-card, .ink-app .tech-card { background: var(--ink-reading); border: 1px solid var(--ink-line); box-shadow: var(--shadow); }
 .ink-app .announcement-card { background: var(--ink-reading); border-color: var(--ink-line); border-left-color: #b59460; box-shadow: none; }
-.ink-app :is(.announcement-card-label,.announcement-card-time,.announcement-card-action) { color: var(--ink-muted); }
+.ink-app :is(.announcement-card-label,.announcement-card-time) { color: var(--ink-muted); }
 .ink-app .announcement-card-title { color: var(--ink-text); }
 .movie-navigation, .music-navigation, .news-sticky { background: var(--ink-header); }
 .movie-search, .music-search { background: white; border-color: var(--ink-line); border-radius: 14px; }

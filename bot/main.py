@@ -368,24 +368,33 @@ def handle_member_sales(message):
         if len(parts) == 2 and parts[1] in {"enable", "disable"}:
             set_enabled(bot, parts[1] == "enable")
             bot.reply_to(message, "会员余额购买已开放。" if parts[1] == "enable" else "会员余额购买已关闭。")
+        elif len(parts) == 2 and parts[1] in {"phone_enable", "phone_disable"}:
+            set_enabled(bot, parts[1] == "phone_enable", product_kind="phone")
+            bot.reply_to(message, "话费代充已开放。" if parts[1] == "phone_enable" else "话费代充已关闭。")
         elif len(parts) == 3 and parts[1] == "delivered":
             confirm_delivery(parts[2], message.from_user.id)
-            bot.reply_to(message, "已确认开通完成；此操作必须以实际开通记录为依据。")
-        elif len(parts) == 4 and parts[1] == "refund" and parts[3] == "NOT_GIFTED":
+            bot.reply_to(message, "已确认服务完成；此操作必须以实际开通或代充记录为依据。")
+        elif len(parts) == 4 and parts[1] == "refund" and parts[3] in {"NOT_GIFTED", "NOT_CHARGED"}:
             refund_order(parts[2], message.from_user.id, confirmed_not_delivered=True)
             bot.reply_to(message, "购买金额已退回站内 USD 余额（不是链上退款）。")
         elif len(parts) == 1 or (len(parts) == 2 and parts[1] == "status"):
             lines = [
                 f"网站会员购买：{'开放' if catalog()['enabled'] else '关闭'}",
+                f"柬埔寨话费代充：{'开放' if catalog()['phone']['enabled'] else '关闭'} · $5–$100 + $1手续费",
                 "人工开通：不调用官方赠送接口，不要求机器人 Stars 库存。",
                 "售价：3个月 $15.99 / 6个月 $19.99 / 12个月 $33.99",
                 "/member_sales enable|disable",
-                "/member_sales delivered 订单号（核实已赠送）",
-                "/member_sales refund 订单号 NOT_GIFTED（核实未赠送）",
+                "/member_sales phone_enable|phone_disable",
+                "/member_sales delivered 订单号（核实已开通或代充）",
+                "/member_sales refund 订单号 NOT_GIFTED（核实未开通）",
+                "/member_sales refund 订单号 NOT_CHARGED（核实未代充，全额退余额）",
             ]
             for order in recent_orders():
+                product = (f"话费 ${order['topup_usd']} → {order['phone']}"
+                           if order["product_kind"] == "phone"
+                           else f"{order['months']}个月 → @{order['recipient_username']}")
                 lines.append(f"{order['order_id']} | {order['status']} | ${order['price_usd']} | "
-                             f"{order['months']}个月 → @{order['recipient_username']}")
+                             f"{product}")
             bot.reply_to(message, "\n".join(lines))
         else:
             raise ValueError("命令格式错误，请发送 /member_sales 查看用法")
@@ -414,24 +423,28 @@ def handle_manual_membership(call):
             raise ValueError("请在负责人的机器人私聊中操作")
         if order["status"] != "manual_pending":
             raise ValueError("订单已处理或正在核实，不可重复确认或退款")
+        phone = order.get("product_kind") == "phone"
         if action in {"done", "refund", "back"}:
             text = manual_order_text(order)
             if action == "done":
-                text += "\n\n请再次确认：已给上述账号开通对应套餐，完成后不再允许退余额。"
+                text += ("\n\n请再次确认：上述手机号已实际收到对应话费，完成后不再允许退余额。"
+                         if phone else "\n\n请再次确认：已给上述账号开通对应套餐，完成后不再允许退余额。")
             elif action == "refund":
-                text += "\n\n请再次确认：该订单确实未开通，购买金额将退回客户站内余额。"
+                text += ("\n\n请再次确认：该订单确实未代充，话费及手续费全额退回客户站内余额。"
+                         if phone else "\n\n请再次确认：该订单确实未开通，购买金额将退回客户站内余额。")
             bot.edit_message_text(
                 text, chat_id=call.message.chat.id, message_id=call.message.message_id,
-                reply_markup=manual_keyboard(order_id, None if action == "back" else action),
+                reply_markup=manual_keyboard(order_id, None if action == "back" else action,
+                                             order.get("product_kind", "premium")),
             )
             bot.answer_callback_query(call.id, "请核对后确认" if action != "back" else "已返回核对")
             return
         if action == "confirm_done":
             confirm_delivery(order_id, call.from_user.id)
-            result = "开通完成"
+            result = "代充完成" if phone else "开通完成"
         else:
             refund_order(order_id, call.from_user.id, confirmed_not_delivered=True)
-            result = "未开通，已退回站内余额"
+            result = "未代充，话费及手续费已全额退回站内余额" if phone else "未开通，已退回站内余额"
     except ValueError as exc:
         bot.answer_callback_query(call.id, str(exc), show_alert=True)
         return
@@ -449,7 +462,8 @@ def handle_manual_membership(call):
     except apihelper.ApiException:
         logger.exception("Manual membership result message failed order=%s", order_id)
     try:
-        bot.send_message(order["payer_id"], f"会员订单 {order_id}：{result}。请刷新我的订单及余额。")
+        product = "话费" if phone else "会员"
+        bot.send_message(order["payer_id"], f"{product}订单 {order_id}：{result}。请刷新我的订单及余额。")
     except apihelper.ApiException:
         logger.exception("Manual membership customer notification failed order=%s", order_id)
 

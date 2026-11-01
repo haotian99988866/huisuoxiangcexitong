@@ -43,9 +43,10 @@ class PremiumBalanceTests(unittest.TestCase):
         result = premium_balance.recent_ledger(123)
         query, values = cur.execute.call_args.args
         self.assertEqual(values, (123, 123))
-        self.assertEqual(query.count("WHERE user_id=%s"), 2)
+        self.assertIn("WHERE user_id=%s", query)
+        self.assertIn("WHERE l.user_id=%s", query)
         self.assertIn("UNION ALL", query)
-        self.assertIn("event IN ('purchase','refund')", query)
+        self.assertIn("l.event IN ('purchase','refund')", query)
         self.assertIn("LIMIT 30", query)
         self.assertNotIn("member_test", query)
         self.assertNotIn("wallet_deposits", query)
@@ -114,7 +115,7 @@ class PremiumBalanceTests(unittest.TestCase):
 
     @patch("premium_balance.get_order", return_value=order())
     def test_replay_cannot_change_package(self, get_order):
-        with self.assertRaisesRegex(ValueError, "其他套餐"):
+        with self.assertRaisesRegex(ValueError, "其他服务"):
             premium_balance.create_order(self.bot, 123, "@receiver", 6, ORDER_ID)
 
     @patch("premium_balance.get_order", return_value=None)
@@ -132,7 +133,8 @@ class PremiumBalanceTests(unittest.TestCase):
         calls = cur.execute.call_args_list
         self.assertIn("FOR UPDATE", calls[0].args[0])
         self.assertIn("FOR UPDATE", calls[2].args[0])
-        self.assertEqual(calls[3].args[1][-1], 99)
+        self.assertEqual(calls[3].args[1][6], 99)
+        self.assertEqual(calls[3].args[1][7], "premium")
         self.assertEqual(calls[4].args[1], (Decimal("15.99"), 123))
         self.assertEqual(calls[5].args[1], (ORDER_ID, 123, Decimal("-15.99")))
         self.assertEqual(Decimal("20.00") - calls[4].args[1][0], Decimal("4.01"))
@@ -317,7 +319,7 @@ class PremiumBalanceTests(unittest.TestCase):
             premium_balance.notify_manual_order(self.bot, ORDER_ID)
         conn.rollback.assert_called_once()
         conn.commit.assert_not_called()
-        self.assertEqual(cur.execute.call_count, 1)
+        self.assertEqual(cur.execute.call_count, 2)
 
     @patch("premium_balance.get_conn")
     def test_worker_only_notifies_manual_orders_and_recovers_legacy_refunds(self, get_conn):
@@ -332,3 +334,104 @@ class PremiumBalanceTests(unittest.TestCase):
         refund.assert_called_once_with("c" * 32)
         self.bot.gift_premium_subscription.assert_not_called()
         self.assertIn("notification_id IS NULL", cur.execute.call_args.args[0])
+
+    def test_phone_amount_bounds_and_format(self):
+        self.assertEqual(premium_balance.phone_amount("5"), Decimal("5"))
+        self.assertEqual(premium_balance.phone_amount("100.00"), Decimal("100"))
+        for value in ("4.99", "100.01", "5.001", "1e2", "-5", "NaN", None, True, 5):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                premium_balance.phone_amount(value)
+        self.assertEqual(premium_balance.normalize_phone("012 345 678"), "+85512345678")
+        self.assertEqual(premium_balance.normalize_phone("+85512345678"), "+85512345678")
+        for value in ("01234", "+86123456789", "+855012345678", None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                premium_balance.normalize_phone(value)
+
+    @patch("premium_balance.get_order", return_value=None)
+    @patch("premium_balance.get_conn")
+    def test_phone_debits_amount_plus_fee_in_shared_transaction(self, get_conn, get_order):
+        for amount in ("5", "100"):
+            with self.subTest(amount=amount):
+                conn = get_conn.return_value
+                conn.reset_mock()
+                cur = conn.cursor.return_value.__enter__.return_value
+                cur.fetchone.side_effect = [
+                    {"phone_enabled": 1, "owner_id": 99}, None, {"balance": Decimal("101")},
+                ]
+                total = Decimal(amount) + Decimal("1")
+                result = premium_balance.create_order(
+                    self.bot, 123, None, None, ORDER_ID, product_kind="phone",
+                    phone="012345678", amount=amount)
+                self.assertEqual(Decimal(result["price_usd"]), total)
+                calls = cur.execute.call_args_list
+                self.assertEqual(calls[3].args[1][7:], ("phone", "+85512345678", Decimal(amount), Decimal("1")))
+                self.assertEqual(calls[4].args[1], (total, 123))
+                self.assertEqual(calls[5].args[1], (ORDER_ID, 123, -total))
+                conn.commit.assert_called_once()
+        self.bot.get_chat.assert_not_called()
+        self.bot.gift_premium_subscription.assert_not_called()
+
+    @patch("premium_balance.get_order", return_value=None)
+    @patch("premium_balance.get_conn")
+    def test_phone_balance_must_also_cover_fee(self, get_conn, get_order):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.side_effect = [{"phone_enabled": 1, "owner_id": 99}, None, {"balance": Decimal("5.99")}]
+        with self.assertRaisesRegex(ValueError, "余额不足"):
+            premium_balance.create_order(None, 123, None, None, ORDER_ID,
+                                         product_kind="phone", phone="012345678", amount="5")
+        self.assertEqual(cur.execute.call_count, 3)
+        conn.commit.assert_not_called()
+        conn.rollback.assert_called_once()
+
+    @patch("premium_balance.get_order")
+    @patch("premium_balance.get_conn")
+    def test_phone_replay_does_not_charge_or_allow_changed_details(self, get_conn, get_order):
+        get_order.return_value = {
+            **order("delivered"), "months": 0, "recipient_username": "", "product_kind": "phone",
+            "phone": "+85512345678", "topup_usd": Decimal("5"), "fee_usd": Decimal("1"),
+            "price_usd": Decimal("6"),
+        }
+        result = premium_balance.create_order(None, 123, None, None, ORDER_ID,
+                                              product_kind="phone", phone="012345678", amount="5.00")
+        self.assertEqual(result["status"], "delivered")
+        for phone, amount in (("012345678", "6"), ("012345679", "5")):
+            with self.subTest(phone=phone, amount=amount), self.assertRaises(ValueError):
+                premium_balance.create_order(None, 123, None, None, ORDER_ID,
+                                             product_kind="phone", phone=phone, amount=amount)
+        with self.assertRaises(ValueError):
+            premium_balance.create_order(self.bot, 123, "@receiver", 3, ORDER_ID)
+        get_conn.assert_not_called()
+
+    @patch("premium_balance.get_conn")
+    def test_phone_refund_includes_fee_and_replay_does_not_credit(self, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = {
+            **order("manual_pending"), "product_kind": "phone", "owner_id": 99,
+            "price_usd": Decimal("6"), "topup_usd": Decimal("5"), "fee_usd": Decimal("1"),
+        }
+        premium_balance.refund_order(ORDER_ID, 99, True)
+        self.assertEqual(cur.execute.call_args_list[1].args[1], (123, Decimal("6")))
+        self.assertEqual(cur.execute.call_args_list[2].args[1], (ORDER_ID, 123, Decimal("6"), 99))
+        cur.reset_mock()
+        cur.fetchone.return_value["status"] = "refunded"
+        premium_balance.refund_order(ORDER_ID, 99, True)
+        self.assertEqual(cur.execute.call_count, 1)
+
+    def test_phone_manual_notification_and_confirmation_labels(self):
+        row = {**order("manual_pending"), "product_kind": "phone", "phone": "+85512345678",
+               "topup_usd": Decimal("5"), "fee_usd": Decimal("1")}
+        text = premium_balance.manual_order_text(row)
+        self.assertIn("充值手机号：+85512345678", text)
+        self.assertIn("手续费", text)
+        identity_text = premium_balance.manual_order_text({
+            **row, "payer_username": "receiver", "payer_name": "客户名称",
+        })
+        self.assertIn("客户账号：@receiver", identity_text)
+        self.assertIn("客户名称：客户名称", identity_text)
+        self.assertIn("暂无用户名记录", text)
+        keyboard = premium_balance.manual_keyboard(ORDER_ID, product_kind="phone").to_dict()
+        self.assertEqual(keyboard["inline_keyboard"][0][0]["text"], "代充完成")
+        confirm = premium_balance.manual_keyboard(ORDER_ID, "refund", "phone").to_dict()
+        self.assertIn("全额退款", confirm["inline_keyboard"][0][0]["text"])

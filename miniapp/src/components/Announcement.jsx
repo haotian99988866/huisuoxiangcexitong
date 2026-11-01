@@ -71,7 +71,6 @@ function AnnouncementPreview() {
     aria-label={`东南亚大事件：${latest.text}${latest.publishedAt ? `，发布于${new Date(latest.publishedAt).toLocaleString('zh-CN')}` : ''}，查看${latest.id ? '详情' : '列表'}`}>
     <span className="announcement-card-label announcement-card-icon" aria-hidden="true"><ModuleIcon name="announcements" /></span>
     <ScrollingTitle text={latest.text} publishedAt={latest.publishedAt} />
-    <span className="announcement-card-action" aria-hidden="true">›</span>
   </Link>
 }
 

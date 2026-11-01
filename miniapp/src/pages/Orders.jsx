@@ -4,7 +4,7 @@ import AccountAccess from '../components/AccountAccess'
 import OrderSummary from '../components/OrderSummary'
 import { bindBackButton, hasTelegramBackButton, openTelegramLink } from '../utils/twa'
 import { memberStatuses, requestMember } from '../utils/membership'
-import { money, orderFilters, orderGuidance, orderMatches } from '../utils/commerce'
+import { money, orderFilters, orderGuidance, orderMatches, orderTitle, orderRecipient, orderStatus } from '../utils/commerce'
 import useMemberAccount from '../utils/useMemberAccount'
 import { useModuleScroll } from '../utils/moduleState'
 import './Membership.css'
@@ -58,11 +58,12 @@ export default function Orders() {
       {detailError && <p className="membership-error" role="alert">{detailError}</p>}
       {!order && !detailError && <p role="status">正在查询订单…</p>}
       {order && <section className="membership-panel">
-        <span className="account-status">{memberStatuses[order.status] || order.status}</span>
-        <h3>Telegram Premium · {order.months}个月</h3>
+        <span className="account-status">{orderStatus(order) || memberStatuses[order.status] || order.status}</span>
+        <h3>{orderTitle(order)}</h3>
         <p className="membership-balance">${money(order.price_usd)}</p>
-        <p>{orderGuidance(order.status)}</p>
-        <p>收件人：@{order.recipient_username}</p>
+        {order.product_kind === 'phone' && <p>话费 ${money(order.topup_usd)} + 手续费 ${money(order.fee_usd)}</p>}
+        <p>{orderGuidance(order.status, order.product_kind)}</p>
+        <p>{orderRecipient(order)}</p>
         <details className="account-details"><summary>订单编号与售后</summary><p className="membership-reference">{order.order_id}</p>
           <p>请保留编号。退款回站内余额；结果不明先核实，不要重新下单。</p></details>
       </section>}

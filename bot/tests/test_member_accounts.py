@@ -99,6 +99,7 @@ class MemberApiTests(unittest.TestCase):
             for response, status in (
                 (self.post("member_account", origin="https://untrusted.example.com"), 403),
                 (self.post("member_purchase", init_data="telegram-data"), 401),
+                (self.post("phone_purchase", init_data="telegram-data"), 401),
             ):
                 self.assertEqual(response.status_code, status)
                 self.assertEqual(response.headers["Cache-Control"], "private, no-store")
@@ -115,8 +116,9 @@ class MemberApiTests(unittest.TestCase):
 
     def test_signed_tenant_cannot_access_membership(self):
         from tests.test_admin_console import signed
-        response = self.post("member_account", init_data=signed(start_param="tenant_test-shop"))
-        self.assertEqual(response.status_code, 403)
+        for action in ("member_account", "phone_purchase"):
+            response = self.post(action, init_data=signed(start_param="tenant_test-shop"))
+            self.assertEqual(response.status_code, 403)
 
     def test_removed_stars_actions_are_not_available(self):
         with patch.object(api_server, "get_db_connection") as connection:
@@ -133,6 +135,7 @@ class MemberApiTests(unittest.TestCase):
         with patch("member_accounts.authenticate", side_effect=ValueError("expired")), \
                 patch("premium_balance.create_order") as create:
             self.assertEqual(self.post("member_purchase").status_code, 401)
+            self.assertEqual(self.post("phone_purchase").status_code, 401)
             create.assert_not_called()
 
     def test_purchase_uses_authenticated_user_and_server_amount(self):
@@ -153,6 +156,22 @@ class MemberApiTests(unittest.TestCase):
             response = self.post("member_order", order_id="b" * 32)
         self.assertEqual(response.status_code, 404)
         lookup.assert_called_once_with("b" * 32, 123)
+
+    def test_phone_purchase_uses_authenticated_user_and_ignores_client_fee(self):
+        with patch("member_accounts.authenticate", return_value=123), \
+                patch("premium_balance.create_order", return_value={
+                    "order_id": "b" * 32, "months": 0, "recipient_username": "",
+                    "price_usd": "6.00", "status": "manual_pending", "product_kind": "phone",
+                    "phone": "+85512345678", "topup_usd": "5.00", "fee_usd": "1.00",
+                }) as create:
+            response = self.post("phone_purchase", phone="012345678", amount="5",
+                                 order_id="b" * 32, user_id=999, fee_usd="0", price_usd="0.01")
+        self.assertEqual(response.status_code, 200)
+        create.assert_called_once_with(None, 123, None, None, "b" * 32, product_kind="phone",
+                                       phone="012345678", amount="5")
+        self.assertEqual(response.json["price_usd"], "6.00")
+        self.assertEqual(response.json["fee_usd"], "1.00")
+        self.assertEqual(response.headers["Cache-Control"], "private, no-store")
 
     def test_ledger_uses_authenticated_identity_and_is_not_cached(self):
         with patch("member_accounts.authenticate", return_value=123), \

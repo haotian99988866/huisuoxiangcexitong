@@ -20,17 +20,15 @@ export default function Services() {
       <Link className="service-product" to="/membership">
         <span className="service-product-icon"><ModuleIcon name="membership" /></span>
         <div><h3>Telegram会员</h3><p>3 / 6 / 12个月 · 支持赠送</p><strong>$15.99 <small>起</small></strong></div>
-        <span aria-hidden="true">→</span>
       </Link>
-      <Link className="service-cta" to="/membership"><span>选择套餐</span><span>人工开通 →</span></Link>
+      <Link className="service-cta" to="/membership"><span>选择套餐</span><span>人工开通</span></Link>
     </section>
-    <section className="membership-panel" aria-labelledby="service-coming">
-      <h2 id="service-coming">更多便民服务</h2>
-      <p>手机话费等 · 敬请期待</p>
-    </section>
-    <section className="membership-panel">
-      <div className="membership-row"><h2>已有订单？</h2><Link to="/orders">查看订单 →</Link></div>
-      <div className="account-menu"><Link to="/personal">钱包与账户</Link></div>
+    <section className="membership-panel" aria-labelledby="service-phone">
+      <Link className="service-product" to="/phone-topup">
+        <span className="service-product-icon"><ModuleIcon name="phone" /></span>
+        <div><h3 id="service-phone">柬埔寨话费代充</h3><p>$5–$100 · 每单手续费 $1</p><strong>人工代充</strong></div>
+      </Link>
+      <Link className="service-cta" to="/phone-topup"><span>填写手机号</span><span>去充值</span></Link>
     </section>
   </main>
 }

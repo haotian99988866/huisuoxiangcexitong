@@ -1077,9 +1077,9 @@ export default function VenueList() {
                         />
                       )
                     })()}
-                    {deliveryViewer.media.length > 1 && ['‹', '›'].map((arrow, index) => (
+                    {deliveryViewer.media.length > 1 && ['上一张', '下一张'].map((label, index) => (
                       <button
-                        key={arrow}
+                        key={label}
                         type="button"
                         aria-label={index === 0 ? '上一张' : '下一张'}
                         onClick={() => stepDeliveryViewer(index === 0 ? -1 : 1)}
@@ -1088,18 +1088,18 @@ export default function VenueList() {
                           top: '50%',
                           [index === 0 ? 'left' : 'right']: '8px',
                           transform: 'translateY(-50%)',
-                          width: '38px',
+                          minWidth: '58px',
                           height: '38px',
-                          borderRadius: '50%',
+                          borderRadius: '19px',
                           border: 'none',
                           background: 'rgba(0,0,0,0.4)',
                           color: '#fff',
-                          fontSize: '26px',
+                          fontSize: '12px',
                           lineHeight: '34px',
-                          padding: 0,
+                          padding: '0 8px',
                         }}
                       >
-                        {arrow}
+                        {label}
                       </button>
                     ))}
                     {deliveryViewer.media.length > 1 && (
@@ -2006,9 +2006,9 @@ export default function VenueList() {
                   setPhotoRetry(0)
                 }}
                 aria-label="上一张照片"
-                style={photoViewerButtonStyle}
+                style={{ ...photoViewerButtonStyle, width: '58px', fontSize: '12px' }}
               >
-                ‹
+                上一张
               </button>
             )}
             <button
@@ -2040,9 +2040,9 @@ export default function VenueList() {
                   setPhotoRetry(0)
                 }}
                 aria-label="下一张照片"
-                style={photoViewerButtonStyle}
+                style={{ ...photoViewerButtonStyle, width: '58px', fontSize: '12px' }}
               >
-                ›
+                下一张
               </button>
             )}
           </div>
