@@ -4,6 +4,8 @@ import re
 import tempfile
 import threading
 import announcements
+import hotels
+import json
 from datetime import date
 
 import pymysql
@@ -54,6 +56,8 @@ CORS(
     resources={
         r"/webhook": {"origins": cors_origins},
         r"/member-deposit": {"origins": cors_origins},
+        r"/admin-hotel-save": {"origins": cors_origins},
+        r"/hotel-images/*": {"origins": cors_origins},
         r"/photos/*": {"origins": cors_origins},
         r"/ktv-videos/*": {"origins": cors_origins},
         r"/delivery-media/*": {"origins": cors_origins},
@@ -88,7 +92,7 @@ def get_db_connection():
 @app.before_request
 def tenant_context():
     g.tenant = None
-    if request.path == "/member-deposit":
+    if request.path in {"/member-deposit", "/admin-hotel-save"}:
         request.max_content_length = 6 * 1024 * 1024
     if request.method == "OPTIONS":
         return None
@@ -96,6 +100,10 @@ def tenant_context():
     if header is not None and query is not None and header != query:
         return jsonify({"error": "租户入口参数冲突"}), 400
     slug = header if header is not None else query
+    if slug is not None and request.path in {"/admin-hotel-save"}:
+        return jsonify({"error": "租户入口不开放酒店管理"}), 403
+    if slug is not None and request.endpoint == "hotel_image":
+        return jsonify({"error": "租户入口暂未开放酒店推荐"}), 403
     if slug is not None and request.path == "/member-deposit":
         return jsonify({"error": "会所入口不开放充值"}), 403
     if slug is None:
@@ -172,7 +180,8 @@ def tenant_cache_policy(response):
     payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_", "phone_", "customer_"))
     staff_request = isinstance(body, dict) and body.get("action") in {
         "get_staff", "get_staff_detail", "staff_customer_status", "staff_customer_subscribe"}
-    if request.path == "/member-deposit" or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
+    hotel_request = isinstance(body, dict) and body.get("action") == "get_hotels"
+    if request.path in {"/member-deposit", "/admin-hotel-save"} or hotel_request or request.endpoint == "hotel_image" or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
     return response
@@ -811,11 +820,45 @@ def announcement_media(ident, index):
         return jsonify({"error": "公告媒体暂不可用"}), 503
 
 
+@app.get("/hotel-images/<hotel_id>")
+def hotel_image(hotel_id):
+    try:
+        picture = hotels.image(hotel_id)
+        if picture is None:
+            return jsonify({"error": "酒店照片不存在或已下架"}), 404
+        response = Response(picture, mimetype="image/jpeg")
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except pymysql.MySQLError:
+        logger.exception("Hotel image unavailable")
+        return jsonify({"error": "酒店照片暂不可用"}), 503
+
+
+@app.errorhandler(413)
+def upload_too_large(error):
+    if request.path == "/admin-hotel-save":
+        return jsonify({"error": "上传内容过大，请选择不超过5MB的门头照片"}), 413
+    return error
+
+
 @app.post("/webhook")
 @app.post("/member-deposit")
+@app.post("/admin-hotel-save")
 def webhook():
     proof_upload = request.path == "/member-deposit"
-    data = {**request.form, "action": "member_deposit"} if proof_upload else request.get_json(silent=True)
+    hotel_upload = request.path == "/admin-hotel-save"
+    if hotel_upload:
+        try:
+            data = json.loads(request.form.get("payload", ""))
+        except (ValueError, TypeError):
+            return jsonify({"error": "酒店资料格式无效"}), 400
+        if isinstance(data, dict):
+            data["action"] = "admin_hotel_save"
+    else:
+        data = {**request.form, "action": "member_deposit"} if proof_upload else request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "Request body must be a JSON object"}), 400
 
@@ -824,6 +867,7 @@ def webhook():
         return jsonify({"error": "A valid action is required"}), 400
     if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
                   "admin_credited_customers",
+                  "admin_hotels", "admin_hotel_save", "admin_hotel_image",
                   "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer",
                   "admin_staff", "admin_staff_replace", "admin_staff_management", "admin_staff_management_save",
                   "admin_customers", "admin_customer_detail",
@@ -838,6 +882,24 @@ def webhook():
         if not allowed_admin(user) or is_tenant_session(init_data):
             return jsonify({"error": "仅平台管理员可从主入口访问管理台"}), 403
         try:
+            if action == "admin_hotels":
+                return jsonify(hotels.catalog(data, admin=True))
+            if action == "admin_hotel_image":
+                import base64
+                picture = hotels.image(data.get("id"), admin=True)
+                if picture is None:
+                    return jsonify({"error": "酒店照片不存在"}), 404
+                return jsonify({"image": "data:image/jpeg;base64," + base64.b64encode(picture).decode("ascii")})
+            if action == "admin_hotel_save":
+                if not hotel_upload:
+                    raise ValueError("酒店保存请使用图片上传入口")
+                uploaded = request.files.get("image")
+                raw = uploaded.read(hotels.MAX_IMAGE_BYTES + 1) if uploaded else None
+                from customer_records import RecordConflict
+                try:
+                    return jsonify(hotels.save(data, raw, user["id"]))
+                except RecordConflict as exc:
+                    return jsonify({"error": str(exc)}), 409
             if action in {"admin_staff_management", "admin_staff_management_save"}:
                 from staff_management import overview as staff_management_overview, save as staff_management_save
                 from customer_records import RecordConflict
@@ -924,6 +986,14 @@ def webhook():
             return jsonify({"error": "Telegram Stars 服务暂不可用，请刷新核对库存和订单，勿重复付款"}), 503
     if action == "tenant_config":
         return jsonify({"tenant": public_config(g.tenant) if g.tenant else None})
+    if action == "get_hotels":
+        try:
+            return jsonify(hotels.catalog(data))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("Hotel catalog unavailable")
+            return jsonify({"error": "酒店推荐暂不可用，请稍后重试"}), 503
     if action in {"get_announcements", "get_announcement"}:
         try:
             result = announcements.catalog(data.get("page", 1)) if action == "get_announcements" else announcements.detail(data.get("id"))
@@ -1586,6 +1656,7 @@ if __name__ == "__main__":
     ensure_movie_tables()
     ensure_music_tables()
     announcements.ensure_tables()
+    hotels.ensure_tables()
     from music_social import ensure_tables as ensure_music_social_tables
     ensure_music_social_tables()
     ensure_image_hash_columns()

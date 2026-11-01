@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 HEX_ID = re.compile(r"^[0-9a-f]{32}$")
 PAGE_KEYS = {
     "venue", "delivery", "venue_detail", "technicians", "movies", "music",
-    "announcements", "announcement_detail", "services", "personal", "recharge",
+    "announcements", "announcement_detail", "services", "hotels", "personal", "recharge",
     "membership", "phone_topup", "orders", "order_detail", "wallet_history", "consumption", "admin", "other",
     "technician_detail", "movie_detail", "media_viewer", "ktv_player", "music_player",
 }

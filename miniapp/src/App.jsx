@@ -12,6 +12,7 @@ import Admin from './pages/Admin'
 import Music from './pages/Music'
 import Announcements from './pages/Announcements'
 import Services from './pages/Services'
+import Hotels from './pages/Hotels'
 import Orders from './pages/Orders'
 import WalletHistory from './pages/WalletHistory'
 import Consumption from './pages/Consumption'
@@ -69,6 +70,7 @@ function Content() {
         <Route path="/phone-topup" element={<PhoneTopup />} />
         <Route path="/personal" element={<Personal />} />
         <Route path="/services" element={<Services />} />
+        <Route path="/hotels" element={<Hotels />} />
         <Route path="/orders" element={<Orders />} />
         <Route path="/orders/:orderId" element={<Orders />} />
         <Route path="/wallet-history" element={<WalletHistory />} />

@@ -1,0 +1,16 @@
+.hotel-admin-actions { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.dialog-panel-footer .hotel-admin-actions { margin: 0; }
+.hotel-admin-preview { display: block; width: 100%; max-height: 240px; object-fit: contain; margin: 14px 0; border-radius: 12px; }
+.hotel-admin-link { overflow-wrap: anywhere; }
+.hotel-editor-sheet .hotel-editor-form { padding-top: 4px; }
+.hotel-editor-sheet .hotel-editor-form fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.hotel-editor-sheet .hotel-editor-form label { display: grid; gap: 8px; margin: 16px 0; font-size: 14px; line-height: 1.6; }
+.hotel-editor-sheet .hotel-editor-form input:not([type="checkbox"]) { width: 100%; min-width: 0; margin: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); font-size: 16px; }
+.hotel-editor-sheet .hotel-editor-form input[type="file"] { padding: 10px; font-size: 13px; }
+.hotel-editor-sheet .hotel-editor-form .hotel-editor-visibility { display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: var(--ink-wash); border-radius: 12px; }
+.hotel-editor-sheet .hotel-editor-visibility input[type="checkbox"] { flex: 0 0 20px; width: 20px; max-width: 20px; height: 20px; min-height: 20px; padding: 0; margin: 3px 0 0; accent-color: var(--ink-accent); }
+.hotel-editor-visibility > span { flex: 1; min-width: 0; }
+.hotel-editor-visibility small { display: block; margin-top: 3px; font-size: 12px; color: var(--ink-muted); }
+.hotel-editor-sheet .dialog-panel-footer .hotel-admin-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; }
+.hotel-editor-sheet .hotel-admin-actions button { min-height: 44px; padding: 10px 12px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); font-size: 14px; }
+.hotel-editor-sheet .hotel-admin-actions .hotel-admin-primary { background: var(--ink-accent); border-color: var(--ink-accent); color: white; }

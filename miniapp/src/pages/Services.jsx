@@ -31,5 +31,12 @@ export default function Services() {
       </Link>
       <Link className="service-cta" to="/phone-topup"><span>填写手机号</span><span>去充值</span></Link>
     </section>
+    <section className="membership-panel" aria-labelledby="service-hotels">
+      <Link className="service-product" to="/hotels">
+        <span className="service-product-icon"><ModuleIcon name="location" /></span>
+        <div><h3 id="service-hotels">酒店推荐</h3><p>门头照片 · 地图位置 · 前台Telegram</p><strong>住宿信息</strong></div>
+      </Link>
+      <Link className="service-cta" to="/hotels"><span>查看酒店</span><span>联系前台</span></Link>
+    </section>
   </main>
 }

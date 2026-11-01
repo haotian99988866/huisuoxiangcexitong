@@ -75,7 +75,7 @@ export function analyticsPage(path, search) {
   if (/^\/orders\/[^/]+$/.test(path)) return 'order_detail'
   return ({
     '/movies': 'movies', '/media': 'movies', '/music': 'music',
-    '/announcements': 'announcements', '/services': 'services', '/personal': 'personal',
+    '/announcements': 'announcements', '/services': 'services', '/hotels': 'hotels', '/personal': 'personal',
     '/recharge': 'recharge', '/membership': 'membership', '/phone-topup': 'phone_topup', '/orders': 'orders',
     '/wallet-history': 'wallet_history', '/admin': 'admin', '/consumption': 'consumption',
   })[path] || 'other'
@@ -84,7 +84,7 @@ export function analyticsPage(path, search) {
 export const pageLabels = {
   venue: '会所', delivery: '外送', venue_detail: '会所详情', technicians: '技师团队',
   movies: '观影', music: '音乐', announcements: '东南亚大事件',
-  announcement_detail: '资讯详情', services: '服务', personal: '我的', recharge: '余额充值',
+  announcement_detail: '资讯详情', services: '服务', hotels: '酒店推荐', personal: '我的', recharge: '余额充值',
   membership: '会员套餐', phone_topup: '柬埔寨话费代充', orders: '订单', order_detail: '订单详情',
   wallet_history: '钱包明细', consumption: '我的消费', admin: '管理台', other: '其他页面',
   technician_detail: '技师资料', movie_detail: '影视选集', media_viewer: '照片 / 外送详情',
