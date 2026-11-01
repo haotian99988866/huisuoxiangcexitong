@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
 import { FullscreenAnnouncementBar } from '../components/Announcement'
 import { localDateInput, requestAdmin, tenantLink, utcExpiry } from '../utils/admin'
@@ -8,6 +8,7 @@ import DepositReview from '../components/DepositReview'
 import AdminStars from '../components/AdminStars'
 import CustomerAnalytics from '../components/CustomerAnalytics'
 import StaffAdmin from '../components/StaffAdmin'
+import CustomerRecords from '../components/CustomerRecords'
 import './Membership.css'
 import './Admin.css'
 
@@ -20,6 +21,10 @@ const formatDate = iso => iso ? new Date(iso).toLocaleString('zh-CN', { hour12: 
 
 export default function Admin() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const customerParam = searchParams.get('customer')
+  const initialCustomerId = /^\d{1,16}$/.test(customerParam || '') && Number.isSafeInteger(Number(customerParam)) && Number(customerParam) > 0
+    ? Number(customerParam) : null
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -29,6 +34,7 @@ export default function Admin() {
   const [confirmation, setConfirmation] = useState(null)
   const [copyFallback, setCopyFallback] = useState('')
   const [section, setSection] = useState('analytics')
+  useEffect(() => { if (initialCustomerId) setSection('customers') }, [initialCustomerId])
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const inFlight = useRef(false)
   const mounted = useRef(true)
@@ -171,11 +177,12 @@ export default function Admin() {
           ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
         </section>
         <nav className="admin-sections" aria-label="管理功能">
-          {[['analytics', '客户分析'], ['staff', '人员档案'], ['deposits', '充值复核'], ['stars', 'Stars'], ['tenants', '租户'], ['tools', '工具']].map(([key, label]) =>
+          {[['customers', '客户档案'], ['analytics', '客户分析'], ['staff', '人员档案'], ['deposits', '充值复核'], ['stars', 'Stars'], ['tenants', '租户'], ['tools', '工具']].map(([key, label]) =>
             <button key={key} type="button" aria-pressed={section === key} disabled={saving}
               onClick={() => setSection(key)}>{label}</button>)}
         </nav>
         {section === 'analytics' && <CustomerAnalytics />}
+        {section === 'customers' && <CustomerRecords key={initialCustomerId || 'directory'} initialUserId={initialCustomerId} />}
         {section === 'staff' && <StaffAdmin venues={data.venues} />}
         <div hidden={section !== 'deposits'}><DepositReview onReviewed={refresh} /></div>
         <div hidden={section !== 'stars'}><AdminStars userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} /></div>

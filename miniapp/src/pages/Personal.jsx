@@ -64,6 +64,10 @@ export default function Personal() {
         <p>最近30笔</p>
         {attention ? <OrderSummary order={attention} /> : orders[0] ? <OrderSummary order={orders[0]} /> : <p>暂无订单</p>}
       </section>
+      <section className="membership-panel">
+        <div className="membership-row"><h2>我的消费</h2><Link to="/consumption">查看消费记录</Link></div>
+        <p>会所消费明细、已退款金额及净累计消费。</p>
+      </section>
     </>}
     <footer className="personal-footer" aria-label="帮助与客服">
       <button className="personal-support" type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>

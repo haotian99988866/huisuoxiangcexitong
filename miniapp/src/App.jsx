@@ -14,6 +14,8 @@ import Announcements from './pages/Announcements'
 import Services from './pages/Services'
 import Orders from './pages/Orders'
 import WalletHistory from './pages/WalletHistory'
+import Consumption from './pages/Consumption'
+import ContactProfileNotice from './components/ContactProfileNotice'
 import AppNavigation from './components/AppNavigation'
 import MusicPlayer from './components/MusicPlayer'
 import { isTenantEntry } from './utils/tenant'
@@ -30,6 +32,10 @@ function StartParamRedirect() {
     if (applied.current) return
     applied.current = true
     const param = window.Telegram?.WebApp?.initDataUnsafe?.start_param
+    if (/^customer_[1-9]\d{0,15}$/.test(param || '') && Number.isSafeInteger(Number(param.slice(9)))) {
+      navigate(`/admin?customer=${param.slice(9)}`, { replace: true })
+      return
+    }
     if (/^playlist_[0-9a-f]{32}$/.test(param || '')) {
       navigate(`/music?playlist=${param.slice(9)}`, { replace: true })
       return
@@ -66,6 +72,7 @@ function Content() {
         <Route path="/orders" element={<Orders />} />
         <Route path="/orders/:orderId" element={<Orders />} />
         <Route path="/wallet-history" element={<WalletHistory />} />
+        <Route path="/consumption" element={<Consumption />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/music" element={<Music />} />
         <Route path="/announcements" element={<Announcements />} />
@@ -77,6 +84,7 @@ function Content() {
   )
   return <div className="ink-app">
     <AnalyticsTracker />
+    <ContactProfileNotice />
     {isTenantEntry() ? routes : <MusicPlayer><AppNavigation>{routes}</AppNavigation></MusicPlayer>}
   </div>
 }

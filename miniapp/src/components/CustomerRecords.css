@@ -1,0 +1,25 @@
+.crm-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+.crm-summary > div { padding: 12px; background: var(--ink-wash); border-radius: 12px; min-width: 0; }
+.crm-summary small, .crm-summary strong { display: block; overflow-wrap: anywhere; }
+.crm-summary small { color: var(--ink-muted); margin-bottom: 6px; }
+.crm-preferences { font-size: 14px; line-height: 1.7; }
+.crm-preferences dt { font-weight: 600; color: var(--ink-accent); }
+.crm-preferences dd { margin: 0 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.crm-table { max-width: 100%; overflow-x: auto; }
+.crm-table table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.crm-table caption { text-align: left; padding: 10px 0; color: var(--ink-muted); }
+.crm-table th, .crm-table td { padding: 10px 8px; border-bottom: 1px solid var(--ink-line); vertical-align: top; min-width: 80px; }
+.crm-table small, .crm-audit-reason { display: block; color: var(--ink-muted); margin-top: 5px; overflow-wrap: anywhere; }
+.crm-table td p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.crm-table button { font: inherit; color: var(--ink-accent); border: 0; background: none; text-align: left; min-height: 44px; padding: 4px 0; }
+.crm-pager, .crm-search { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0; }
+.crm-pager { flex-wrap: wrap; font-size: 12px; }
+.crm-search input { flex: 1; min-width: 0; }
+.crm-form fieldset { padding: 0; border: 0; min-width: 0; }
+.crm-form label { display: grid; gap: 6px; margin: 12px 0; font-size: 13px; }
+.crm-form input, .crm-form textarea, .crm-form select, .crm-search input { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; min-height: 44px; border: 1px solid var(--ink-line); border-radius: 10px; color: var(--ink-text); background: var(--ink-reading); font: inherit; }
+.crm-form textarea { min-height: 80px; resize: vertical; }
+.crm-confirm { border-top: 1px solid var(--ink-line); padding-top: 12px; overflow-wrap: anywhere; }
+.crm-confirm button { margin: 5px; }
+.crm-detail .admin-card { margin-top: 14px; }
+.crm-notification { position: fixed; left: 12px; right: 12px; bottom: 90px; z-index: 1500; padding: 14px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); box-shadow: 0 6px 24px #0002; }

@@ -8,6 +8,7 @@ let visitTracked = false
 
 // t.me 链接交给 Telegram 内部打开(频道原帖);浏览器里退回新窗口
 export function openTelegramLink(url) {
+  window.dispatchEvent(new CustomEvent('customer-contact-open', { detail: url }))
   const tg = window.Telegram?.WebApp
   if (tg?.openTelegramLink) {
     const target = new URL(url)

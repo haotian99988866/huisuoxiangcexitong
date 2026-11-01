@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 import { openTelegramLink } from './utils/twa'
+import { notifyContactProfile } from './utils/contactProfile'
 
 const toTelegramDeepLink = href => {
   const url = new URL(href)
@@ -14,6 +15,7 @@ const toTelegramDeepLink = href => {
 // iOS 客服直达与网页入口分开测试，其余链接保留协议兜底。
 document.addEventListener('click', event => {
   const anchor = event.target.closest?.('a[href^="https://t.me/"]')
+  if (anchor) notifyContactProfile(anchor.href)
   const tg = window.Telegram?.WebApp
   if (!anchor || !tg?.openTelegramLink) return
   event.preventDefault()

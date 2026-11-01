@@ -21,6 +21,7 @@ export async function requestMember(action, fields = {}) {
       headers: { 'Content-Type': 'application/json', ...(session ? { Authorization: `Bearer ${session}` } : {}) },
       body: JSON.stringify({ ...fields, action, ...(initData ? { init_data: initData } : {}) }),
       cache: 'no-store',
+      keepalive: action === 'customer_contact',
       referrerPolicy: 'no-referrer',
       signal: controller.signal,
     })

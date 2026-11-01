@@ -1052,6 +1052,9 @@ if __name__ == "__main__":
     ensure_announcement_tables()
     news_subscription.ensure_tables()
     news_subscription.start_worker(bot)
+    from customer_records import ensure_tables as ensure_customer_record_tables, start_worker as start_customer_record_worker
+    ensure_customer_record_tables()
+    start_customer_record_worker(bot)
     logger.warning("News subscription worker ready")
     start_cleanup_thread()
     bot.infinity_polling(allowed_updates=[])

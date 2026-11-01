@@ -18,7 +18,7 @@ async function requestStaff(action, fields, signal) {
   return result
 }
 
-export default function StaffGallery({ venue, admin = false }) {
+export default function StaffGallery({ venue, admin = false, onSelect }) {
   const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
@@ -134,7 +134,9 @@ export default function StaffGallery({ venue, admin = false }) {
               <small>{member.photo_count}张照片</small>
             </div>
           </button>
-          {admin && <button type="button" className="staff-replace" disabled={busy}
+          {onSelect && <button type="button" className="staff-replace" disabled={busy || member.blocked}
+            onClick={() => onSelect(member)}>选择此技师</button>}
+          {admin && !onSelect && <button type="button" className="staff-replace" disabled={busy}
             onClick={() => setReplacement(member)}>此工号已换人</button>}
         </article>)}
       </div>

@@ -169,7 +169,7 @@ def tenant_cache_policy(response):
     body = request.get_json(silent=True) if request.endpoint == "webhook" and request.is_json else None
     admin_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("admin_")
     music_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("music_")
-    payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_", "phone_"))
+    payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_", "phone_", "customer_"))
     staff_request = isinstance(body, dict) and body.get("action") in {"get_staff", "get_staff_detail"}
     if request.path == "/member-deposit" or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
@@ -823,7 +823,8 @@ def webhook():
         return jsonify({"error": "A valid action is required"}), 400
     if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
                   "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer",
-                  "admin_staff", "admin_staff_replace"}:
+                  "admin_staff", "admin_staff_replace", "admin_customers", "admin_customer_detail",
+                  "admin_customer_save", "admin_consumption_save", "admin_consumption_void"}:
         from admin_console import authenticate, allowed_admin, dashboard, is_tenant_session, save_from_request
         from tenants import TenantConflict
         init_data = data.get("init_data")
@@ -833,6 +834,15 @@ def webhook():
         if not allowed_admin(user) or is_tenant_session(init_data):
             return jsonify({"error": "仅平台管理员可从主入口访问管理台"}), 403
         try:
+            if action in {"admin_customers", "admin_customer_detail", "admin_customer_save",
+                          "admin_consumption_save", "admin_consumption_void"}:
+                from customer_records import directory, detail as customer_record_detail, save as save_customer_record, RecordConflict
+                try:
+                    result = directory(data) if action == "admin_customers" else (
+                        customer_record_detail(data) if action == "admin_customer_detail" else save_customer_record(data, user["id"]))
+                    return jsonify(result)
+                except RecordConflict as exc:
+                    return jsonify({"error": str(exc)}), 409
             if action in {"admin_staff", "admin_staff_replace"}:
                 from staff_archive import listing as staff_listing, replace as replace_staff
                 try:
@@ -961,7 +971,7 @@ def webhook():
     if action in {
         "member_login", "member_logout", "member_account", "member_deposit",
         "member_catalog", "member_purchase", "phone_purchase", "member_orders", "member_order", "member_ledger",
-        "member_test_account", "member_test_purchase",
+        "member_test_account", "member_test_purchase", "customer_mine", "customer_contact",
     }:
         from member_accounts import authenticate as browser_auth, exchange_link, logout, site_origin
         from premium_balance import catalog, create_order, get_order, order_public, recent_orders, recent_ledger
@@ -995,6 +1005,9 @@ def webhook():
             if action == "member_logout":
                 logout(session)
                 return jsonify({"logged_out": True})
+            if action in {"customer_mine", "customer_contact"}:
+                from customer_records import mine, contact
+                return jsonify(mine(user_id, data) if action == "customer_mine" else contact(user_id))
             from visit_stats import admin_ids
             if action.startswith("member_test_"):
                 if user_id not in admin_ids():
@@ -1049,6 +1062,8 @@ def webhook():
             return jsonify({"error": str(exc)}), 400
         except Exception:
             logger.exception("Browser member operation failed action=%s", action)
+            if action in {"customer_mine", "customer_contact"}:
+                return jsonify({"error": "客户消费记录或联系提醒暂不可用，请稍后重试或联系昊天人工核对"}), 503
             return jsonify({"error": "账户服务暂不可用；购买请求异常时请先查询订单，勿重新扣款"}), 503
     if action in {"wallet_account", "wallet_submit"}:
         from wallet import account, submit
@@ -1539,6 +1554,8 @@ if __name__ == "__main__":
     ensure_image_hash_columns()
     from staff_archive import ensure_tables as ensure_staff_tables
     ensure_staff_tables()
+    from customer_records import ensure_tables as ensure_customer_record_tables
+    ensure_customer_record_tables()
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))
     logger.info("Starting API server on %s:%s", host, port)

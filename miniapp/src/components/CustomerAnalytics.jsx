@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { requestAdmin } from '../utils/admin'
 import { duration, pageLabels } from '../utils/analytics'
 import './CustomerAnalytics.css'
@@ -85,6 +86,7 @@ function CustomerDetail({ userId, onClose, onSelect }) {
     {data && <>
       <section className="admin-card">
         <h2>{who(data.customer)}</h2><p className="admin-hint">ID {userId} · 首次记录 {dateTime(data.customer.first_seen)}</p>
+        <Link to={`/admin?customer=${userId}`}>客户档案 / 消费登记</Link>
         <p>{stateLabels[data.customer.bot_state]} · 状态确认 {dateTime(data.customer.bot_state_at)}</p>
         <p>启动机器人：{dateTime(data.customer.bot_started_at)}<br />最近互动：{dateTime(data.customer.last_interaction)}</p>
         {data.customer.locally_blocked ? <p className="admin-hint">管理员已在客服系统拉黑（与客户屏蔽机器人不同）</p> : null}
