@@ -332,6 +332,79 @@ def pending():
         conn.close()
 
 
+def credited_customers(data):
+    page, user_id, query = data.get("page", 1), data.get("user_id"), data.get("query", "")
+    if type(page) is not int or not 1 <= page <= 10000:
+        raise ValueError("充值查询页码无效")
+    if user_id is not None and (type(user_id) is not int or not 0 < user_id <= 9007199254740991):
+        raise ValueError("充值用户编号无效")
+    if not isinstance(query, str) or len(query) > 128:
+        raise ValueError("充值用户搜索条件无效")
+    query = query.strip().lstrip("@")
+    search = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    identity = """LEFT JOIN bot_users b ON b.tg_user_id=t.user_id
+        LEFT JOIN analytics_customers a ON a.user_id=t.user_id
+        LEFT JOIN crm_customers c ON c.telegram_user_id=t.user_id
+        LEFT JOIN wallet_accounts w ON w.user_id=t.user_id"""
+    totals = """FROM (SELECT l.user_id,COUNT(*) AS deposit_count,SUM(l.amount) AS credited_total,
+        MIN(l.created_at) AS first_credited_at,MAX(l.created_at) AS last_credited_at
+        FROM wallet_ledger l JOIN wallet_deposits d ON d.id=l.deposit_id
+        WHERE d.status='approved' AND d.user_id=l.user_id AND d.credited=l.amount AND l.amount>0
+        GROUP BY l.user_id) t """
+    fields = """t.*,COALESCE(b.username,a.username,'') AS username,
+        COALESCE(b.display_name,a.display_name,'') AS display_name,COALESCE(c.alias,'') AS alias,
+        COALESCE(w.balance,0) AS balance"""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET time_zone = '+07:00'")
+            cur.execute("""SELECT COUNT(*) AS n FROM wallet_deposits d
+                LEFT JOIN wallet_ledger l ON l.deposit_id=d.id
+                WHERE d.status='approved' AND (l.id IS NULL OR l.user_id<>d.user_id
+                OR d.credited IS NULL OR l.amount<>d.credited OR l.amount<=0)""")
+            if cur.fetchone()["n"]:
+                raise ValueError("已入账申请与充值流水不一致，请先人工核对，不能展示不完整统计")
+            cur.execute("""SELECT COUNT(*) AS n FROM wallet_ledger l
+                LEFT JOIN wallet_deposits d ON d.id=l.deposit_id WHERE d.id IS NULL OR d.status<>'approved'""")
+            if cur.fetchone()["n"]:
+                raise ValueError("充值流水缺少对应已入账申请，请先人工核对")
+            cur.execute("""SELECT COUNT(*) AS n FROM wallet_ledger l
+                LEFT JOIN wallet_accounts w ON w.user_id=l.user_id WHERE w.user_id IS NULL""")
+            if cur.fetchone()["n"]:
+                raise ValueError("已充值用户缺少钱包账户，无法确认余额，请先人工核对")
+            if user_id is not None:
+                cur.execute("SELECT " + fields + " " + totals + identity + " WHERE t.user_id=%s", (user_id,))
+                customer = cur.fetchone()
+                if not customer:
+                    raise ValueError("该用户没有已入账的钱包充值记录")
+                cur.execute("""SELECT d.id,d.method,d.txid AS reference,d.claimed,l.amount AS credited,
+                    d.created_at,l.created_at AS credited_at,l.admin_id FROM wallet_ledger l
+                    JOIN wallet_deposits d ON d.id=l.deposit_id WHERE l.user_id=%s
+                    ORDER BY l.created_at DESC,l.id DESC LIMIT 20 OFFSET %s""", (user_id, (page - 1) * 20))
+                deposits = cur.fetchall()
+                return {"customer": _credited_json(customer), "deposits": [_credited_json(row) for row in deposits],
+                        "total": customer["deposit_count"], "page": page}
+            where = """ WHERE CAST(t.user_id AS CHAR)=%s OR COALESCE(b.username,a.username,'') LIKE %s
+                OR COALESCE(b.display_name,a.display_name,'') LIKE %s OR COALESCE(c.alias,'') LIKE %s"""
+            args = (query, search, search, search)
+            cur.execute("""SELECT COUNT(*) AS users,COALESCE(SUM(t.deposit_count),0) AS deposits,
+                COALESCE(SUM(t.credited_total),0) AS credited_total """ + totals + identity + where, args)
+            summary = _credited_json(cur.fetchone())
+            cur.execute("SELECT " + fields + " " + totals + identity + where +
+                        " ORDER BY t.last_credited_at DESC,t.user_id DESC LIMIT 20 OFFSET %s",
+                        (*args, (page - 1) * 20))
+            return {"customers": [_credited_json(row) for row in cur.fetchall()],
+                    "summary": summary, "total": summary["users"], "page": page}
+    finally:
+        conn.close()
+
+
+def _credited_json(row):
+    return {key: str(value) if isinstance(value, Decimal) else
+            value.isoformat() + "+07:00" if isinstance(value, datetime) else value
+            for key, value in row.items()}
+
+
 def proof_image(deposit_id):
     conn = get_conn()
     try:

@@ -10,11 +10,18 @@ class WelcomeTests(unittest.TestCase):
         buttons = [button for row in welcome.home_keyboard().keyboard for button in row]
         self.assertEqual(sum(button.url == welcome.MUSIC_URL for button in buttons), 1)
         self.assertTrue(welcome.MUSIC_URL.endswith("?startapp=music"))
+        self.assertEqual(sum(button.url == welcome.MEMBERSHIP_URL for button in buttons), 1)
+        self.assertEqual(sum(button.url == welcome.PHONE_URL for button in buttons), 1)
+        self.assertTrue(welcome.MEMBERSHIP_URL.endswith("?startapp=membership"))
+        self.assertTrue(welcome.PHONE_URL.endswith("?startapp=phone"))
         self.assertTrue({welcome.MINIAPP_URL, welcome.MOVIES_URL, welcome.PERSONAL_URL,
                          welcome.CONTACT_URL, welcome.CHANNEL_URL, welcome.SHARE_URL}
                         .issubset({button.url for button in buttons}))
-        self.assertTrue({"menu:help", "sub:menu", "news:menu"}
+        self.assertTrue({"menu:help", "news:menu"}
                         .issubset({button.callback_data for button in buttons}))
+        self.assertNotIn("sub:menu", {button.callback_data for button in buttons})
+        self.assertEqual([button.text for button in welcome.home_keyboard().keyboard[-1]],
+                         ["📖 使用指南", "💬 联系昊天"])
         self.assertFalse({welcome.RECHARGE_URL, welcome.SERVICES_URL}
                          & {button.url for button in buttons})
         self.assertNotIn("menu:promo", {button.callback_data for button in buttons})
@@ -30,7 +37,12 @@ class WelcomeTests(unittest.TestCase):
             for feature in ["观影", "音乐", "节气", "出勤"]:
                 self.assertIn(feature, text)
         self.assertIn("/news_off", welcome.HELP_TEXT)
-        self.assertIn("筹备中", welcome.HELP_TEXT)
+        self.assertNotIn("筹备中", welcome.HELP_TEXT)
+        self.assertNotIn("正式会员销售暂未开放", welcome.HELP_TEXT)
+        for text in [welcome.HOME_TEXT, welcome.HELP_TEXT, bot_profile.DESCRIPTION]:
+            self.assertIn("Telegram会员充值", text)
+            self.assertIn("柬埔寨话费充值", text)
+            self.assertIn("人工", text)
         self.assertIn("【我的】", welcome.HELP_TEXT)
         self.assertNotIn("【全部】→【会员充值】", welcome.HELP_TEXT)
 

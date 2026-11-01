@@ -16,6 +16,7 @@ export const modules = [
   { key: 'services', label: '服务中心', path: '/services', startParam: 'services', group: 'convenience', description: '会员套餐与便民服务' },
   { key: 'recharge', label: '余额充值', icon: '💳', path: '/recharge', startParam: 'recharge', group: 'personal', description: 'USDT / ABA · 人工核款入账' },
   { key: 'membership', label: 'Telegram会员', icon: '⭐', path: '/membership', startParam: 'membership', group: 'convenience', description: '选套餐 · 确认余额购买' },
+  { key: 'phone', label: '柬埔寨话费充值', icon: '📱', path: '/phone-topup', startParam: 'phone', group: 'convenience', description: '填写手机号 · 人工代充' },
   { key: 'personal', label: '我的', icon: '👤', path: '/personal', startParam: 'personal', group: 'personal', description: '钱包、订单、个人内容与帮助' },
   { key: 'admin', label: '运营管理台', path: '/admin', startParam: 'admin', adminOnly: true },
   { key: 'contact', label: '联系昊天', icon: '💬', url: 'https://t.me/haotian99988866', group: 'personal', description: '咨询与人工帮助' },

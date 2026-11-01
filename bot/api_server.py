@@ -823,6 +823,7 @@ def webhook():
     if not isinstance(action, str):
         return jsonify({"error": "A valid action is required"}), 400
     if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
+                  "admin_credited_customers",
                   "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer",
                   "admin_staff", "admin_staff_replace", "admin_staff_management", "admin_staff_management_save",
                   "admin_customers", "admin_customer_detail",
@@ -876,6 +877,9 @@ def webhook():
                 if data.get("confirmed") is not True:
                     raise ValueError("请明确确认使用个人 Stars 补充机器人库存")
                 return jsonify(create_invoice(bot, user["id"], data.get("order_id"), data.get("stars")))
+            if action == "admin_credited_customers":
+                from wallet import credited_customers
+                return jsonify(credited_customers(data))
             if action == "admin_deposits":
                 from wallet import pending_details
                 return jsonify({"deposits": pending_details()})

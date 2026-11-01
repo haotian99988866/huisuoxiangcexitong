@@ -11,6 +11,8 @@ MUSIC_URL = "https://t.me/haotianzhaopian_bot?startapp=music"
 RECHARGE_URL = "https://t.me/haotianzhaopian_bot?startapp=recharge"
 SERVICES_URL = "https://t.me/haotianzhaopian_bot?startapp=services"
 PERSONAL_URL = "https://t.me/haotianzhaopian_bot?startapp=personal"
+MEMBERSHIP_URL = "https://t.me/haotianzhaopian_bot?startapp=membership"
+PHONE_URL = "https://t.me/haotianzhaopian_bot?startapp=phone"
 CONTACT_URL = "https://t.me/haotian99988866"
 CHANNEL_URL = "https://t.me/haotianyl99988866"
 BOT_URL = "https://t.me/haotianzhaopian_bot"
@@ -28,6 +30,8 @@ HOME_TEXT = (
     "🛵 西港外送：查看晚班实时信息\n"
     "🎬 影视观影：按分类找剧、找综艺\n"
     "🎵 在线音乐：语言分类、搜索、收藏与歌单\n"
+    "⭐ Telegram会员充值：3 / 6 / 12个月，支持赠送，人工开通\n"
+    "📱 柬埔寨话费充值：填写手机号，钱包余额支付，人工代充\n"
     "📰 东南亚大事件：浏览资讯，主动订阅新消息\n"
     "🔔 出勤提醒：自主订阅，随时管理\n\n"
     "水墨界面每日换景，节气与节日自动点缀。\n"
@@ -55,7 +59,7 @@ HELP_TEXT = (
     "<b>4️⃣ 西港外送</b>\n"
     "小程序顶部点【外送】，只展示晚班出勤；白班请直接联系昊天。\n\n"
     "<b>5️⃣ 出勤提醒</b>\n"
-    "点主菜单【🔔 出勤提醒】订阅会所，名单一发布就通知你。\n\n"
+    "发送 /remind 管理已有出勤订阅；主菜单不再展示出勤提醒按钮。\n\n"
     "<b>6️⃣ 预约 / 咨询</b>\n"
     "点【💬 联系昊天】，或直接在这里发文字、图片、语音留言，我会回复你。\n\n"
     "<b>7️⃣ 东南亚大事件订阅</b>\n"
@@ -67,8 +71,14 @@ HELP_TEXT = (
     "<b>🔟 水墨与今日时令</b>\n"
     "七套水墨构图按北京时间周一至周日轮换，叠加节气与节日配色。小程序点【更多内容】→【今日时令】查看农历和当前节气。\n\n"
     "💳 底部【首页】查看内容，【服务】选择会员套餐，【我的】管理余额、充值记录和购买订单。"
-    "小程序自动识别账户；正式会员销售暂未开放。"
-    "普通浏览器可发送 /member 获取网站登录链接；话费商品仍在筹备中。\n"
+    "小程序自动识别账户，订单进度在【我的】查看。\n\n"
+    "<b>⭐ Telegram会员充值</b>\n"
+    "点主菜单【⭐ Telegram会员充值】，选择3 / 6 / 12个月套餐，可为自己或他人赠送；"
+    "核对收件人及金额后使用钱包余额购买，由管理员人工开通，不是即时自动到账。\n\n"
+    "<b>📱 柬埔寨话费充值</b>\n"
+    "点主菜单【📱 柬埔寨话费充值】，填写手机号和充值金额，核对手续费与总额后使用钱包余额支付，由管理员人工代充。"
+    "付款结果未确认时先查看订单，不要重复提交。\n"
+    "钱包余额不足时从【我的】进入充值，待管理员核实到账。普通浏览器可发送 /member 获取网站登录链接。\n"
     "付款或赠送问题可发送 /paysupport 联系管理员。\n\n"
     "💡 小提示：名单会随频道实时更新，下单前建议再刷新一次。"
 )
@@ -85,17 +95,18 @@ def home_keyboard(user_id=None):
         types.InlineKeyboardButton("👤 我的账户", url=PERSONAL_URL),
     )
     keyboard.row(
-        types.InlineKeyboardButton("📖 使用指南", callback_data="menu:help"),
+        types.InlineKeyboardButton("⭐ Telegram会员充值", url=MEMBERSHIP_URL),
+        types.InlineKeyboardButton("📱 柬埔寨话费充值", url=PHONE_URL),
     )
     keyboard.row(
-        types.InlineKeyboardButton("💬 联系昊天", url=CONTACT_URL),
         types.InlineKeyboardButton("📢 频道", url=CHANNEL_URL),
-    )
-    keyboard.row(
-        types.InlineKeyboardButton("🔔 出勤提醒", callback_data="sub:menu"),
         types.InlineKeyboardButton("🔗 分享给朋友", url=personal_share_url(user_id)),
     )
     keyboard.row(types.InlineKeyboardButton("📰 东南亚大事件订阅", callback_data="news:menu"))
+    keyboard.row(
+        types.InlineKeyboardButton("📖 使用指南", callback_data="menu:help"),
+        types.InlineKeyboardButton("💬 联系昊天", url=CONTACT_URL),
+    )
     return keyboard
 
 

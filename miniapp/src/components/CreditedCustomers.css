@@ -1,0 +1,14 @@
+.credited-search { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
+.admin-console .credited-search label { flex: 1; min-width: 0; margin: 0; }
+.admin-console .credited-search input { margin: 0; }
+.credited-search button { flex-shrink: 0; }
+.credited-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.credited-summary > div { padding: 12px 8px; border-radius: 12px; background: var(--ink-surface); min-width: 0; }
+.credited-summary span { display: block; color: var(--ink-muted); font-size: 12px; }
+.credited-summary strong { display: block; margin-top: 6px; font-size: 16px; overflow-wrap: anywhere; }
+.credited-user, .credited-deposit { border-top: 1px solid var(--ink-line); margin-top: 16px; padding-top: 14px; }
+.credited-user h3, .credited-deposit h4 { margin: 0; }
+.credited-user p, .credited-deposit p { font-size: 13px; line-height: 1.8; margin: 6px 0; }
+.credited-reference { overflow-wrap: anywhere; }
+.credited-pager, .credited-footer { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; font-size: 12px; }
+.credited-footer { margin: 0; }
