@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { bindBackButton, sendData } from '../utils/twa'
+import { bindBackButton, hasTelegramBackButton, sendData } from '../utils/twa'
 import { tenantPath } from '../utils/tenant'
 import ModuleIcon from '../components/ModuleIcon'
 
@@ -28,14 +28,14 @@ export default function VenueDetail() {
   }, [id])
 
   if (error) {
-    return <div className="container loading"><p>{error}</p><Link to="/">返回会所列表</Link></div>
+    return <div className="container loading"><p>{error}</p>{!hasTelegramBackButton && <Link to="/">返回会所列表</Link>}</div>
   }
 
   if (!v) return <div className="container loading"><div className="spinner"></div><p>加载中...</p></div>
 
   return (
     <div className="container">
-      <Link to="/" className="back-link">← 返回会所列表</Link>
+      {!hasTelegramBackButton && <Link to="/" className="back-link">← 返回会所列表</Link>}
       
       <h1 style={{fontSize:24, fontWeight:700, marginBottom:24}}>{v.name}</h1>
       

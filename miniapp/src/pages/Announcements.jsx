@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import ModuleTabs from '../components/ModuleTabs'
 import { FullscreenAnnouncementBar } from '../components/Announcement'
-import { API_BASE_URL, bindBackButton, openTelegramLink, registerBackOverlay, subscribeFullscreen } from '../utils/twa'
+import { API_BASE_URL, bindBackButton, hasTelegramBackButton, openTelegramLink, registerBackOverlay, subscribeFullscreen } from '../utils/twa'
 import { getTenant, hasAnnouncementAccess, mediaUrl, tenantPath } from '../utils/tenant'
 import { rememberModuleScroll, useModuleScroll, useModuleState } from '../utils/moduleState'
 import { requestAnnouncements } from '../utils/announcements'
@@ -81,7 +81,7 @@ export default function Announcements() {
       {fullscreen && (id ? <div className="news-telegram-clearance" /> : <FullscreenAnnouncementBar />)}
       {!id && <ModuleTabs active="announcements" />}
       <div className="news-toolbar">
-        {id && <button className="news-icon-button" aria-label="返回资讯列表" onClick={goBack}><NewsIcon name="back" /></button>}
+        {id && !hasTelegramBackButton && <button className="news-icon-button" aria-label="返回资讯列表" onClick={goBack}><NewsIcon name="back" /></button>}
         {id ? <Link className="news-toolbar-title" to={tenantPath(historyPath)}>{getTenant()?.brand_name || '东南亚大事件'}</Link>
           : <div className="news-list-heading"><h1>{fullscreen ? '最新资讯' : '东南亚大事件'}</h1><span>{result ? `${result.total} 条` : '按时间更新'}</span></div>}
         {id ? <button className="news-font-button" onClick={() => setFontSize(value => value === 20 ? 16 : value + 2)}

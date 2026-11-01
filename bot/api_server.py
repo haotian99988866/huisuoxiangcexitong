@@ -13,6 +13,7 @@ from flask import Flask, Response, g, jsonify, request, send_file, stream_with_c
 from flask_cors import CORS
 from PIL import Image, UnidentifiedImageError
 from waitress import serve
+from telebot import apihelper
 from urllib.parse import quote
 
 MIN_AGE = 18
@@ -52,6 +53,7 @@ CORS(
     app,
     resources={
         r"/webhook": {"origins": cors_origins},
+        r"/member-deposit": {"origins": cors_origins},
         r"/photos/*": {"origins": cors_origins},
         r"/ktv-videos/*": {"origins": cors_origins},
         r"/delivery-media/*": {"origins": cors_origins},
@@ -100,12 +102,16 @@ def get_db_connection():
 @app.before_request
 def tenant_context():
     g.tenant = None
+    if request.path == "/member-deposit":
+        request.max_content_length = 6 * 1024 * 1024
     if request.method == "OPTIONS":
         return None
     header, query = request.headers.get("X-Tenant"), request.args.get("tenant")
     if header is not None and query is not None and header != query:
         return jsonify({"error": "租户入口参数冲突"}), 400
     slug = header if header is not None else query
+    if slug is not None and request.path == "/member-deposit":
+        return jsonify({"error": "会所入口不开放充值"}), 403
     if slug is None:
         return None
     try:
@@ -163,11 +169,11 @@ def tenant_context():
 
 @app.after_request
 def tenant_cache_policy(response):
-    body = request.get_json(silent=True) if request.endpoint == "webhook" else None
-    admin_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"] in {"admin_dashboard", "admin_tenant_save"}
+    body = request.get_json(silent=True) if request.endpoint == "webhook" and request.is_json else None
+    admin_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("admin_")
     music_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("music_")
     payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_"))
-    if admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
+    if request.path == "/member-deposit" or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
     return response
@@ -812,15 +818,18 @@ def announcement_media(ident, index):
 
 
 @app.post("/webhook")
+@app.post("/member-deposit")
 def webhook():
-    data = request.get_json(silent=True)
+    proof_upload = request.path == "/member-deposit"
+    data = {**request.form, "action": "member_deposit"} if proof_upload else request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "Request body must be a JSON object"}), 400
 
     action = data.get("action")
     if not isinstance(action, str):
         return jsonify({"error": "A valid action is required"}), 400
-    if action in {"admin_dashboard", "admin_tenant_save"}:
+    if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
+                  "admin_stars", "admin_stars_invoice"}:
         from admin_console import authenticate, allowed_admin, dashboard, is_tenant_session, save_from_request
         from tenants import TenantConflict
         init_data = data.get("init_data")
@@ -830,6 +839,35 @@ def webhook():
         if not allowed_admin(user) or is_tenant_session(init_data):
             return jsonify({"error": "仅平台管理员可从主入口访问管理台"}), 403
         try:
+            if action in {"admin_stars", "admin_stars_invoice"}:
+                import telebot
+                from admin_stars import create_invoice, dashboard as stars_dashboard
+                bot = telebot.TeleBot(os.environ["TELEGRAM_BOT_TOKEN"])
+                if action == "admin_stars":
+                    return jsonify(stars_dashboard(bot, user["id"], data.get("order_id")))
+                if data.get("confirmed") is not True:
+                    raise ValueError("请明确确认使用个人 Stars 补充机器人库存")
+                return jsonify(create_invoice(bot, user["id"], data.get("order_id"), data.get("stars")))
+            if action == "admin_deposits":
+                from wallet import pending_details
+                return jsonify({"deposits": pending_details()})
+            if action in {"admin_deposit_proof", "admin_deposit_review"}:
+                from wallet import proof_image, review
+                deposit_id = data.get("deposit_id")
+                if type(deposit_id) is not int or deposit_id <= 0:
+                    raise ValueError("申请编号必须为正整数")
+                if action == "admin_deposit_proof":
+                    import base64
+                    return jsonify({"image": "data:image/jpeg;base64," + base64.b64encode(proof_image(deposit_id)).decode("ascii")})
+                decision = data.get("decision")
+                if not isinstance(decision, str) or decision not in {"approve", "reject"} or data.get("confirmed") is not True:
+                    raise ValueError("请明确核对并确认审核操作")
+                if decision == "approve" and data.get("amount") is None:
+                    raise ValueError("请输入实际到账金额")
+                review(deposit_id, user["id"],
+                       data.get("amount") if decision == "approve" else None,
+                       reference=data.get("reference"))
+                return jsonify({"ok": True})
             if action == "admin_tenant_save":
                 save_from_request(data, user["id"])
                 return jsonify({"ok": True})
@@ -839,10 +877,19 @@ def webhook():
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except pymysql.IntegrityError:
+            if action == "admin_deposit_review":
+                return jsonify({"error": "该真实交易已用于其他申请，不能重复入账；请核实充值记录"}), 409
+            if action in {"admin_stars", "admin_stars_invoice"}:
+                return jsonify({"error": "Stars 订单记录冲突，请刷新核对原订单，勿重复付款"}), 409
             return jsonify({"error": "入口标识已存在，请更换标识或刷新配置"}), 409
         except pymysql.MySQLError:
             logger.exception("Admin console database operation failed")
             return jsonify({"error": "管理服务暂不可用，请稍后重试"}), 503
+        except (apihelper.ApiException, requests.RequestException, RuntimeError):
+            if action not in {"admin_stars", "admin_stars_invoice"}:
+                raise
+            logger.error("Telegram Stars funding service unavailable action=%s", action)
+            return jsonify({"error": "Telegram Stars 服务暂不可用，请刷新核对库存和订单，勿重复付款"}), 503
     if action == "tenant_config":
         return jsonify({"tenant": public_config(g.tenant) if g.tenant else None})
     if action in {"get_announcements", "get_announcement"}:
@@ -941,7 +988,16 @@ def webhook():
             elif action == "member_account":
                 result = {**account(user_id), "user_id": user_id, "can_test": user_id in admin_ids()}
             elif action == "member_deposit":
-                result = {"id": submit(user_id, data.get("reference"), data.get("amount"), data.get("method"))}
+                if proof_upload:
+                    upload = request.files.get("proof")
+                    if upload is None:
+                        raise ValueError("请上传付款凭证")
+                    result = {"id": submit(user_id, None, data.get("amount"), data.get("method"), proof=upload.read(5 * 1024 * 1024 + 1))}
+                else:
+                    result = {"id": submit(user_id, data.get("reference"), data.get("amount"), data.get("method"))}
+                from wallet import notify_deposit
+                if not notify_deposit(result["id"]):
+                    result["warning"] = "申请已保存，但管理员提醒发送失败，请联系客服提供申请编号，勿重复付款或提交。"
             elif action == "member_catalog":
                 result = catalog()
             elif action == "member_orders":
@@ -1426,6 +1482,8 @@ if __name__ == "__main__":
     from premium_balance import ensure_tables as ensure_member_sales_tables
     ensure_member_account_tables()
     ensure_member_sales_tables()
+    from admin_stars import ensure_tables as ensure_admin_stars_tables
+    ensure_admin_stars_tables()
     from member_simulation import ensure_tables as ensure_member_simulation_tables
     ensure_member_simulation_tables()
     ensure_table()

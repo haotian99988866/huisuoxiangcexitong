@@ -198,7 +198,7 @@ def handle_help(message):
 
 @bot.message_handler(commands=['wallet'], chat_types=['private'])
 def handle_wallet(message):
-    from wallet import account, pending, review, set_address, set_aba
+    from wallet import account, pending, proof_image, review, set_address, set_aba
     from telebot import types
     if message.from_user.id not in admin_ids():
         bot.reply_to(message, "请在小程序底部【我的】查看账户余额和充值记录。")
@@ -211,6 +211,10 @@ def handle_wallet(message):
         elif len(parts) >= 4 and parts[1] == "aba":
             set_aba(parts[2], " ".join(parts[3:]))
             bot.reply_to(message, "ABA 美元收款账户已配置，请核对账号和收款人。")
+        elif len(parts) == 3 and parts[1] == "proof":
+            import io
+            bot.send_photo(message.chat.id, io.BytesIO(proof_image(int(parts[2]))),
+                           caption=f"申请 #{parts[2]} 的付款凭证。请独立核实真实到账，不能仅凭截图入账。")
         elif len(parts) == 4 and parts[1] == "approve":
             from wallet import amount_value
             amount = amount_value(parts[3])
@@ -230,6 +234,13 @@ def handle_wallet(message):
                 "不能仅凭截图；请确认金额与交易一致。确认后余额不可通过此命令撤销。",
                 reply_markup=keyboard,
             )
+        elif len(parts) == 6 and parts[1] == "verify" and parts[5] == "核实入账":
+            customer_id = review(int(parts[2]), message.from_user.id, parts[3], reference=parts[4])
+            bot.reply_to(message, f"申请 #{parts[2]} 已核实并入账 {parts[3]} USD。")
+            try:
+                bot.send_message(customer_id, f"充值申请 #{parts[2]} 已核实到账，请刷新账户余额。")
+            except Exception:
+                logger.exception("Could not notify customer of verified deposit user=%s", customer_id)
         elif len(parts) == 3 and parts[1] == "reject":
             review(int(parts[2]), message.from_user.id)
             bot.reply_to(message, "申请已拒绝，余额未变动。")
@@ -244,12 +255,17 @@ def handle_wallet(message):
                 "配置：/wallet address 收款地址\n"
                 "ABA：/wallet aba 账号 收款人名称（仅美元）\n"
                 "核款：/wallet approve 申请编号 实际到账金额\n"
+                "查看凭证：/wallet proof 申请编号\n"
+                "凭证／ABA金额申请核款：/wallet verify 申请编号 实际到账金额 真实交易编号 核实入账\n"
                 "拒绝：/wallet reject 申请编号\n\n待审核（最多8条，处理后查看下一批）：\n"
             )
             for row in rows:
                 text += (
                     f"\n#{row['id']} 用户 {row['user_id']} 申报 {row['claimed']} USD · {row['method']}\n"
-                    f"收款：{row['address']}\n交易编号：{row['txid']}\n"
+                    f"收款：{row['address']}\n"
+                    + ("ABA 金额申请：请核对私聊及银行真实到账，使用 /wallet verify 核实入账\n"
+                       if row['txid'].startswith("manual:") else
+                       f"已上传凭证：/wallet proof {row['id']}\n" if row['txid'].startswith("proof:") else f"交易编号：{row['txid']}\n")
                 )
             bot.send_message(message.chat.id, text, disable_web_page_preview=True)
         else:
@@ -324,23 +340,24 @@ def handle_member_sales(message):
     if message.from_user.id not in admin_ids():
         bot.reply_to(message, "仅管理员可使用此命令。")
         return
-    from premium_balance import catalog, confirm_delivery, recent_orders, refund_order, set_enabled
+    from premium_balance import catalog, confirm_delivery, manual_owner, recent_orders, refund_order, set_enabled
     parts = (message.text or "").split()
     try:
+        if message.from_user.id != manual_owner():
+            raise ValueError("仅人工开通负责人可管理会员订单")
         if len(parts) == 2 and parts[1] in {"enable", "disable"}:
             set_enabled(bot, parts[1] == "enable")
             bot.reply_to(message, "会员余额购买已开放。" if parts[1] == "enable" else "会员余额购买已关闭。")
         elif len(parts) == 3 and parts[1] == "delivered":
             confirm_delivery(parts[2], message.from_user.id)
-            bot.reply_to(message, "已确认赠送完成；此操作必须以官方赠送记录为依据。")
+            bot.reply_to(message, "已确认开通完成；此操作必须以实际开通记录为依据。")
         elif len(parts) == 4 and parts[1] == "refund" and parts[3] == "NOT_GIFTED":
             refund_order(parts[2], message.from_user.id, confirmed_not_delivered=True)
             bot.reply_to(message, "购买金额已退回站内 USD 余额（不是链上退款）。")
         elif len(parts) == 1 or (len(parts) == 2 and parts[1] == "status"):
-            balance = bot.get_my_star_balance()
             lines = [
                 f"网站会员购买：{'开放' if catalog()['enabled'] else '关闭'}",
-                f"机器人 Stars：{balance.amount if balance else 0}",
+                "人工开通：不调用官方赠送接口，不要求机器人 Stars 库存。",
                 "售价：3个月 $15.99 / 6个月 $19.99 / 12个月 $33.99",
                 "/member_sales enable|disable",
                 "/member_sales delivered 订单号（核实已赠送）",
@@ -359,11 +376,97 @@ def handle_member_sales(message):
         bot.reply_to(message, "操作异常，请先核实订单和官方交易，勿重复赠送或退款。")
 
 
+@bot.callback_query_handler(func=lambda call: (call.data or "").startswith("manual:"))
+def handle_manual_membership(call):
+    from premium_balance import (
+        confirm_delivery, get_order, manual_keyboard, manual_order_text,
+        refund_order, require_order_owner,
+    )
+    try:
+        _, action, order_id = call.data.split(":")
+        if action not in {"done", "refund", "back", "confirm_done", "confirm_refund"}:
+            raise ValueError("无效的订单操作")
+        order = get_order(order_id)
+        if not order:
+            raise ValueError("订单不存在")
+        require_order_owner(order, call.from_user.id)
+        if call.message.chat.type != "private" or call.message.chat.id != order["owner_id"]:
+            raise ValueError("请在负责人的机器人私聊中操作")
+        if order["status"] != "manual_pending":
+            raise ValueError("订单已处理或正在核实，不可重复确认或退款")
+        if action in {"done", "refund", "back"}:
+            text = manual_order_text(order)
+            if action == "done":
+                text += "\n\n请再次确认：已给上述账号开通对应套餐，完成后不再允许退余额。"
+            elif action == "refund":
+                text += "\n\n请再次确认：该订单确实未开通，购买金额将退回客户站内余额。"
+            bot.edit_message_text(
+                text, chat_id=call.message.chat.id, message_id=call.message.message_id,
+                reply_markup=manual_keyboard(order_id, None if action == "back" else action),
+            )
+            bot.answer_callback_query(call.id, "请核对后确认" if action != "back" else "已返回核对")
+            return
+        if action == "confirm_done":
+            confirm_delivery(order_id, call.from_user.id)
+            result = "开通完成"
+        else:
+            refund_order(order_id, call.from_user.id, confirmed_not_delivered=True)
+            result = "未开通，已退回站内余额"
+    except ValueError as exc:
+        bot.answer_callback_query(call.id, str(exc), show_alert=True)
+        return
+    except (pymysql.MySQLError, apihelper.ApiException):
+        logger.exception("Manual membership action failed; check persisted order")
+        bot.answer_callback_query(call.id, "操作未确认，请先查询订单状态，勿重复开通或退款", show_alert=True)
+        return
+    # The financial transaction is complete; notification failures must not retry it.
+    try:
+        bot.answer_callback_query(call.id, result)
+        bot.edit_message_text(
+            manual_order_text({**order, "status": result}),
+            chat_id=call.message.chat.id, message_id=call.message.message_id,
+        )
+    except apihelper.ApiException:
+        logger.exception("Manual membership result message failed order=%s", order_id)
+    try:
+        bot.send_message(order["payer_id"], f"会员订单 {order_id}：{result}。请刷新我的订单及余额。")
+    except apihelper.ApiException:
+        logger.exception("Manual membership customer notification failed order=%s", order_id)
+
+
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def handle_stars_funding_checkout(query):
+    from admin_stars import approve_checkout
+    try:
+        approve_checkout(query.from_user.id, query.invoice_payload, query.currency, query.total_amount)
+    except ValueError as exc:
+        bot.answer_pre_checkout_query(query.id, False, error_message=str(exc))
+        return
+    except pymysql.MySQLError:
+        logger.exception("Stars funding checkout database unavailable")
+        bot.answer_pre_checkout_query(query.id, False, error_message="付款核对暂不可用，请稍后刷新订单，勿重复付款")
+        return
+    bot.answer_pre_checkout_query(query.id, True)
+
+
+@bot.message_handler(content_types=["successful_payment"])
+def handle_stars_funding_payment(message):
+    from admin_stars import record_payment
+    try:
+        result = record_payment(message.from_user.id, message.successful_payment)
+    except (ValueError, pymysql.MySQLError):
+        logger.exception("Stars funding payment requires reconciliation user=%s", message.from_user.id)
+        bot.reply_to(message, "已收到 Telegram 付款通知，但补充记录核对失败。请核实机器人实际 Stars 余额与官方交易，勿再次付款。")
+        return
+    if not result["duplicate"]:
+        bot.reply_to(message, f"已收到 {result['stars']} Stars，补充订单 {result['order_id']} 已记录。请在后台刷新实际库存；客户美元余额不变，会员销售不会自动开启。")
+
+
 @bot.message_handler(commands=["paysupport"], chat_types=["private"])
 def handle_pay_support(message):
     bot.reply_to(
         message,
-        "Premium 付款或赠送遇到问题，请联系管理员并提供订单编号。"
+        "Premium 付款、赠送或机器人 Stars 补充遇到问题，请联系管理员并提供订单编号及官方付款记录。"
         "请勿发送密码、验证码或两步验证密码。")
 
 
@@ -890,6 +993,8 @@ if __name__ == "__main__":
     from premium_balance import ensure_tables as ensure_member_sales_tables, start_worker as start_member_worker
     ensure_member_account_tables()
     ensure_member_sales_tables()
+    from admin_stars import ensure_tables as ensure_admin_stars_tables
+    ensure_admin_stars_tables()
     start_member_worker(bot)
     print("🤖 机器人启动 — 监听会所频道模式")
     print(f"📋 已监听 {len(LISTEN_CHANNELS)} 个频道")

@@ -5,7 +5,7 @@ import ModuleIcon from '../components/ModuleIcon'
 import { rememberModuleScroll, useModuleState, useModuleScroll } from '../utils/moduleState'
 import { mediaUrl, tenantHeaders } from '../utils/tenant'
 import { movieSummary } from '../utils/catalogSummary'
-import { API_BASE_URL, bindBackButton, openTelegramLink, subscribeFullscreen } from '../utils/twa'
+import { API_BASE_URL, bindBackButton, hasTelegramBackButton, openTelegramLink, subscribeFullscreen } from '../utils/twa'
 import './MovieList.css'
 
 const coverUrl = cover => !cover ? '' : /^https?:/.test(cover) ? cover : mediaUrl(`${API_BASE_URL}/${cover}`)
@@ -109,7 +109,7 @@ export default function MovieList() {
       </nav>}
     </header>
     {openSeries ? <>
-      <button className="movie-back" type="button" onClick={() => setOpenSeries(null)}>← 返回片库</button>
+      {!hasTelegramBackButton && <button className="movie-back" type="button" onClick={() => setOpenSeries(null)}>← 返回片库</button>}
       <section className="movie-detail">
         <Cover src={openSeries.cover} />
         <div><span className="movie-kicker">{openSeries.category || '影视'}</span><h1>{openSeries.name}</h1>

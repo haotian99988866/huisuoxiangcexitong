@@ -79,21 +79,6 @@
 .service-product h3 { margin-top: 0; }
 .service-product-icon { display: grid; place-items: center; width: 54px; height: 54px; background: var(--ink-surface); border-radius: 16px; }
 .service-product-icon svg { width: 30px; height: 30px; }
-.membership-checkout-bar {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 800;
-  display: flex; align-items: center; justify-content: center; gap: 20px;
-  min-height: 92px; box-sizing: content-box; padding: 0 16px var(--app-bottom-safe, 0px);
-  border-top: 1px solid var(--ink-line); background: var(--ink-header); backdrop-filter: blur(16px);
-}
-.membership-checkout-bar > div { display: grid; gap: 4px; min-width: 100px; }
-.membership-checkout-bar small { color: var(--ink-muted); font-size: 12px; }
-.membership-checkout-bar strong { color: var(--ink-accent); font-size: 23px; }
-.membership-checkout-bar button {
-  min-height: 46px; max-width: 280px; flex: 1; border: 0; border-radius: 12px;
-  background: var(--ink-accent); color: white; padding: 12px; font-weight: 700; cursor: pointer;
-}
-.membership-checkout-bar button:disabled { opacity: .55; cursor: not-allowed; }
-.account-deposit-dialog { margin-bottom: 0; }
 .membership-page a:focus-visible, .membership-page button:focus-visible {
   outline: 2px solid var(--ink-accent); outline-offset: 3px;
 }

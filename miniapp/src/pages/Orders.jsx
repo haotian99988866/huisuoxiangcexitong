@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
 import OrderSummary from '../components/OrderSummary'
-import { bindBackButton, openTelegramLink } from '../utils/twa'
+import { bindBackButton, hasTelegramBackButton, openTelegramLink } from '../utils/twa'
 import { memberStatuses, requestMember } from '../utils/membership'
 import { money, orderFilters, orderGuidance, orderMatches } from '../utils/commerce'
 import useMemberAccount from '../utils/useMemberAccount'
@@ -50,7 +50,7 @@ export default function Orders() {
 
   return <main className="account-page membership-page">
     <header className="membership-header">
-      <Link to={orderId ? '/orders' : '/personal'}>← {orderId ? '全部订单' : '我的'}</Link>
+      {!hasTelegramBackButton && <Link to={orderId ? '/orders' : '/personal'}>← {orderId ? '全部订单' : '我的'}</Link>}
       <h1>{orderId ? '订单详情' : '我的订单'}</h1>
       <p>这里展示会员购买订单；余额充值申请请查看充值记录。</p>
     </header>

@@ -86,6 +86,9 @@ class MemberApiTests(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         self.client = api_server.app.test_client()
+        notification = patch("wallet.notify_deposit", return_value=True)
+        notification.start()
+        self.addCleanup(notification.stop)
 
     def post(self, action, origin="https://members.example.com", **fields):
         return self.client.post("/webhook", json={"action": action, **fields},

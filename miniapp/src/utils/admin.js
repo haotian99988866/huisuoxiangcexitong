@@ -5,18 +5,27 @@ export async function requestAdmin(action, fields = {}) {
   if (isTenantEntry()) throw new Error('请从平台主入口进入管理台')
   const initData = window.Telegram?.WebApp?.initData
   if (!initData) throw new Error('请从 Telegram 打开管理台，以验证管理员身份')
-  const response = await fetch(`${API_BASE_URL}/webhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...fields, action, init_data: initData }),
-  })
-  const result = await response.json()
-  if (!response.ok) {
-    const error = new Error(result.error || '管理请求失败，请稍后重试')
-    error.status = response.status
-    throw error
-  }
-  return result
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 20000)
+  try {
+    const response = await fetch(`${API_BASE_URL}/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...fields, action, init_data: initData }),
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    const result = await response.json()
+    if (!response.ok) {
+      const error = new Error(result.error || '管理请求失败，请稍后重试')
+      error.status = response.status
+      throw error
+    }
+    return result
+  } catch (failure) {
+    if (failure.name === 'AbortError') throw new Error('管理请求超时，请先刷新核对记录和实际余额，勿重复付款或入账')
+    throw failure
+  } finally { clearTimeout(timer) }
 }
 
 export function localDateInput(iso) {

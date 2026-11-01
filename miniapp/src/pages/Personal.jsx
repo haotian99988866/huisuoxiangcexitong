@@ -15,7 +15,7 @@ export default function Personal() {
   const user = window.Telegram?.WebApp?.initDataUnsafe?.user
   const verifiedUser = account && user?.id === account.user_id ? user : null
   const pendingDeposits = account?.deposits.filter(item => item.status === 'pending') || []
-  const attention = orders.find(item => ['delivery_unknown', 'refund_pending', 'paid', 'delivering'].includes(item.status))
+  const attention = orders.find(item => ['manual_pending', 'delivery_unknown', 'refund_pending', 'paid', 'delivering'].includes(item.status))
   useModuleScroll('personal', !loading)
   useEffect(() => bindBackButton(null), [])
 

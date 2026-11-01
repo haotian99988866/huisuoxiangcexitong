@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { bindBackButton, sendData } from '../utils/twa'
+import { bindBackButton, hasTelegramBackButton, sendData } from '../utils/twa'
 import { tenantPath } from '../utils/tenant'
 
 export default function TechnicianList() {
@@ -33,7 +33,7 @@ export default function TechnicianList() {
 
   return (
     <div className="container">
-      <Link to={`/venue/${venue_id}`} className="back-link">← 返回会所详情</Link>
+      {!hasTelegramBackButton && <Link to={`/venue/${venue_id}`} className="back-link">← 返回会所详情</Link>}
       
       <h1 style={{fontSize:24, fontWeight:700, marginBottom:24}}>技师团队</h1>
 

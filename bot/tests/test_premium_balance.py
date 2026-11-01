@@ -2,7 +2,6 @@ from decimal import Decimal
 import unittest
 from unittest.mock import Mock, patch
 
-from telebot import apihelper
 import premium_balance
 
 ORDER_ID = "a" * 32
@@ -21,14 +20,15 @@ class PremiumBalanceTests(unittest.TestCase):
         self.bot = Mock()
         self.bot.get_my_star_balance.return_value.amount = 10000
         self.bot.get_chat.return_value = Mock(type="private", username="receiver")
+        admins = patch("visit_stats.admin_ids", return_value=[99])
+        admins.start()
+        self.addCleanup(admins.stop)
 
-    def test_fixed_prices_and_official_procurement_cost(self):
+    def test_fixed_prices_without_stars_procurement(self):
         self.assertEqual(
             {months: plan["price_usd"] for months, plan in premium_balance.PLANS.items()},
             {3: Decimal("15.99"), 6: Decimal("19.99"), 12: Decimal("33.99")})
-        self.assertEqual(
-            {months: plan["gift_stars"] for months, plan in premium_balance.PLANS.items()},
-            {3: 1000, 6: 1500, 12: 2500})
+        self.assertTrue(all("gift_stars" not in plan for plan in premium_balance.PLANS.values()))
 
     @patch("premium_balance.get_conn")
     def test_recent_ledger_combines_only_real_balance_movements_for_the_user(self, get_conn):
@@ -124,28 +124,30 @@ class PremiumBalanceTests(unittest.TestCase):
         conn = get_conn.return_value
         cur = conn.cursor.return_value.__enter__.return_value
         cur.fetchone.side_effect = [
-            {"enabled": 1}, None, {"reserved": 0}, {"balance": Decimal("20.00")},
+            {"enabled": 1, "owner_id": 99}, None, {"balance": Decimal("20.00")},
         ]
         result = premium_balance.create_order(self.bot, 123, "@receiver", 3, ORDER_ID)
         self.assertEqual(result["price_usd"], "15.99")
-        self.assertEqual(result["status"], "paid")
+        self.assertEqual(result["status"], "manual_pending")
         calls = cur.execute.call_args_list
         self.assertIn("FOR UPDATE", calls[0].args[0])
-        self.assertIn("FOR UPDATE", calls[3].args[0])
-        self.assertEqual(calls[5].args[1], (Decimal("15.99"), 123))
-        self.assertEqual(calls[6].args[1], (ORDER_ID, 123, Decimal("-15.99")))
-        self.assertEqual(Decimal("20.00") - calls[5].args[1][0], Decimal("4.01"))
+        self.assertIn("FOR UPDATE", calls[2].args[0])
+        self.assertEqual(calls[3].args[1][-1], 99)
+        self.assertEqual(calls[4].args[1], (Decimal("15.99"), 123))
+        self.assertEqual(calls[5].args[1], (ORDER_ID, 123, Decimal("-15.99")))
+        self.assertEqual(Decimal("20.00") - calls[4].args[1][0], Decimal("4.01"))
         conn.commit.assert_called_once()
         self.bot.gift_premium_subscription.assert_not_called()
+        self.bot.get_my_star_balance.assert_not_called()
 
     @patch("premium_balance.get_order", return_value=None)
     @patch("premium_balance.validate_recipient", return_value=(456, "receiver"))
     @patch("premium_balance.get_conn")
-    def test_insufficient_wallet_stock_and_disabled_sales_never_debit(self, get_conn, recipient, get_order):
+    def test_insufficient_wallet_missing_owner_and_disabled_sales_never_debit(self, get_conn, recipient, get_order):
         for rows, message in (
                 ([{"enabled": 0}, None], "暂未开放"),
-                ([{"enabled": 1}, None, {"reserved": 9500}], "库存已被"),
-                ([{"enabled": 1}, None, {"reserved": 0}, {"balance": Decimal("15.98")}], "余额不足")):
+                ([{"enabled": 1, "owner_id": None}, None], "负责人不可用"),
+                ([{"enabled": 1, "owner_id": 99}, None, {"balance": Decimal("15.98")}], "余额不足")):
             with self.subTest(message=message):
                 conn = get_conn.return_value
                 conn.reset_mock()
@@ -163,8 +165,8 @@ class PremiumBalanceTests(unittest.TestCase):
     def test_ledger_failure_rolls_back_order_and_debit(self, get_conn, recipient, get_order):
         conn = get_conn.return_value
         cur = conn.cursor.return_value.__enter__.return_value
-        cur.fetchone.side_effect = [{"enabled": 1}, None, {"reserved": 0}, {"balance": Decimal("20")}]
-        cur.execute.side_effect = [None] * 6 + [RuntimeError("ledger failed")]
+        cur.fetchone.side_effect = [{"enabled": 1, "owner_id": 99}, None, {"balance": Decimal("20")}]
+        cur.execute.side_effect = [None] * 5 + [RuntimeError("ledger failed")]
         with self.assertRaises(RuntimeError):
             premium_balance.create_order(self.bot, 123, "@receiver", 3, ORDER_ID)
         conn.rollback.assert_called_once()
@@ -239,91 +241,94 @@ class PremiumBalanceTests(unittest.TestCase):
         self.assertEqual(cur.execute.call_args_list[2].args[1][-1], 99)
         conn.commit.assert_called_once()
 
-    @patch("premium_balance.begin_delivery", return_value=None)
-    def test_already_claimed_order_is_not_gifted_twice(self, begin):
-        premium_balance.deliver_order(self.bot, ORDER_ID)
-        self.bot.gift_premium_subscription.assert_not_called()
-
-    def test_official_api_success_uses_numeric_id_and_procurement_stars(self):
-        self.bot.gift_premium_subscription.return_value = True
-        with patch("premium_balance.begin_delivery", return_value=order()), \
-                patch("premium_balance.finish_order") as finish, \
-                patch("premium_balance._notify_user"):
-            premium_balance.deliver_order(self.bot, ORDER_ID)
-        kwargs = self.bot.gift_premium_subscription.call_args.kwargs
-        self.assertEqual((kwargs["user_id"], kwargs["month_count"], kwargs["star_count"]), (456, 3, 1000))
-        finish.assert_called_once_with(ORDER_ID, "delivered")
-
-    def test_username_change_prevents_wrong_recipient_and_returns_balance(self):
-        self.bot.get_chat.return_value.username = "changed_name"
-        with patch("premium_balance.begin_delivery", return_value=order()), \
-                patch("premium_balance.finish_order") as finish, \
-                patch("premium_balance.refund_order") as refund, \
-                patch("premium_balance._notify_user"), patch("premium_balance._notify_admins"):
-            premium_balance.deliver_order(self.bot, ORDER_ID)
-        self.bot.gift_premium_subscription.assert_not_called()
-        finish.assert_called_once_with(ORDER_ID, "refund_pending", "RecipientChanged")
-        refund.assert_called_once_with(ORDER_ID)
-
-    def test_network_or_server_failure_does_not_retry_or_refund(self):
-        failures = [
-            RuntimeError("lost response"),
-            apihelper.ApiTelegramException("giftPremiumSubscription", None,
-                                           {"error_code": 500, "description": "Server error"}),
-        ]
-        for failure in failures:
-            with self.subTest(failure=failure), \
-                    patch("premium_balance.begin_delivery", return_value=order()), \
-                    patch("premium_balance.finish_order") as finish, \
-                    patch("premium_balance.refund_order") as refund, \
-                    patch("premium_balance._notify_user"), patch("premium_balance._notify_admins"):
-                self.bot.gift_premium_subscription.reset_mock()
-                self.bot.gift_premium_subscription.side_effect = failure
-                premium_balance.deliver_order(self.bot, ORDER_ID)
-                self.assertEqual(finish.call_args.args[1], "delivery_unknown")
-                refund.assert_not_called()
-                self.bot.gift_premium_subscription.assert_called_once()
-
-    def test_explicit_official_rejection_returns_balance(self):
-        self.bot.gift_premium_subscription.side_effect = apihelper.ApiTelegramException(
-            "giftPremiumSubscription", None, {"error_code": 400, "description": "Rejected"})
-        with patch("premium_balance.begin_delivery", return_value=order()), \
-                patch("premium_balance.finish_order") as finish, \
-                patch("premium_balance.refund_order") as refund, patch("premium_balance._notify_user"):
-            premium_balance.deliver_order(self.bot, ORDER_ID)
-        finish.assert_called_once_with(ORDER_ID, "refund_pending", "GiftRejected")
-        refund.assert_called_once_with(ORDER_ID)
-
-    def test_unexpected_success_response_is_not_a_false_completion(self):
-        self.bot.gift_premium_subscription.return_value = None
-        with patch("premium_balance.begin_delivery", return_value=order()), \
-                patch("premium_balance.finish_order") as finish, \
-                patch("premium_balance.refund_order") as refund, patch("premium_balance._notify_admins"):
-            premium_balance.deliver_order(self.bot, ORDER_ID)
-        finish.assert_called_once_with(ORDER_ID, "delivery_unknown", "UnexpectedResponse")
-        refund.assert_not_called()
-
-    def test_stock_depletion_does_not_invoke_gift_api(self):
-        self.bot.get_my_star_balance.return_value.amount = 999
-        with patch("premium_balance.begin_delivery", return_value=order()), \
-                patch("premium_balance.finish_order") as finish, \
-                patch("premium_balance.refund_order") as refund, \
-                patch("premium_balance._notify_user"), patch("premium_balance._notify_admins"):
-            premium_balance.deliver_order(self.bot, ORDER_ID)
-        finish.assert_called_once_with(ORDER_ID, "refund_pending", "InsufficientStars")
-        refund.assert_called_once_with(ORDER_ID)
-        self.bot.gift_premium_subscription.assert_not_called()
+    @patch("premium_balance.get_conn")
+    def test_manual_completion_requires_owner_and_is_audited_without_funds(self, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = {**order("manual_pending"), "owner_id": 99}
+        premium_balance.confirm_delivery(ORDER_ID, 99)
+        self.assertEqual(cur.execute.call_args_list[1].args[1], (99, ORDER_ID))
+        self.assertIn("'confirmed',0", cur.execute.call_args_list[1].args[0])
+        self.assertEqual(cur.execute.call_count, 3)
+        conn.commit.assert_called_once()
 
     @patch("premium_balance.get_conn")
-    def test_worker_only_delivers_paid_orders_and_recovers_refunds(self, get_conn):
+    def test_other_admin_cannot_complete_or_refund_manual_order(self, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = {**order("manual_pending"), "owner_id": 99}
+        with patch("visit_stats.admin_ids", return_value=[99, 88]):
+            for action in (lambda: premium_balance.confirm_delivery(ORDER_ID, 88),
+                           lambda: premium_balance.refund_order(ORDER_ID, 88, True)):
+                cur.reset_mock()
+                with self.assertRaisesRegex(ValueError, "负责人"):
+                    action()
+                self.assertEqual(cur.execute.call_count, 1)
+        conn.commit.assert_not_called()
+
+    @patch("premium_balance.get_conn")
+    def test_manual_refund_requires_not_opened_confirmation(self, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = {**order("manual_pending"), "owner_id": 99}
+        with self.assertRaises(ValueError):
+            premium_balance.refund_order(ORDER_ID, 99)
+        cur.reset_mock()
+        premium_balance.refund_order(ORDER_ID, 99, True)
+        self.assertEqual(cur.execute.call_args_list[1].args[1], (123, Decimal("15.99")))
+        self.assertEqual(cur.execute.call_args_list[2].args[1][-1], 99)
+        conn.commit.assert_called_once()
+
+    @patch("premium_balance.get_conn")
+    def test_completed_manual_order_cannot_refund_or_complete_again(self, get_conn):
         cur = get_conn.return_value.cursor.return_value.__enter__.return_value
-        cur.fetchall.side_effect = [
-            [{"order_id": "b" * 32}],
-            [{"order_id": ORDER_ID, "status": "paid"}, {"order_id": "c" * 32, "status": "refund_pending"}],
+        for status in ("delivered", "refunded"):
+            cur.fetchone.return_value = {**order(status), "owner_id": 99}
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                premium_balance.confirm_delivery(ORDER_ID, 99)
+        cur.fetchone.return_value = {**order("delivered"), "owner_id": 99}
+        with self.assertRaises(ValueError):
+            premium_balance.refund_order(ORDER_ID, 99, True)
+
+    @patch("premium_balance.get_conn")
+    def test_notification_sends_only_owner_and_stores_message_id(self, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = {**order("manual_pending"), "owner_id": 99, "notification_id": None}
+        self.bot.send_message.return_value.message_id = 7
+        premium_balance.notify_manual_order(self.bot, ORDER_ID)
+        args = self.bot.send_message.call_args
+        self.assertEqual(args.args[0], 99)
+        self.assertIn("@receiver", args.args[1])
+        self.assertIn("456", args.args[1])
+        self.assertEqual(args.kwargs["timeout"], 10)
+        self.assertEqual(cur.execute.call_args.args[1], (7, ORDER_ID))
+        self.bot.gift_premium_subscription.assert_not_called()
+        self.bot.get_my_star_balance.assert_not_called()
+        conn.commit.assert_called_once()
+
+    @patch("premium_balance.get_conn")
+    def test_failed_notification_rolls_back_for_worker_retry_without_refund(self, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = {**order("manual_pending"), "owner_id": 99, "notification_id": None}
+        self.bot.send_message.side_effect = RuntimeError("offline")
+        with self.assertRaises(RuntimeError):
+            premium_balance.notify_manual_order(self.bot, ORDER_ID)
+        conn.rollback.assert_called_once()
+        conn.commit.assert_not_called()
+        self.assertEqual(cur.execute.call_count, 1)
+
+    @patch("premium_balance.get_conn")
+    def test_worker_only_notifies_manual_orders_and_recovers_legacy_refunds(self, get_conn):
+        cur = get_conn.return_value.cursor.return_value.__enter__.return_value
+        cur.fetchall.return_value = [
+            {"order_id": ORDER_ID, "status": "manual_pending"},
+            {"order_id": "c" * 32, "status": "refund_pending"},
         ]
-        with patch("premium_balance.deliver_order") as deliver, \
-                patch("premium_balance.refund_order") as refund, patch("premium_balance._notify_admins"):
+        with patch("premium_balance.notify_manual_order") as notify, patch("premium_balance.refund_order") as refund:
             premium_balance.process_orders(self.bot)
-        deliver.assert_called_once_with(self.bot, ORDER_ID)
+        notify.assert_called_once_with(self.bot, ORDER_ID)
         refund.assert_called_once_with("c" * 32)
-        self.assertIn("INTERVAL 10 MINUTE", cur.execute.call_args_list[0].args[0])
+        self.bot.gift_premium_subscription.assert_not_called()
+        self.assertIn("notification_id IS NULL", cur.execute.call_args.args[0])

@@ -38,6 +38,38 @@ export async function requestMember(action, fields = {}) {
   } finally { clearTimeout(timer) }
 }
 
+export async function uploadDeposit(method, amount, proof) {
+  if (isTenantEntry()) throw new Error('会所入口不开放账户充值。')
+  const data = new FormData()
+  data.set('method', method)
+  data.set('amount', amount)
+  data.set('proof', proof)
+  const initData = window.Telegram?.WebApp?.initData
+  if (initData) data.set('init_data', initData)
+  const session = sessionStorage.getItem(SESSION_KEY)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 30000)
+  try {
+    const response = await fetch(`${API_BASE_URL}/member-deposit`, {
+      method: 'POST', body: data, signal: controller.signal,
+      headers: session ? { Authorization: `Bearer ${session}` } : {},
+      cache: 'no-store', referrerPolicy: 'no-referrer',
+    })
+    if (response.status === 413) throw new Error('付款凭证太大，请选择不超过 5 MB 的截图')
+    const result = await response.json()
+    if (!response.ok) {
+      if (response.status === 401) sessionStorage.removeItem(SESSION_KEY)
+      const failure = new Error(result.error || '凭证提交失败，请先查看充值记录')
+      failure.status = response.status
+      throw failure
+    }
+    return result
+  } catch (failure) {
+    if (failure.name === 'AbortError') throw new Error('凭证上传超时，请先查看充值记录，勿重复付款')
+    throw failure
+  } finally { clearTimeout(timer) }
+}
+
 export function initializeMemberSession() {
   if (isTelegramMemberEntry()) return Promise.resolve(true)
   const token = new URLSearchParams(window.location.hash.slice(1)).get('login')
@@ -71,6 +103,7 @@ export function newMemberOrderId() {
 }
 
 export const memberStatuses = {
+  manual_pending: '余额已扣除，等待昊天手动开通',
   paid: '余额已扣除，等待开通',
   delivering: '会员充值中，请等待',
   delivered: '会员已开通',

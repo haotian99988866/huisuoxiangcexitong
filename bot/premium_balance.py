@@ -1,19 +1,19 @@
-"""USD wallet purchases fulfilled through Telegram's official Premium gift API."""
+"""Transactional USD wallet purchases fulfilled manually by the owner."""
 import logging
 import re
 import threading
 from decimal import Decimal
 
-from telebot import apihelper
+from telebot import apihelper, types
 
 from db import get_conn
 
 logger = logging.getLogger(__name__)
 ORDER_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 PLANS = {
-    3: {"price_usd": Decimal("15.99"), "gift_stars": 1000},
-    6: {"price_usd": Decimal("19.99"), "gift_stars": 1500},
-    12: {"price_usd": Decimal("33.99"), "gift_stars": 2500},
+    3: {"price_usd": Decimal("15.99")},
+    6: {"price_usd": Decimal("19.99")},
+    12: {"price_usd": Decimal("33.99")},
 }
 
 
@@ -69,6 +69,9 @@ def ensure_tables():
                 "CREATE TABLE IF NOT EXISTS member_sales_config (id INT PRIMARY KEY,"
                 "enabled TINYINT NOT NULL DEFAULT 0) ENGINE=InnoDB")
             cur.execute("INSERT IGNORE INTO member_sales_config(id,enabled) VALUES(1,0)")
+            cur.execute("SHOW COLUMNS FROM member_sales_config LIKE 'owner_id'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE member_sales_config ADD COLUMN owner_id BIGINT NULL")
             cur.execute(
                 "CREATE TABLE IF NOT EXISTS member_orders ("
                 "order_id CHAR(32) PRIMARY KEY,payer_id BIGINT NOT NULL,recipient_id BIGINT NOT NULL,"
@@ -79,6 +82,13 @@ def ensure_tables():
                 "delivery_at TIMESTAMP NULL,finished_at TIMESTAMP NULL,"
                 "INDEX idx_member_payer(payer_id,created_at),INDEX idx_member_status(status)"
                 ") ENGINE=InnoDB")
+            for name, definition in (
+                ("owner_id", "BIGINT NULL"),
+                ("notification_id", "BIGINT NULL"),
+            ):
+                cur.execute(f"SHOW COLUMNS FROM member_orders LIKE '{name}'")
+                if not cur.fetchone():
+                    cur.execute(f"ALTER TABLE member_orders ADD COLUMN {name} {definition}")
             cur.execute(
                 "CREATE TABLE IF NOT EXISTS member_wallet_ledger ("
                 "id BIGINT AUTO_INCREMENT PRIMARY KEY,order_id CHAR(32) NOT NULL,"
@@ -106,9 +116,10 @@ def catalog():
 
 def set_enabled(bot, enabled):
     if enabled:
-        balance = bot.get_my_star_balance()
-        if not balance or balance.amount < 2500:
-            raise ValueError("机器人至少需备足 2500 Stars 才能开放全部套餐")
+        owner_id = manual_owner()
+        chat = bot.get_chat(owner_id)
+        if chat.type != "private":
+            raise ValueError("人工开通负责人必须先私聊机器人发送 /start")
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -116,6 +127,26 @@ def set_enabled(bot, enabled):
         conn.commit()
     finally:
         conn.close()
+
+
+def manual_owner():
+    from visit_stats import admin_ids
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT owner_id FROM member_sales_config WHERE id=1")
+            config = cur.fetchone()
+        if not config or config["owner_id"] not in admin_ids():
+            raise ValueError("人工开通负责人尚未配置或已无管理员权限")
+        return config["owner_id"]
+    finally:
+        conn.close()
+
+
+def require_order_owner(order, actor_id):
+    from visit_stats import admin_ids
+    if type(actor_id) is not int or actor_id != order.get("owner_id") or actor_id not in admin_ids():
+        raise ValueError("仅此订单的开通负责人可操作")
 
 
 def validate_recipient(bot, username):
@@ -138,21 +169,18 @@ def create_order(bot, payer_id, username, months, order_id):
     if type(months) is not int or months not in PLANS:
         raise ValueError("请选择有效套餐")
     normalized = normalize_username(username)
-    # Replays must succeed even after the sale is disabled or stock is depleted.
+    # Replays must succeed even after sales are disabled.
     existing = get_order(order_id, payer_id)
     if existing:
         if existing["months"] != months or existing["recipient_username"] != normalized:
             raise ValueError("订单编号已用于其他套餐或收件人，请先核实原订单")
         return existing
     recipient_id, normalized = validate_recipient(bot, username)
-    balance = bot.get_my_star_balance()
-    if not balance or balance.amount < PLANS[months]["gift_stars"]:
-        raise ValueError("机器人 Stars 库存不足，未扣除余额，请稍后再试")
     plan = PLANS[months]
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT enabled FROM member_sales_config WHERE id=1 FOR UPDATE")
+            cur.execute("SELECT enabled,owner_id FROM member_sales_config WHERE id=1 FOR UPDATE")
             config = cur.fetchone()
             cur.execute("SELECT * FROM member_orders WHERE order_id=%s FOR UPDATE", (order_id,))
             existing = cur.fetchone()
@@ -164,19 +192,17 @@ def create_order(bot, payer_id, username, months, order_id):
                 return existing
             if not config or not config["enabled"]:
                 raise ValueError("会员余额购买暂未开放")
-            cur.execute(
-                "SELECT COALESCE(SUM(gift_stars),0) AS reserved FROM member_orders "
-                "WHERE status IN ('paid','delivering','delivery_unknown')")
-            if balance.amount - cur.fetchone()["reserved"] < plan["gift_stars"]:
-                raise ValueError("机器人 Stars 库存已被其他订单占用，未扣除余额")
+            from visit_stats import admin_ids
+            if not config.get("owner_id") or config["owner_id"] not in admin_ids():
+                raise ValueError("人工开通负责人不可用，未扣除余额")
             cur.execute("SELECT balance FROM wallet_accounts WHERE user_id=%s FOR UPDATE", (payer_id,))
             account = cur.fetchone()
             if not account or account["balance"] < plan["price_usd"]:
                 raise ValueError("账户余额不足，请先充值并等待管理员核款")
             cur.execute(
                 "INSERT INTO member_orders(order_id,payer_id,recipient_id,recipient_username,"
-                "months,price_usd,gift_stars,status) VALUES(%s,%s,%s,%s,%s,%s,%s,'paid')",
-                (order_id, payer_id, recipient_id, normalized, months, plan["price_usd"], plan["gift_stars"]))
+                "months,price_usd,gift_stars,status,owner_id) VALUES(%s,%s,%s,%s,%s,%s,0,'manual_pending',%s)",
+                (order_id, payer_id, recipient_id, normalized, months, plan["price_usd"], config["owner_id"]))
             cur.execute("UPDATE wallet_accounts SET balance=balance-%s WHERE user_id=%s",
                         (plan["price_usd"], payer_id))
             cur.execute(
@@ -189,7 +215,7 @@ def create_order(bot, payer_id, username, months, order_id):
     finally:
         conn.close()
     return {"order_id": order_id, "recipient_username": normalized, "months": months,
-            "price_usd": str(plan["price_usd"]), "status": "paid"}
+            "price_usd": str(plan["price_usd"]), "status": "manual_pending"}
 
 
 def get_order(order_id, payer_id=None):
@@ -239,43 +265,6 @@ def recent_ledger(user_id):
         conn.close()
 
 
-def begin_delivery(order_id):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM member_orders WHERE order_id=%s FOR UPDATE", (order_id,))
-            row = cur.fetchone()
-            if not row or row["status"] != "paid":
-                conn.rollback()
-                return None
-            cur.execute("UPDATE member_orders SET status='delivering',delivery_at=NOW() WHERE order_id=%s",
-                        (order_id,))
-        conn.commit()
-        return row
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def finish_order(order_id, status, error=None):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE member_orders SET status=%s,error=%s,finished_at=NOW() "
-                "WHERE order_id=%s AND status='delivering'", (status, error, order_id))
-            if cur.rowcount != 1:
-                raise ValueError("订单状态已变化，请核实赠送结果")
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
 def refund_order(order_id, actor_id=None, confirmed_not_delivered=False):
     validate_order_id(order_id)
     conn = get_conn()
@@ -285,11 +274,14 @@ def refund_order(order_id, actor_id=None, confirmed_not_delivered=False):
             order = cur.fetchone()
             if not order:
                 raise ValueError("订单不存在")
+            if order.get("owner_id") is not None:
+                require_order_owner(order, actor_id)
             if order["status"] == "refunded":
                 conn.rollback()
-                return
+                return order
             if order["status"] != "refund_pending" and not (
-                    order["status"] == "delivery_unknown" and actor_id is not None and confirmed_not_delivered):
+                    order["status"] in {"delivery_unknown", "manual_pending"}
+                    and actor_id is not None and confirmed_not_delivered):
                 raise ValueError("必须核实未赠送，才能对结果不明的订单退款")
             cur.execute(
                 "INSERT INTO wallet_accounts(user_id,balance) VALUES(%s,%s) "
@@ -301,6 +293,7 @@ def refund_order(order_id, actor_id=None, confirmed_not_delivered=False):
                 (order_id, order["payer_id"], order["price_usd"], actor_id))
             cur.execute("UPDATE member_orders SET status='refunded',finished_at=NOW() WHERE order_id=%s", (order_id,))
         conn.commit()
+        return order
     except Exception:
         conn.rollback()
         raise
@@ -313,9 +306,14 @@ def confirm_delivery(order_id, actor_id):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT status FROM member_orders WHERE order_id=%s FOR UPDATE", (order_id,))
+            cur.execute("SELECT * FROM member_orders WHERE order_id=%s FOR UPDATE", (order_id,))
             row = cur.fetchone()
-            if not row or row["status"] != "delivery_unknown":
+            if not row:
+                raise ValueError("订单不存在")
+            if row.get("owner_id") is not None:
+                require_order_owner(row, actor_id)
+            if row["status"] != "delivery_unknown" and not (
+                    row["status"] == "manual_pending" and row.get("owner_id") is not None):
                 raise ValueError("只能确认待核实订单，请先核实官方赠送记录")
             cur.execute(
                 "INSERT INTO member_wallet_ledger(order_id,user_id,event,amount,actor_id) "
@@ -325,6 +323,7 @@ def confirm_delivery(order_id, actor_id):
                 "UPDATE member_orders SET status='delivered',error=NULL,finished_at=NOW() WHERE order_id=%s",
                 (order_id,))
         conn.commit()
+        return row
     except Exception:
         conn.rollback()
         raise
@@ -332,58 +331,57 @@ def confirm_delivery(order_id, actor_id):
         conn.close()
 
 
-def deliver_order(bot, order_id):
-    order = begin_delivery(order_id)
-    if not order:
-        return
-    preflight_error = None
+def manual_order_text(order):
+    status = {"manual_pending": "等待昊天手动开通", "delivered": "已开通完成", "refunded": "已退回站内余额"}.get(
+        order["status"], order["status"])
+    return (
+        f"人工会员订单 {order['order_id']}\n"
+        f"付款客户 ID：{order['payer_id']}\n"
+        f"开通账号：@{order['recipient_username']}\n"
+        f"收件人 ID：{order['recipient_id']}\n"
+        f"套餐：{order['months']}个月 · 已扣 ${order['price_usd']} USD\n"
+        f"状态：{status}\n"
+        "请核对用户名及数字 ID，手动开通后再确认完成；无法开通须确认未开通后退余额。"
+    )
+
+
+def manual_keyboard(order_id, decision=None):
+    keyboard = types.InlineKeyboardMarkup()
+    if decision:
+        keyboard.add(types.InlineKeyboardButton(
+            "确认已经开通" if decision == "done" else "确认未开通并退余额",
+            callback_data=f"manual:confirm_{decision}:{order_id}",
+        ))
+        keyboard.add(types.InlineKeyboardButton("返回核对", callback_data=f"manual:back:{order_id}"))
+    else:
+        keyboard.add(types.InlineKeyboardButton("开通完成", callback_data=f"manual:done:{order_id}"))
+        keyboard.add(types.InlineKeyboardButton("无法开通，退余额", callback_data=f"manual:refund:{order_id}"))
+    return keyboard
+
+
+def notify_manual_order(bot, order_id):
+    validate_order_id(order_id)
+    conn = get_conn()
     try:
-        chat = bot.get_chat(order["recipient_id"])
-        if chat.type != "private" or normalize_username(chat.username) != order["recipient_username"]:
-            preflight_error = "RecipientChanged"
-        else:
-            balance = bot.get_my_star_balance()
-            if not balance or balance.amount < order["gift_stars"]:
-                preflight_error = "InsufficientStars"
-    except (apihelper.ApiException, ValueError):
-        logger.exception("Member gift preflight failed order=%s", order_id)
-        preflight_error = "PreflightFailed"
-    if preflight_error:
-        logger.warning("Member order not sent to gift API order=%s reason=%s", order_id, preflight_error)
-        finish_order(order_id, "refund_pending", preflight_error)
-        refund_order(order_id)
-        _notify_user(bot, order["payer_id"], "暂时无法核实收件人或库存，金额已退回 USD 账户余额。")
-        _notify_admins(bot, f"会员订单 {order_id} 未赠送，已退回站内余额；原因：{preflight_error}。")
-        return
-    try:
-        result = bot.gift_premium_subscription(
-            user_id=order["recipient_id"], month_count=order["months"],
-            star_count=order["gift_stars"], text="感谢购买 Telegram Premium")
-    except apihelper.ApiTelegramException as exc:
-        if exc.error_code >= 500:
-            logger.exception("Member gift server outcome unknown order=%s", order_id)
-            finish_order(order_id, "delivery_unknown", "TelegramServerError")
-            _notify_admins(bot, f"会员订单 {order_id} 赠送结果不明，请核实，勿重复赠送或退款。")
-            return
-        logger.exception("Member gift rejected order=%s", order_id)
-        finish_order(order_id, "refund_pending", "GiftRejected")
-        refund_order(order_id)
-        _notify_user(bot, order["payer_id"], "会员赠送失败，购买金额已退回 USD 账户余额。")
-        return
-    except Exception as exc:
-        logger.exception("Member gift outcome unknown order=%s", order_id)
-        finish_order(order_id, "delivery_unknown", type(exc).__name__)
-        _notify_admins(bot, f"会员订单 {order_id} 赠送结果不明，请核实，勿重复赠送或退款。")
-        _notify_user(bot, order["payer_id"], "会员开通结果正在核实，请勿重复购买，保留订单编号联系管理员。")
-        return
-    if result is not True:
-        logger.error("Unexpected Premium gift response order=%s", order_id)
-        finish_order(order_id, "delivery_unknown", "UnexpectedResponse")
-        _notify_admins(bot, f"会员订单 {order_id} 返回异常，请核实官方交易，勿重试。")
-        return
-    finish_order(order_id, "delivered")
-    _notify_user(bot, order["payer_id"],
-                 f"Premium 已赠送给 @{order['recipient_username']}，有效期 {order['months']}个月。")
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM member_orders WHERE order_id=%s FOR UPDATE", (order_id,))
+            row = cur.fetchone()
+            if not row or row["status"] != "manual_pending" or row["notification_id"] is not None:
+                conn.rollback()
+                return
+            require_order_owner(row, row["owner_id"])
+            message = bot.send_message(
+                row["owner_id"], manual_order_text(row), reply_markup=manual_keyboard(order_id),
+                disable_web_page_preview=True, timeout=10,
+            )
+            cur.execute("UPDATE member_orders SET notification_id=%s,error=NULL WHERE order_id=%s",
+                        (message.message_id, order_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def process_orders(bot):
@@ -391,35 +389,23 @@ def process_orders(bot):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT order_id FROM member_orders WHERE status='delivering' "
-                "AND delivery_at<DATE_SUB(NOW(),INTERVAL 10 MINUTE) LIMIT 50")
-            stale = [row["order_id"] for row in cur.fetchall()]
-            for order_id in stale:
-                cur.execute(
-                    "UPDATE member_orders SET status='delivery_unknown',error='WorkerInterrupted' "
-                    "WHERE order_id=%s AND status='delivering' "
-                    "AND delivery_at<DATE_SUB(NOW(),INTERVAL 10 MINUTE)", (order_id,))
-            cur.execute(
-                "SELECT order_id,status FROM member_orders WHERE status IN ('paid','refund_pending') "
-                "ORDER BY created_at LIMIT 50")
+                "SELECT order_id,status FROM member_orders WHERE "
+                "(status='manual_pending' AND notification_id IS NULL) OR status='refund_pending' "
+                "ORDER BY created_at LIMIT 50"
+            )
             rows = cur.fetchall()
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
     finally:
         conn.close()
-    for order_id in stale:
-        _notify_admins(bot, f"会员订单 {order_id} 处理曾中断，需核实赠送结果，勿重复赠送。")
     for row in rows:
         try:
-            if row["status"] == "paid":
-                deliver_order(bot, row["order_id"])
+            if row["status"] == "manual_pending":
+                notify_manual_order(bot, row["order_id"])
             else:
                 refund_order(row["order_id"])
         except Exception:
             logger.exception("Member order worker failed order=%s; retained for reconciliation", row["order_id"])
-            _notify_admins(bot, f"会员订单 {row['order_id']} 处理异常，请检查订单及官方交易记录。")
+            if row["status"] != "manual_pending":
+                _notify_admins(bot, f"会员订单 {row['order_id']} 处理异常，请检查订单及官方交易记录。")
 
 
 def start_worker(bot):

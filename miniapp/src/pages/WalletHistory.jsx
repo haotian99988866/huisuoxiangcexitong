@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
 import DepositRecords from '../components/DepositRecords'
-import { bindBackButton } from '../utils/twa'
+import { bindBackButton, hasTelegramBackButton } from '../utils/twa'
 import { requestMember } from '../utils/membership'
 import { money } from '../utils/commerce'
 import useMemberAccount from '../utils/useMemberAccount'
@@ -36,7 +36,7 @@ export default function WalletHistory() {
 
   return <main className="account-page membership-page">
     <header className="membership-header">
-      <Link to="/personal">← 我的钱包</Link>
+      {!hasTelegramBackButton && <Link to="/personal">← 我的钱包</Link>}
       <h1>{ledgerView ? '资金明细' : '充值记录'}</h1>
       <p>充值申请与实际入账分开，只有核款通过才增加可用余额。</p>
     </header>

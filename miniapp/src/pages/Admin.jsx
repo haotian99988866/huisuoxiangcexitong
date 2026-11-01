@@ -4,6 +4,8 @@ import { bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../u
 import { FullscreenAnnouncementBar } from '../components/Announcement'
 import { localDateInput, requestAdmin, tenantLink, utcExpiry } from '../utils/admin'
 import MemberSimulation from '../components/MemberSimulation'
+import DepositReview from '../components/DepositReview'
+import AdminStars from '../components/AdminStars'
 import './Membership.css'
 import './Admin.css'
 
@@ -151,12 +153,14 @@ export default function Admin() {
         <h1>运营管理台</h1>
         <button type="button" disabled={loading || saving} onClick={refresh}>{loading ? '读取中…' : '刷新'}</button>
       </header>
-      <p className="admin-hint">仅平台管理员 · 人工收月费 · 充值审核仍使用机器人 /wallet</p>
+      <p className="admin-hint">仅平台管理员 · 人工核款与租户管理</p>
       {error && <p role="alert" className="admin-error">{error}</p>}
       {notice && <p role="status" className="admin-notice">{notice}</p>}
       {copyFallback && <input aria-label="专属入口链接" readOnly value={copyFallback} onFocus={event => event.target.select()} />}
       {!data && !loading && !error && <p>暂无管理数据</p>}
       {data && <>
+        <DepositReview onReviewed={refresh} />
+        <AdminStars userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} />
         <MemberSimulation userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} />
         <section aria-label="运营概览" className="admin-stats">
           {[
@@ -166,7 +170,7 @@ export default function Admin() {
             ['待核充值', data.counts.pending_deposits],
           ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
         </section>
-        <p className="admin-hint">统计时间：{formatDate(data.server_time)}。待核充值仅显示数量，本页不操作资金。</p>
+        <p className="admin-hint">统计时间：{formatDate(data.server_time)}。充值审核通过后增加账户余额，不自动购买会员。</p>
         <section className="admin-card">
           <div className="admin-header"><h2>租户管理</h2><button type="button" disabled={saving || loading} onClick={() => edit(null)}>新建租户</button></div>
           <p className="admin-hint">共享机器人及公共观影频道；客户与频道成员并非完全隔离。</p>

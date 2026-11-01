@@ -8,7 +8,7 @@ export default function DepositRecords({ deposits }) {
       <p>#{deposit.id} · {statuses[deposit.status] || deposit.status}</p>
       <p style={detailStyle}>申报 {deposit.claimed} USD{deposit.credited && ` · 入账 ${deposit.credited} USD`}</p>
       <p style={detailStyle}>{deposit.created_at}</p>
-      <p style={detailStyle}>{deposit.method === 'aba' ? 'ABA 交易编号' : 'USDT TXID'}：{deposit.txid.replace(/^aba:/, '')}</p>
+      <p style={detailStyle}>{deposit.txid.startsWith('manual:') ? 'ABA 金额申请已提交，等待昊天复核' : deposit.txid.startsWith('proof:') ? '付款凭证已提交，等待人工核实' : `${deposit.method === 'aba' ? 'ABA 交易编号' : 'USDT 交易编号'}：${deposit.txid.replace(/^aba:/, '')}`}</p>
     </div>
   ))
 }

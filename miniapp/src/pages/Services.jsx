@@ -15,13 +15,13 @@ export default function Services() {
       <p>选服务、看价格，购买进度在「我的订单」查看。</p>
     </header>
     <section className="membership-panel" aria-labelledby="service-membership">
-      <h2 id="service-membership">会员服务</h2>
+      <h2 id="service-membership">Telegram会员</h2>
       <Link className="service-product" to="/membership">
         <span className="service-product-icon"><ModuleIcon name="membership" /></span>
         <div><h3>Telegram Premium</h3><p>3 / 6 / 12个月 · 为自己或朋友开通</p><strong>$15.99 起</strong></div>
         <span aria-hidden="true">→</span>
       </Link>
-      <p>是否开放购买以会员详情页为准。管理员模拟在管理台进行，不是真实开通。</p>
+      <p>余额付款后由昊天手动开通，进度在「我的订单」查看。</p>
     </section>
     <section className="membership-panel" aria-labelledby="service-coming">
       <h2 id="service-coming">更多便民服务</h2>

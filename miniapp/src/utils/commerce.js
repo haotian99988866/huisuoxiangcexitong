@@ -7,7 +7,7 @@ export const orderFilters = [
 ]
 
 export function orderMatches(order, filter) {
-  if (filter === 'processing') return ['paid', 'delivering'].includes(order.status)
+  if (filter === 'processing') return ['manual_pending', 'paid', 'delivering'].includes(order.status)
   if (filter === 'completed') return order.status === 'delivered'
   if (filter === 'attention') return ['refund_pending', 'refunded', 'delivery_unknown'].includes(order.status)
   return true
@@ -24,6 +24,7 @@ export function navigationSection(pathname) {
 
 export function orderGuidance(status) {
   return ({
+    manual_pending: '余额已扣除，昊天将人工处理此套餐；确认开通后更新订单，请勿重复购买。',
     paid: '余额已扣除，无需再次付款。系统正在等待开通。',
     delivering: '正在为收件人开通会员，请等待结果，不要重复购买。',
     delivered: '会员已开通，请收件人在 Telegram 中查看会员权益。',

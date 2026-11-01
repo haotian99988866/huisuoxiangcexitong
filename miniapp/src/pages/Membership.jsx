@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
-import BalanceDeposit from '../components/BalanceDeposit'
 import MusicDialog from '../components/MusicDialog'
-import { bindBackButton } from '../utils/twa'
+import { bindBackButton, hasTelegramBackButton } from '../utils/twa'
 import { newMemberOrderId, requestMember } from '../utils/membership'
 import { money, validPurchaseAttempt } from '../utils/commerce'
 import useMemberAccount from '../utils/useMemberAccount'
@@ -23,7 +22,7 @@ export default function Membership() {
   const [busy, setBusy] = useState(false)
   const [localError, setLocalError] = useState('')
   const [recoveryError, setRecoveryError] = useState(false)
-  const [depositOpen, setDepositOpen] = useState(false)
+  const [confirmationOpen, setConfirmationOpen] = useState(false)
   const submitting = useRef(false)
   const selected = catalog?.plans.find(plan => plan.months === months)
   const insufficient = Boolean(selected && account && Number(account.balance) < Number(selected.price_usd))
@@ -34,7 +33,7 @@ export default function Membership() {
   useEffect(() => {
     setPending(null)
     setDraftUser(null)
-    setDepositOpen(false)
+    setConfirmationOpen(false)
     setRecoveryError(false)
     setLocalError('')
     if (!account) return
@@ -67,10 +66,25 @@ export default function Membership() {
     }
   }, [account?.user_id, draftUser, username, months, recoveryError])
 
+  function goRecharge() {
+    if (!account || recoveryError || pending || submitting.current) return
+    try {
+      sessionStorage.setItem(draftKey(account.user_id), JSON.stringify({ username, months }))
+      navigate('/recharge?from=membership')
+    } catch (failure) {
+      setRecoveryError(true)
+      setLocalError(`无法保存已选套餐：${failure.message}；请恢复浏览器存储后再充值。`)
+    }
+  }
+
   async function purchase(event) {
     event.preventDefault()
     if (submitting.current || !account || recoveryError) return
-    if (!pending && insufficient) { setDepositOpen(true); return }
+    if (!pending && insufficient) { goRecharge(); return }
+    if (!pending && !catalog?.enabled) {
+      setLocalError('正式会员余额购买暂未开放，请勿付款。')
+      return
+    }
     submitting.current = true
     setBusy(true)
     setLocalError('')
@@ -113,9 +127,9 @@ export default function Membership() {
 
   return <main className="account-page membership-page">
     <header className="membership-header">
-      <Link to="/services">← 服务中心</Link>
+      {!hasTelegramBackButton && <Link to="/services">← 服务中心</Link>}
       <h1>Telegram会员</h1>
-      <p>官方赠送 Premium · 无需提供密码或验证码</p>
+      <p>选择套餐，核对后确认开通。</p>
     </header>
     {(error || localError) && <p className="membership-error" role="alert">{localError || error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
@@ -123,65 +137,52 @@ export default function Membership() {
         你有一笔开通结果待核实的订单，请勿重复购买。<Link to={`/orders/${attention.order_id}`}>查看订单 →</Link>
       </p>}
       <section className="membership-panel">
-        <h2>给谁开通</h2>
-        <p>收件人需先私聊本机器人发送 /start，并拥有有效用户名。成功赠送后通常无法撤回。</p>
-        <form id="membership-purchase" onSubmit={purchase}>
-          <label>收件人 Telegram 用户名
-            <input required placeholder="@username" pattern="@?[A-Za-z0-9_]{5,32}" maxLength={33}
-              autoCapitalize="none" autoCorrect="off" value={username} disabled={busy || Boolean(pending) || recoveryError}
-              onChange={event => setUsername(event.target.value)} />
-          </label>
           <h2>选择套餐</h2>
           {!catalog && !error && <p role="status">正在读取套餐…</p>}
           <div className="membership-plans">
             {catalog?.plans.map(plan => <button key={plan.months} type="button"
               disabled={busy || Boolean(pending) || recoveryError} aria-pressed={months === plan.months}
-              onClick={() => setMonths(plan.months)}>
+              onClick={() => { setMonths(plan.months); setLocalError(''); setConfirmationOpen(true) }}>
               <strong>{plan.months}个月</strong><span>${money(plan.price_usd)}</span>
             </button>)}
           </div>
-          <p>大文件上传、更快下载及更多会员功能，以 Telegram 当前权益为准。</p>
-        </form>
+          {catalog && !catalog.enabled && <p role="status">会员购买暂未开放，套餐仅供查看。</p>}
       </section>
-      <section className="membership-panel">
-        <div className="membership-row"><h2>确认支付</h2><Link to="/orders">我的订单 →</Link></div>
-        <p>可用余额：${money(account.balance)} USD · 待核款金额不计入余额</p>
-        {selected && <p>收件人：{username || '请填写用户名'} · {months}个月 · 应付 ${money(selected.price_usd)} USD</p>}
-        {catalog && !catalog.enabled && <p role="status">正式会员余额购买暂未开放。已提交订单仍会继续处理。</p>}
-        {insufficient && !pending && <p>还差 ${money(Number(selected.price_usd) - Number(account.balance))} USD。充值核款到账后仍需你确认购买，不会自动扣款。</p>}
-        <div className="membership-actions">
-          <button type="button" disabled={busy} onClick={() => setDepositOpen(true)}>充值账户余额</button>
-          <button type="button" disabled={busy} onClick={() => refresh().catch(reportFailure)}>刷新余额</button>
-        </div>
-        {pending && <div role="status">
-          <p className="membership-reference">待确认订单：{pending.order_id}。收件人和套餐已锁定，重试沿用同一订单，不会重复扣款。</p>
-          <button type="button" disabled={busy} onClick={checkPending}>查询这笔订单</button>
-        </div>}
-        {recoveryError && <Link to="/orders">先查询订单并联系客服 →</Link>}
-      </section>
-      <section className="membership-panel">
-        <h2>购买与售后说明</h2>
-        <p>确认购买后扣除站内余额，再由商家机器人支付官方赠送费用。开通时间受库存、Telegram 服务及核实情况影响，不承诺秒到账。</p>
-        <p>明确未开通的失败订单退回站内余额，不自动退回 ABA 或链上钱包。结果不明先人工核实，请勿重复购买。</p>
-        <a href="https://t.me/haotian99988866" target="_blank" rel="noreferrer">联系客服 · 请提供订单编号</a>
-      </section>
-      <div className="membership-checkout-bar">
-        <div><small>{months}个月 · 应付</small><strong>{selected ? `$${money(selected.price_usd)}` : '—'}</strong></div>
-        <button type="submit" form="membership-purchase"
-          disabled={busy || recoveryError || (!pending && (!catalog?.enabled || !selected))}>
-          {busy ? '正在处理…' : pending ? '重试同一订单' : insufficient ? '余额不足，去充值' : '确认余额付款'}
-        </button>
-      </div>
-      {depositOpen && <MusicDialog title="充值账户余额" onClose={() => setDepositOpen(false)}>
-        <section className="membership-panel account-deposit-dialog">
+      {pending && <p className="membership-notice" role="status">有一笔购买结果待确认，请勿重新下单。
+        <button type="button" disabled={busy} onClick={() => setConfirmationOpen(true)}>核实这笔订单</button></p>}
+      {recoveryError && <Link to="/orders">先查询订单并联系客服 →</Link>}
+      <Link to="/orders">我的订单 →</Link>
+      {confirmationOpen && <MusicDialog title="确认会员套餐" onClose={() => setConfirmationOpen(false)}>
+        {(error || localError) && <p className="membership-error" role="alert">{localError || error}</p>}
+        <form onSubmit={purchase}>
+          <h3>Telegram Premium · {months}个月</h3>
+          <p>应付：{selected ? `$${money(selected.price_usd)} USD` : '套餐暂不可用'}</p>
           <p>可用余额：${money(account.balance)} USD</p>
-          <BalanceDeposit account={account} onRefresh={refresh} onFailure={reportFailure} />
-          <Link to="/wallet-history?view=deposits">查看充值核款记录 →</Link>
-          {selected && !insufficient && <p className="membership-notice" role="status">余额已足够。关闭此面板后核对套餐，再确认购买；不会自动扣款。</p>}
-          <button type="button" onClick={() => setDepositOpen(false)}>保留套餐，返回购买</button>
-        </section>
+          <label>收件人 Telegram 用户名
+            <input required placeholder="@username" pattern="@?[A-Za-z0-9_]{5,32}" maxLength={33}
+              autoCapitalize="none" autoCorrect="off" value={username} disabled={busy || Boolean(pending) || recoveryError}
+              onChange={event => setUsername(event.target.value)} />
+          </label>
+          <p>收件人需先向机器人发送 /start；无需密码或验证码。请核对用户名，成功开通通常无法撤回。</p>
+          {catalog && !catalog.enabled && <p role="status">正式会员购买暂未开放，不会扣款开通。</p>}
+          {pending ? <div role="status">
+            <p className="membership-reference">待确认订单：{pending.order_id}。重试沿用同一订单，请勿重新下单。</p>
+            <button type="button" disabled={busy} onClick={checkPending}>查询这笔订单</button>
+          </div> : insufficient ? <p>余额不足，还差 ${money(Number(selected.price_usd) - Number(account.balance))} USD。充值需人工核款，到账后请返回确认购买。</p> : null}
+          <p>确认后扣除站内余额，由昊天手动开通并确认完成；明确未开通时由昊天确认退回余额，结果不明先核实，请勿重复购买。</p>
+          <div className="membership-actions">
+            <button type="button" disabled={busy} onClick={() => refresh().catch(reportFailure)}>刷新余额</button>
+            {!pending && insufficient ? <button type="button" className="membership-primary" disabled={busy || recoveryError} onClick={goRecharge}>余额不足，去充值</button>
+              : !pending && selected && catalog && !catalog.enabled ? <button type="button" className="membership-primary"
+                disabled={busy || recoveryError} onClick={() => setLocalError('会员购买暂未开放：余额已到账，但当前不能开通会员，不会扣款。')}>
+                购买暂未开放
+              </button> : <button type="submit" className="membership-primary" disabled={busy || recoveryError || (!pending && (!catalog?.enabled || !selected))}>
+                {busy ? '正在处理…' : pending ? '重试同一订单' : '确认余额付款'}
+              </button>}
+          </div>
+        </form>
       </MusicDialog>}
     </>}
-    {!account && <Link to="/services">返回服务中心</Link>}
+    {!account && !hasTelegramBackButton && <Link to="/services">返回服务中心</Link>}
   </main>
 }

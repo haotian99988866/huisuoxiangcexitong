@@ -59,8 +59,8 @@ export default function useMemberAccount({ withOrders = false, withCatalog = fal
     return () => { active = false; generation.current += 1 }
   }, [hash, refresh, reportFailure])
 
-  const needsPolling = Boolean(account?.deposits.some(item => item.status === 'pending')
-    || orders.some(item => ['paid', 'delivering', 'refund_pending', 'delivery_unknown'].includes(item.status)))
+  const needsPolling = Boolean(account?.pending_deposit || account?.rejected_deposit || account?.deposits.some(item => item.status === 'pending')
+    || orders.some(item => ['manual_pending', 'paid', 'delivering', 'refund_pending', 'delivery_unknown'].includes(item.status)))
   useEffect(() => {
     if (!account || !needsPolling) return undefined
     let active = true

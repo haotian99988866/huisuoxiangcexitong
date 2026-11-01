@@ -18,7 +18,7 @@ test('navigation groups old and new deep links under the right main destination'
 
 test('order filters keep refunds and uncertain outcomes distinct from completion', () => {
   const expected = {
-    paid: 'processing', delivering: 'processing', delivered: 'completed',
+    manual_pending: 'processing', paid: 'processing', delivering: 'processing', delivered: 'completed',
     refund_pending: 'attention', refunded: 'attention', delivery_unknown: 'attention',
   }
   for (const [status, filter] of Object.entries(expected)) {

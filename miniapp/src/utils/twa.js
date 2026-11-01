@@ -23,7 +23,7 @@ export function openTelegramLink(url) {
 }
 
 // 在 Telegram 内由顶部返回箭头负责退出详情，页面内不再重复放关闭按钮
-export const hasTelegramBackButton = Boolean(window.Telegram?.WebApp?.BackButton)
+export const hasTelegramBackButton = Boolean(window.Telegram?.WebApp?.initData && window.Telegram?.WebApp?.BackButton)
 
 // 全屏时 Telegram 的关闭/菜单按钮会浮在页面顶部，需要读取是否全屏来做避让
 export function subscribeFullscreen(callback) {
