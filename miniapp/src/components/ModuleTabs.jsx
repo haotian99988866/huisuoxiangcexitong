@@ -5,16 +5,13 @@ import { moduleGroups, displayModules } from '../utils/modules'
 import { getTenant, tenantPath } from '../utils/tenant'
 import { registerBackOverlay } from '../utils/twa'
 import { rememberModuleScroll } from '../utils/moduleState'
-import { navigationSection } from '../utils/commerce'
 import ModuleIcon from './ModuleIcon'
 import SeasonalWelcome from './SeasonalWelcome'
 import './ModuleTabs.css'
 
 export default function ModuleTabs({ active }) {
   const tenant = getTenant()
-  const section = navigationSection(displayModules().find(item => item.key === active)?.path.split('?')[0] || '/')
-  const keys = section === 'media' ? ['movies', 'music'] : section === 'news' ? ['announcements'] : ['venue', 'delivery']
-  const modules = displayModules().filter(item => tenant || keys.includes(item.key))
+  const modules = displayModules()
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [showSeasonal, setShowSeasonal] = useState(false)
@@ -60,7 +57,7 @@ export default function ModuleTabs({ active }) {
     if (item.key !== active) navigate(tenantPath(item.path), { replace: true })
   }
 
-  if (!tenant && section !== 'media') return null
+  if (!tenant) return null
 
   return (
     <nav aria-label="模块导航" className="module-navigation">

@@ -1,270 +1,149 @@
-import { useEffect, useState } from 'react'
-import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
+import { useEffect, useRef, useState } from 'react'
+import { FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
-import { useModuleState, useModuleScroll } from '../utils/moduleState'
+import ModuleIcon from '../components/ModuleIcon'
+import { rememberModuleScroll, useModuleState, useModuleScroll } from '../utils/moduleState'
 import { mediaUrl, tenantHeaders } from '../utils/tenant'
-import {
-  API_BASE_URL,
-  bindBackButton,
-  closeMiniApp,
-  hasTelegramBackButton,
-  openTelegramLink,
-  subscribeFullscreen
-} from '../utils/twa'
+import { movieSummary } from '../utils/catalogSummary'
+import { API_BASE_URL, bindBackButton, openTelegramLink, subscribeFullscreen } from '../utils/twa'
+import './MovieList.css'
 
-const coverUrl = cover => {
-  if (!cover) return ''
-  return /^https?:/.test(cover) ? cover : mediaUrl(`${API_BASE_URL}/${cover}`)
-}
-
+const coverUrl = cover => !cover ? '' : /^https?:/.test(cover) ? cover : mediaUrl(`${API_BASE_URL}/${cover}`)
 const openMovie = href => {
   const url = new URL(href)
   url.searchParams.set('t', '1')
   openTelegramLink(url.href)
 }
-
-const formatDuration = seconds => {
+const durationText = seconds => {
   if (!seconds) return ''
   const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
+  const m = Math.floor(seconds % 3600 / 60)
   const s = seconds % 60
-  const pad = n => String(n).padStart(2, '0')
-  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
 }
-
-async function post(body) {
+async function post(body, signal) {
   const res = await fetch(`${API_BASE_URL}/webhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
-    body: JSON.stringify(body)
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
+    body: JSON.stringify(body), signal,
   })
   const payload = await res.json()
-  if (!res.ok) throw new Error(payload.error || '请求失败')
+  if (!res.ok) throw new Error(payload.error || '影视请求失败，请稍后重试')
   return payload
 }
-
-const chipStyle = active => ({
-  flex: '0 0 auto',
-  minHeight: '44px',
-  padding: '0 12px',
-  borderRadius: '15px',
-  border: active ? '1px solid var(--ink-accent)' : '1px solid var(--ink-line)',
-  background: active ? 'var(--ink-accent)' : 'var(--ink-surface)',
-  color: active ? '#fffef5' : 'var(--ink-text)',
-  fontSize: '13px',
-  fontWeight: 600,
-  whiteSpace: 'nowrap',
-  cursor: 'pointer'
-})
-
-function Thumb({ src, style }) {
-  return (
-    <div style={{ background: '#e2e7dc', overflow: 'hidden', ...style }}>
-      {src && (
-        <img
-          src={coverUrl(src)}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-        />
-      )}
-    </div>
-  )
+function Cover({ src }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [src])
+  return <div className="movie-cover">
+    {src && !failed ? <img src={coverUrl(src)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
+      : <span className="movie-cover-placeholder" aria-hidden="true"><ModuleIcon name="movies" /><small>影视片库</small></span>}
+  </div>
 }
 
 export default function MovieList() {
-  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
-  useEffect(() => subscribeFullscreen(setIsFullscreen), [])
+  const [fullscreen, setFullscreen] = useState(false)
   const [category, setCategory] = useModuleState('movies.category', '')
   const [queryInput, setQueryInput] = useModuleState('movies.searchInput', '')
   const [query, setQuery] = useModuleState('movies.search', '')
   const [data, setData] = useState({ categories: [], series: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
   const [openSeries, setOpenSeries] = useState(null)
-  const [episodes, setEpisodes] = useState([])
-  const [episodesLoading, setEpisodesLoading] = useState(false)
-  useModuleScroll('movies', !loading)
-
+  const [episodeData, setEpisodeData] = useState({ loading: true, episodes: [], error: '' })
+  const searchRef = useRef(null)
+  useModuleScroll('movies', !loading && !openSeries)
+  useEffect(() => subscribeFullscreen(setFullscreen), [])
   useEffect(() => {
-    const timer = setTimeout(() => setQuery(queryInput.trim()), 300)
+    const timer = setTimeout(() => setQuery(queryInput.trim()), 350)
     return () => clearTimeout(timer)
   }, [queryInput])
-
   useEffect(() => {
-    let cancelled = false
+    let active = true
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15000)
     setLoading(true)
     setError('')
-    post({ action: 'get_movies', category, query })
-      .then(result => !cancelled && setData(result))
-      .catch(() => !cancelled && setError('加载失败，请稍后重试'))
-      .finally(() => !cancelled && setLoading(false))
-    return () => {
-      cancelled = true
-    }
-  }, [category, query])
-
+    post({ action: 'get_movies', category, query }, controller.signal)
+      .then(result => { if (active) setData(result) })
+      .catch(failure => { if (active) setError(failure.name === 'AbortError' ? '影视加载超时，请重试' : failure.message) })
+      .finally(() => { clearTimeout(timer); if (active) setLoading(false) })
+    return () => { active = false; clearTimeout(timer); controller.abort() }
+  }, [category, query, attempt])
   useEffect(() => {
-    return bindBackButton(() => {
-      if (openSeries) setOpenSeries(null)
-      else closeMiniApp()
-    })
-  }, [openSeries])
+    if (!openSeries) return undefined
+    let active = true
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15000)
+    setEpisodeData({ loading: true, episodes: [], error: '' })
+    post({ action: 'get_movie_series', series: openSeries.name }, controller.signal)
+      .then(result => { if (active) setEpisodeData({ loading: false, episodes: result.episodes, error: '' }) })
+      .catch(failure => {
+        if (active) setEpisodeData({ loading: false, episodes: [], error: failure.name === 'AbortError' ? '选集加载超时，请重试' : failure.message })
+      }).finally(() => clearTimeout(timer))
+    return () => { active = false; clearTimeout(timer); controller.abort() }
+  }, [openSeries, attempt])
+  useEffect(() => bindBackButton(openSeries ? () => setOpenSeries(null) : null), [openSeries])
 
-  const openItem = item => {
-    if (item.url) {
-      openMovie(item.url)
-      return
-    }
+  function openItem(item) {
+    if (item.url) { openMovie(item.url); return }
+    rememberModuleScroll('movies')
     setOpenSeries(item)
-    setEpisodes([])
-    setEpisodesLoading(true)
-    window.scrollTo(0, 0)
-    post({ action: 'get_movie_series', series: item.name })
-      .then(result => setEpisodes(result.episodes || []))
-      .catch(() => setEpisodes([]))
-      .finally(() => setEpisodesLoading(false))
   }
-
-  return (
-    <div className="movies-page" style={{ minHeight: '100vh', padding: '12px', boxSizing: 'border-box' }}>
-      <div style={{
-        position: 'sticky',
-        top: 0,
-        zIndex: 20,
-        padding: '10px 12px',
-        margin: '-12px -12px 12px',
-        background: 'var(--ink-header)',
-        borderBottom: '1px solid var(--ink-line)',
-        boxShadow: '0 3px 12px rgba(44,65,48,0.03)'
+  return <main className="movies-page">
+    <header className="movie-navigation">
+      {fullscreen && <FullscreenAnnouncementBar />}
+      <ModuleTabs active="movies" />
+      {!openSeries && <form className="movie-search" role="search" onSubmit={event => {
+        event.preventDefault(); setQuery(queryInput.trim()); searchRef.current?.blur()
       }}>
-        {isFullscreen && <FullscreenAnnouncementBar />}
-        <ModuleTabs active="movies" />
-        {!isFullscreen && !openSeries && <AnnouncementCard />}
-        {openSeries ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {!hasTelegramBackButton && (
-              <button
-                onClick={() => setOpenSeries(null)}
-                style={{ ...chipStyle(false), height: '34px' }}
-              >
-                ← 返回
-              </button>
-            )}
-            <div style={{
-              fontSize: '15px', fontWeight: 700, color: 'var(--ink-text)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-            }}>
-              {openSeries.name}
-            </div>
-          </div>
-        ) : (
-          <>
-            <input
-              value={queryInput}
-              onChange={e => setQueryInput(e.target.value)}
-              placeholder="搜索片名"
-              aria-label="搜索片名"
-              style={{
-                width: '100%', boxSizing: 'border-box', height: '36px', padding: '0 12px',
-                border: '1px solid var(--ink-line)', borderRadius: '12px',
-                fontSize: '16px', color: 'var(--ink-text)', background: 'var(--ink-reading)'
-              }}
-            />
-            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginTop: '8px', paddingBottom: '2px' }}>
-              <button style={chipStyle(!category)} onClick={() => setCategory('')}>
-                全部 {data.total || ''}
-              </button>
-              {data.categories.map(item => (
-                <button
-                  key={item.name}
-                  style={chipStyle(category === item.name)}
-                  onClick={() => setCategory(item.name)}
-                >
-                  {item.name} {item.count}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        <ModuleIcon name="search" />
+        <input ref={searchRef} type="search" aria-label="搜索片名" placeholder="搜索电影、电视剧、综艺"
+          value={queryInput} maxLength={50} enterKeyHint="search" onChange={event => setQueryInput(event.target.value)} />
+        {queryInput && <button type="button" aria-label="清空片名搜索" onClick={() => { setQueryInput(''); setQuery('') }}>✕</button>}
+        <button type="submit">搜索</button>
+      </form>}
+      {!openSeries && <nav className="movie-categories" aria-label="影视分类">
+        <button type="button" aria-pressed={!category} onClick={() => setCategory('')}>全部</button>
+        {data.categories.map(item => <button type="button" key={item.name}
+          aria-pressed={category === item.name} onClick={() => setCategory(item.name)}>{item.name}</button>)}
+      </nav>}
+    </header>
+    {openSeries ? <>
+      <button className="movie-back" type="button" onClick={() => setOpenSeries(null)}>← 返回片库</button>
+      <section className="movie-detail">
+        <Cover src={openSeries.cover} />
+        <div><span className="movie-kicker">{openSeries.category || '影视'}</span><h1>{openSeries.name}</h1>
+          <p>共 {openSeries.episodes} 集 · 选择剧集后在 Telegram 中播放</p></div>
+      </section>
+      <div className="movie-section-heading"><h2>选集播放</h2><span>{episodeData.loading ? '读取中…' : episodeData.error ? '加载失败' : `${episodeData.episodes.length} 个播放入口`}</span></div>
+      {episodeData.loading ? <p className="movie-state" role="status">正在加载剧集…</p>
+        : episodeData.error ? <div className="movie-state" role="alert"><p>{episodeData.error}</p><button onClick={() => setAttempt(value => value + 1)}>重新加载选集</button></div>
+          : <div className="movie-episodes">
+            {episodeData.episodes.map((episode, index) => <button type="button" key={episode.url} onClick={() => openMovie(episode.url)}>
+              <span className="movie-episode-number">{String(index + 1).padStart(2, '0')}</span>
+              <span><strong>{episode.title}</strong><small>{durationText(episode.duration) || '在 Telegram 中播放'}</small></span>
+              <span aria-hidden="true">▷</span>
+            </button>)}
+            {!episodeData.episodes.length && <p className="movie-state">暂无可用剧集。</p>}
+          </div>}
+    </> : <>
+      <div className="movie-section-heading"><div>
+        <h1>{query ? `“${query}”的搜索结果` : category || '全部影片'}</h1>
+        <p>{loading ? '读取中…' : error ? '加载失败' : movieSummary(data, category, query)}</p></div>
       </div>
-
-      {openSeries ? (
-        episodesLoading ? (
-          <div style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '40px 0' }}>加载中...</div>
-        ) : (
-          <div style={{ display: 'grid', gap: '10px' }}>
-            {episodes.map(episode => (
-              <button
-                key={episode.url}
-                onClick={() => openMovie(episode.url)}
-                style={{
-                  display: 'flex', gap: '10px', padding: '8px', textAlign: 'left',
-                  background: 'var(--ink-surface)', border: '1px solid var(--ink-line)',
-                  borderRadius: '12px', cursor: 'pointer'
-                }}
-              >
-                <div style={{ position: 'relative', flex: '0 0 128px' }}>
-                  <Thumb src={episode.thumb} style={{ width: '128px', aspectRatio: '16 / 9', borderRadius: '8px' }} />
-                  <span style={{
-                    position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', color: '#fff', fontSize: '22px',
-                    textShadow: '0 1px 6px rgba(0,0,0,0.5)'
-                  }}>▶</span>
-                  {episode.duration ? (
-                    <span style={{
-                      position: 'absolute', right: '4px', bottom: '4px', padding: '1px 5px',
-                      borderRadius: '4px', background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '11px'
-                    }}>{formatDuration(episode.duration)}</span>
-                  ) : null}
-                </div>
-                <div style={{ flex: 1, minWidth: 0, fontSize: '14px', fontWeight: 600, color: 'var(--ink-text)', lineHeight: 1.4 }}>
-                  {episode.title}
-                </div>
-              </button>
-            ))}
-            {episodes.length === 0 && (
-              <div style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '40px 0' }}>暂无内容</div>
-            )}
-          </div>
-        )
-      ) : loading ? (
-        <div style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '40px 0' }}>加载中...</div>
-      ) : error ? (
-        <div style={{ textAlign: 'center', color: '#b35a4a', padding: '40px 0' }}>{error}</div>
-      ) : data.series.length === 0 ? (
-        <div style={{ textAlign: 'center', color: 'var(--ink-muted)', padding: '40px 0' }}>
-          {query ? '没有找到相关内容' : '暂无内容'}
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px 10px' }}>
-          {data.series.map(item => (
-            <button
-              key={`${item.category}-${item.name}`}
-              onClick={() => openItem(item)}
-              style={{ padding: '8px', border: '1px solid var(--ink-line)', borderRadius: '14px', background: 'var(--ink-surface)', textAlign: 'left', cursor: 'pointer' }}
-            >
-              <div style={{ position: 'relative' }}>
-                <Thumb src={item.cover} style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: '10px' }} />
-                {item.episodes > 1 && (
-                  <span style={{
-                    position: 'absolute', right: '6px', bottom: '6px', padding: '1px 7px',
-                    borderRadius: '10px', background: 'rgba(0,0,0,0.62)', color: '#fff', fontSize: '11px'
-                  }}>共 {item.episodes} 集</span>
-                )}
-              </div>
-              <div style={{
-                marginTop: '5px', fontSize: '13px', fontWeight: 700, color: 'var(--ink-text)', lineHeight: 1.35,
-                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
-              }}>
-                {item.name}
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--ink-muted)', marginTop: '1px' }}>{item.category}</div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+      {loading ? <div className="movie-grid movie-skeleton" role="status" aria-label="正在加载影视">
+        {Array.from({ length: 6 }, (_, index) => <div className="movie-skeleton-card" key={index} />)}
+      </div> : error ? <div className="movie-state" role="alert"><p>{error}</p><button onClick={() => setAttempt(value => value + 1)}>重新加载片库</button></div>
+        : !data.series.length ? <div className="movie-state"><ModuleIcon name="search" /><h2>{query ? '没有找到相关影片' : '暂无影片'}</h2>
+          <p>试试其他分类或更短的片名。</p><button onClick={() => { setCategory(''); setQueryInput(''); setQuery('') }}>查看全部影片</button></div>
+          : <div className="movie-grid">{data.series.map(item => <button type="button" className="movie-card"
+            key={`${item.category}-${item.name}`} onClick={() => openItem(item)}>
+            <div className="movie-poster"><Cover src={item.cover} />
+              <span className="movie-card-badge">{item.url ? '直接播放' : `共 ${item.episodes} 集`}</span>
+              <span className="movie-card-play" aria-hidden="true">▷</span>
+            </div>
+            <h2>{item.name}</h2><p>{item.category || '影视'} · {item.url ? '在 Telegram 中播放' : '点击选集'}</p>
+          </button>)}</div>}
+    </>}
+  </main>
 }

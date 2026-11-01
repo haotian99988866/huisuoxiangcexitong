@@ -1,13 +1,13 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import ModuleIcon from '../components/ModuleIcon'
-import { bindBackButton, closeMiniApp } from '../utils/twa'
+import { bindBackButton } from '../utils/twa'
 import { useModuleScroll } from '../utils/moduleState'
 import './Membership.css'
 
 export default function Services() {
   useModuleScroll('services', true)
-  useEffect(() => bindBackButton(closeMiniApp), [])
+  useEffect(() => bindBackButton(null), [])
   return <main className="account-page membership-page services-page">
     <header className="membership-header">
       <span className="membership-tag">昊天生活通</span>

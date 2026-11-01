@@ -1,8 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { musicArtist, musicPlaybackError, nextTrack, playlistLink, prioritizeTrack } from './musicPlayback.js'
+import { musicArtist, musicPlaybackError, nextTrack, playlistLink, prioritizeTrack, trackTapAction } from './musicPlayback.js'
 
 const queue = [{ id: 1 }, { id: 2 }, { id: 3 }]
+test('tapping the active song pauses playback or buffering and paused songs resume', () => {
+  assert.equal(trackTapAction(1, 1, true, false), 'pause')
+  assert.equal(trackTapAction(1, 1, false, true), 'pause')
+  assert.equal(trackTapAction(1, 1, false, false), 'play')
+  assert.equal(trackTapAction(2, 1, true, true), 'play')
+})
 test('sequential playback stays in the selected list and wraps in both directions', () => {
   assert.equal(nextTrack([], 1, 1, 'sequential'), null)
   assert.equal(nextTrack(queue, 3, 1, 'sequential').id, 1)

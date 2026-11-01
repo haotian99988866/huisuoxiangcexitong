@@ -24,9 +24,9 @@ export default function AppNavigation({ children }) {
     {!checkout && !player?.expanded && <nav className="app-bottom-nav" aria-label="主导航">
       {[
         ['home', '会所/外送', 'venue', homePath.current],
-        ['media', '影音', 'movies', '/movies'],
+        ['movies', '观影', 'movies', '/movies'],
+        ['music', '音乐', 'music', '/music'],
         ['services', '服务', 'membership', '/services'],
-        ['news', '资讯', 'announcements', '/announcements'],
         ['personal', '我的', 'personal', '/personal'],
       ].map(([key, label, icon, path]) => <Link key={key} to={path}
         aria-current={section === key ? 'page' : undefined}

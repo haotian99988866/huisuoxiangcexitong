@@ -2,38 +2,9 @@ import { contactUrl, isTenantEntry, tenantHeaders } from './tenant'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
 
-const backOverlays = []
+export { bindBackButton, registerBackOverlay } from './backButton'
+
 let visitTracked = false
-
-export function registerBackOverlay(handler) {
-  backOverlays.push(handler)
-  return () => {
-    const index = backOverlays.lastIndexOf(handler)
-    if (index >= 0) backOverlays.splice(index, 1)
-  }
-}
-
-// 返回箭头始终显示：有详情页时退出当前详情，在列表页时返回 Telegram（关闭小程序）
-export function bindBackButton(handler) {
-  const tg = window.Telegram?.WebApp
-  const button = tg?.BackButton
-  if (!button || !handler) return () => {}
-  const onBack = () => {
-    const overlay = backOverlays[backOverlays.length - 1]
-    if (overlay) overlay()
-    else handler()
-  }
-  button.onClick(onBack)
-  button.show()
-  return () => {
-    button.offClick(onBack)
-    button.hide()
-  }
-}
-
-export function closeMiniApp() {
-  window.Telegram?.WebApp?.close?.()
-}
 
 // t.me 链接交给 Telegram 内部打开(频道原帖);浏览器里退回新窗口
 export function openTelegramLink(url) {

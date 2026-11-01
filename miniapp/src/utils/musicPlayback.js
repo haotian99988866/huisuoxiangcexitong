@@ -26,3 +26,7 @@ export function prioritizeTrack(ids, trackId, currentId) {
   if (trackId === currentId) return ids
   return [trackId, ...ids.filter(id => id !== trackId)]
 }
+
+export function trackTapAction(trackId, currentId, playing, waiting) {
+  return trackId === currentId && (playing || waiting) ? 'pause' : 'play'
+}

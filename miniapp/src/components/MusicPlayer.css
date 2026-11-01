@@ -1,7 +1,7 @@
 .music-layout-active { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 .music-buffer-spinner { display: inline-block; width: 20px; height: 20px; flex-shrink: 0; border: 3px solid currentColor; border-right-color: transparent; border-radius: 50%; box-sizing: border-box; animation: music-spin .85s linear infinite; }
 .music-buffer-notice { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--ink-accent); border-radius: 12px; background: var(--ink-reading); color: var(--ink-accent); }
-.music-layout-buffering { padding-bottom: calc(190px + env(safe-area-inset-bottom)); }
+.music-layout-buffering { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
 .music-mini .music-buffer-notice { flex-basis: 100%; width: 100%; box-sizing: border-box; }
 .music-buffer-notice > div { flex: 1; min-width: 0; }
 .music-buffer-notice strong { display: block; font-size: 13px; line-height: 1.5; }
@@ -130,7 +130,7 @@
 .music-full-player .music-section-heading { flex-shrink: 0; margin-bottom: 8px; }
 .music-playback-screen { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: clamp(4px, 2cqh, 16px); overflow: hidden; }
 .music-full-pane { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
-.music-full-feedback { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); left: 20px; right: 20px; max-height: 25%; overflow-y: auto; overflow-x: hidden; background: var(--ink-paper); border: 1px solid var(--ink-line); border-radius: 12px; box-shadow: 0 4px 20px #30463922; }
+.music-full-feedback { flex-shrink: 0; margin-top: 8px; max-height: 25%; overflow-y: auto; overflow-x: hidden; background: var(--ink-paper); border: 1px solid var(--ink-line); border-radius: 12px; }
 .music-full-feedback p { margin: 0; padding: 8px 12px; }
 .music-full-player .music-section-heading h2 { font-size: 13px; letter-spacing: 2px; font-weight: 400; color: #586c5d; }
 .music-full-player button:focus-visible { outline-color: #365544; }

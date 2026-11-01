@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { sendData } from '../utils/twa'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { bindBackButton, sendData } from '../utils/twa'
+import { tenantPath } from '../utils/tenant'
 import ModuleIcon from '../components/ModuleIcon'
 
 export default function VenueDetail() {
   const { id } = useParams()
+  const navigate = useNavigate()
+  useEffect(() => bindBackButton(() => navigate(tenantPath('/'), { replace: true })), [navigate])
   const [v, setV] = useState(null)
   const [error, setError] = useState('')
 

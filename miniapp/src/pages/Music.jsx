@@ -5,10 +5,12 @@ import { FullscreenAnnouncementBar } from '../components/Announcement'
 import { useMusic } from '../components/MusicPlayer'
 import MusicSheet from '../components/MusicDialog'
 import MusicIcon from '../components/MusicIcon'
-import { bindBackButton, closeMiniApp, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
+import { bindBackButton, subscribeFullscreen } from '../utils/twa'
 import { requestMusic } from '../utils/music'
 import { musicArtist as artistName, playlistLink } from '../utils/musicPlayback'
 import { filterMusicTracks, musicCategories } from '../utils/musicCategories'
+import { musicSummary } from '../utils/catalogSummary'
+import './Music.css'
 
 export default function Music() {
   const player = useMusic()
@@ -50,7 +52,10 @@ export default function Music() {
   }, [player.browseState])
   const selected = player.playlists.find(item => `playlist:${item.id}` === view)
   const closeSheet = () => { setSheet(null); setDeleteConfirm(false) }
-  const changeView = value => { setView(value); setQuery(''); setSearchInput(''); setNotice('') }
+  const changeView = value => {
+    setView(value); setQuery(''); setSearchInput(''); setNotice('')
+    setPageNumber(1)
+  }
 
   useEffect(() => {
     if (requestedView && !sharedToken) {
@@ -68,11 +73,7 @@ export default function Music() {
   useEffect(() => {
     if (player.status === 'idle') player.load()
   }, [player.status, player.load])
-  useEffect(() => bindBackButton(() => {
-    const entry = window.Telegram?.WebApp?.initDataUnsafe?.start_param
-    if (entry === 'music' || /^playlist_[0-9a-f]{32}$/.test(entry || '')) closeMiniApp()
-    else navigate('/', { replace: true })
-  }), [navigate])
+  useEffect(() => bindBackButton(null), [])
   useEffect(() => subscribeFullscreen(setIsFullscreen), [])
   useEffect(() => {
     if (!notice || sheet) return
@@ -167,7 +168,6 @@ export default function Music() {
       <div ref={navigationRef} className="music-navigation">
         {isFullscreen && <FullscreenAnnouncementBar />}
         <ModuleTabs active="music" />
-      {!hasTelegramBackButton && <button className="music-back" type="button" onClick={() => navigate('/')}>← 返回首页</button>}
       <form className="music-search" role="search" onSubmit={search}><MusicIcon name="search" size={19} />
         <input ref={searchRef} aria-label="搜索歌曲、歌手或专辑" type="search" enterKeyHint="search" value={searchInput} maxLength={120}
           onChange={event => setSearchInput(event.target.value)}
@@ -182,14 +182,14 @@ export default function Music() {
             onClick={() => changeView(key)}>{label}</button>
         ))}
       </nav>
+      </div>
       {view === 'all' && <nav className="music-language-tabs" aria-label="歌曲语言分类">
         {musicCategories.map(([key, label]) => <button type="button" key={key}
           aria-pressed={category === key} onClick={() => setCategory(key)}>{label}</button>)}
-      </nav>}
-      </div>
+        </nav>}
       {player.accountError && <div role="alert" className="music-error">{player.accountError}
         <button type="button" disabled={player.busy} onClick={player.loadAccount}>重新同步</button></div>}
-      {!player.profile && <div className="music-login-hint"><MusicIcon name="heart" size={16} />
+      {!player.profile && view !== 'all' && <div className="music-login-hint"><MusicIcon name="heart" size={16} />
         <p>在 Telegram 中打开，即可同步收藏和歌单。</p>
         {window.Telegram?.WebApp?.initData && <button type="button" disabled={player.busy} onClick={player.loadAccount}>同步</button>}
       </div>}
@@ -212,8 +212,9 @@ export default function Music() {
       ) : (
         <section ref={songsRef} aria-label="歌曲列表" className="music-songs">
           {selected && <button type="button" className="music-text-button" onClick={() => changeView('playlists')}>← 全部歌单</button>}
-          <header className="music-section-heading"><div className="music-section-title"><h2>{title}</h2><p>{filtered.length} 首{view === 'shared' ? ' · 朋友分享，只读' : selected ? ' · 我的专属歌单' : ' · 点击歌曲播放'}</p></div>
+          <header className="music-section-heading"><div className="music-section-title"><h1>{title}</h1><p>{player.status === 'loading' ? '正在更新歌曲…' : player.catalogError ? '歌曲更新失败' : view === 'shared' && !shared ? sharedError ? '歌单加载失败' : '正在加载分享歌单…' : musicSummary(filtered.length, currentPage, rowsPerPage)}</p></div>
             <div className="music-heading-actions">
+              <button type="button" className="music-text-button music-play-all" disabled={!filtered.length} onClick={() => player.start(filtered[0], filtered)}><MusicIcon name="play" size={13} />播放全部</button>
               {selected && <button type="button" className="music-icon-button" aria-label="管理歌单" onClick={() => setSheet('manage')}><MusicIcon name="more" /></button>}
               {(selected || (view === 'shared' && shared)) && <button type="button" className="music-icon-button" aria-label="分享歌单" onClick={() => share(selected || shared)}><MusicIcon name="share" /></button>}
             </div>
@@ -223,30 +224,22 @@ export default function Music() {
               const result = await player.accountRequest('music_playlist_create', { name: shared.name, tracks: source.map(track => track.id) })
               if (result) changeView(`playlist:${result.playlists[0].id}`)
             }}><MusicIcon name="plus" size={16} />保存为我的歌单</button>)}
-          <div className="music-list-toolbar"><button type="button" className="music-text-button" disabled={!filtered.length} onClick={() => player.start(filtered[0], filtered)}><span className="music-small-play"><MusicIcon name="play" size={13} /></span>播放全部</button>
-            {selected && <button type="button" className="music-text-button" onClick={() => { setPickQuery(''); setPickPage(1); setSheet('pick'); setNotice('') }}><MusicIcon name="plus" size={15} />添加歌曲</button>}
-            <span>{player.status === 'loading' ? '更新中…' : query ? '搜索结果' : '在线歌库'}</span></div>
+          {selected && <div className="music-list-toolbar"><button type="button" className="music-text-button" onClick={() => { setPickQuery(''); setPickPage(1); setSheet('pick'); setNotice('') }}><MusicIcon name="plus" size={15} />添加歌曲</button></div>}
           {player.status === 'loading' && !player.tracks.length && <div className="music-skeleton" role="status">正在加载歌曲…</div>}
           {ids && source.length < ids.length && <p className="music-hint">已隐藏不存在或下架的歌曲。</p>}
           {!filtered.length && player.status === 'ready' && <div className="music-empty"><MusicIcon name={query ? 'search' : 'note'} size={32} />
             <h3>{query ? '没有找到这首歌' : '这里还没有歌曲'}</h3>
-            <p>{query ? '试试更短的歌名，或换一个歌手。' : view === 'favorites' ? '点歌曲旁的爱心，把喜欢留下。' : view === 'recent' ? '播放过的歌曲，会在这里与你重逢。' : selected ? '去发现页，点击歌曲旁的「更多」添加。' : '稍后刷新，发现新的旋律。'}</p>
+            <p>{query ? '试试更短的歌名，或换一个歌手。' : view === 'favorites' ? '点击歌曲旁的「更多」，收藏喜欢的歌曲。' : view === 'recent' ? '播放过的歌曲，会在这里与你重逢。' : selected ? '去发现页，点击歌曲旁的「更多」添加。' : '稍后刷新，发现新的旋律。'}</p>
             {query && <button type="button" onClick={clearSearch}>清空搜索</button>}
           </div>}
           <ul className="music-list">{pageTracks.map((track, index) => (
             <li key={track.id} className={player.current?.id === track.id ? 'music-row is-current' : 'music-row'}>
-              <button type="button" className="music-song-button" onClick={() => player.start(track, filtered)}
-                disabled={player.current?.id === track.id && player.waiting}
+              <button type="button" className="music-song-button" onClick={() => player.selectTrack(track, filtered)}
                 aria-busy={player.current?.id === track.id && player.waiting}
-                aria-label={`播放 ${track.title} - ${artistName(track.artist)}`} aria-current={player.current?.id === track.id ? 'true' : undefined}>
+                aria-label={`${player.current?.id === track.id && (player.playing || player.waiting) ? '暂停' : '播放'} ${track.title} - ${artistName(track.artist)}`} aria-current={player.current?.id === track.id ? 'true' : undefined}>
                 <span className="music-song-number" aria-hidden="true">{player.current?.id === track.id && player.waiting ? <span className="music-buffer-spinner" /> : player.current?.id === track.id && player.playing ? '♫' : String((currentPage - 1) * rowsPerPage + index + 1).padStart(2, '0')}</span>
                 <span className="music-track-copy"><strong>{track.title}</strong><small>{player.current?.id === track.id && player.waiting ? '正在缓冲，请稍候…' : `${artistName(track.artist)}${track.album ? ` · ${track.album}` : ''}`}</small></span>
               </button>
-              {player.profile && <button type="button" className="music-icon-button music-favorite" aria-label={`${favorites.includes(track.id) ? '取消收藏' : '收藏'} ${track.title}`}
-                aria-pressed={favorites.includes(track.id)} disabled={player.busy} onClick={async () => {
-                  const enabled = !favorites.includes(track.id)
-                  if (await player.favorite(track.id, enabled)) setNotice(enabled ? '已加入我喜欢' : '已取消收藏')
-                }}><MusicIcon name="heart" size={18} /></button>}
               <button type="button" className="music-icon-button" aria-label={`更多操作 ${track.title}`} onClick={() => { setNotice(''); setActionTrack(track); setSheet('track') }}><MusicIcon name="more" size={18} /></button>
             </li>
           ))}</ul>

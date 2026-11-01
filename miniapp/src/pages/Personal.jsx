@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
 import OrderSummary from '../components/OrderSummary'
-import { bindBackButton, closeMiniApp, openTelegramLink } from '../utils/twa'
+import { bindBackButton, openTelegramLink } from '../utils/twa'
 import { isTelegramMemberEntry } from '../utils/membership'
 import { money, orderMatches } from '../utils/commerce'
 import { useModuleScroll } from '../utils/moduleState'
@@ -17,7 +17,7 @@ export default function Personal() {
   const pendingDeposits = account?.deposits.filter(item => item.status === 'pending') || []
   const attention = orders.find(item => ['delivery_unknown', 'refund_pending', 'paid', 'delivering'].includes(item.status))
   useModuleScroll('personal', !loading)
-  useEffect(() => bindBackButton(closeMiniApp), [])
+  useEffect(() => bindBackButton(null), [])
 
   async function accountAction(action) {
     setBusy(true)

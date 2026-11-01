@@ -8,9 +8,9 @@ import InkScenery from './InkScenery'
 
 const modes = { sequential: '顺序循环', shuffle: '随机播放', single: '单曲循环' }
 
-export default function MusicNowPlaying() {
+export default function MusicNowPlaying({ initialPane = 'player' }) {
   const player = useMusic()
-  const [pane, setPane] = useState('player')
+  const [pane, setPane] = useState(initialPane)
   const [scrub, setScrub] = useState(null)
   const [scrubTrack, setScrubTrack] = useState(null)
   const track = player.current
@@ -47,12 +47,12 @@ export default function MusicNowPlaying() {
         <div className="music-time"><span>{musicTime(position)}</span><span>{musicTime(player.duration)}</span></div></div>
         <div className="music-full-controls">
           <button type="button" className="music-icon-button" aria-label="上一首" disabled={!player.queue.length} onClick={() => player.step(-1)}><MusicIcon name="previous" size={28} /></button>
-          <button type="button" className="music-main-toggle" disabled={player.waiting} aria-label={player.waiting ? '正在缓冲音乐' : player.playing ? '暂停' : '播放'} onClick={player.toggle}>
+          <button type="button" className="music-main-toggle" aria-label={player.waiting ? '取消缓冲音乐' : player.playing ? '暂停' : '播放'} onClick={player.toggle}>
             {player.waiting ? <span className="music-buffer-spinner" aria-hidden="true" /> : <MusicIcon name={player.playing ? 'pause' : 'play'} size={30} />}</button>
           <button type="button" className="music-icon-button" aria-label="下一首" disabled={!player.queue.length && !player.nextUp.length} onClick={() => player.step(1)}><MusicIcon name="next" size={28} /></button>
         </div>
         <div className="music-full-tools">
-          <label className="music-mode-label">播放模式<select aria-label="播放模式" value={player.mode} disabled={!player.profile || player.busy}
+          <label className="music-mode-label">播放模式<select aria-label="播放模式" value={player.mode} disabled={player.busy}
             onChange={event => player.changeMode(event.target.value)}>
             {Object.entries(modes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
@@ -61,7 +61,7 @@ export default function MusicNowPlaying() {
         </div>
       </div> : pane === 'settings' ? <div className="music-full-pane music-full-options">
         <button type="button" className="music-sheet-option" onClick={() => setPane('player')}><MusicIcon name="previous" size={16} />返回播放界面</button>
-        {!player.profile && <p className="music-hint">在 Telegram 中登录后，可收藏歌曲并同步播放模式。</p>}
+        {!player.profile && <p className="music-hint">未登录也可切换本次播放模式；在 Telegram 中登录后，可收藏歌曲并同步播放模式。</p>}
           {isIos ? <p className="music-hint">音量请使用手机音量键调节。</p>
             : <label>音量<input type="range" aria-label="音量" min="0" max="1" step="0.05" value={player.volume} onChange={event => player.changeVolume(event.target.value)} /></label>}
           <p className="music-hint">锁屏、切后台或关闭小程序后，播放可能中断。</p>

@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { sendData } from '../utils/twa'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { bindBackButton, sendData } from '../utils/twa'
+import { tenantPath } from '../utils/tenant'
 
 export default function TechnicianList() {
   const { venue_id } = useParams()
+  const navigate = useNavigate()
+  useEffect(() => bindBackButton(() => navigate(tenantPath(`/venue/${venue_id}`), { replace: true })), [navigate, venue_id])
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')

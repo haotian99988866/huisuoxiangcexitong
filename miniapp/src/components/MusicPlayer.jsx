@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { API_BASE_URL } from '../utils/twa'
 import { requestMusic } from '../utils/music'
-import { musicArtist, musicPlaybackError, nextTrack, prioritizeTrack } from '../utils/musicPlayback'
+import { musicArtist, musicPlaybackError, nextTrack, prioritizeTrack, trackTapAction } from '../utils/musicPlayback'
 import './MusicPlayer.css'
 import MusicIcon from './MusicIcon'
 import MusicNowPlaying from './MusicNowPlaying'
@@ -35,6 +35,7 @@ export default function MusicPlayer({ children }) {
   const [queueIds, setQueueIds] = useState(null)
   const [nextIds, setNextIds] = useState([])
   const [expanded, setExpanded] = useState(false)
+  const [expandedPane, setExpandedPane] = useState('player')
   const browseState = useRef({ view: 'all', category: 'all', query: '', page: 1, scroll: 0 })
   const accountChain = useRef(Promise.resolve())
   const restored = useRef(false)
@@ -43,7 +44,8 @@ export default function MusicPlayer({ children }) {
   const profileRef = useRef(null)
   const mounted = useRef(true)
   const [volume, setVolume] = useState(1)
-  const mode = profile?.mode || 'sequential'
+  const [localMode, setLocalMode] = useState('sequential')
+  const mode = profile?.mode || localMode
   const queue = queueIds === null ? tracks : queueIds.map(id => tracks.find(track => track.id === id)).filter(Boolean)
   const nextUp = nextIds.map(id => tracks.find(track => track.id === id)).filter(Boolean)
 
@@ -218,6 +220,28 @@ export default function MusicPlayer({ children }) {
     if (playing || waiting) pause()
     else if (current) start(current)
   }
+  const selectTrack = (track, selectedQueue) => {
+    if (trackTapAction(track.id, currentRef.current?.id, playing, waiting) === 'pause') pause()
+    else start(track, currentRef.current?.id === track.id ? undefined : selectedQueue)
+  }
+  const openPlayer = (pane = 'player') => {
+    setExpandedPane(pane)
+    setExpanded(true)
+  }
+  useEffect(() => {
+    if (!waiting || !current) return undefined
+    const trackId = current.id
+    const timer = setTimeout(() => {
+      if (currentRef.current?.id !== trackId) return
+      loadingTrack.current = null
+      requestId.current += 1
+      audioRef.current.pause()
+      setWaiting(false)
+      setPlaying(false)
+      setError('音频加载超过 30 秒，已暂停。请点击播放重试，或切换下一首。')
+    }, 30000)
+    return () => clearTimeout(timer)
+  }, [waiting, current?.id])
   const step = direction => {
     if (direction > 0 && nextUp.length) {
       start(nextUp[0])
@@ -273,7 +297,7 @@ export default function MusicPlayer({ children }) {
     tracks, status, catalogError, load, current, playing, waiting, error,
     position, duration, mode, volume, start, pause, toggle, step, stop, seek,
     changeVolume, profile, playlists, accountError, busy, accountRequest, loadAccount,
-    queue, setQueueIds, expanded, setExpanded, browseState, nextUp,
+    queue, setQueueIds, expanded, setExpanded, browseState, nextUp, selectTrack, openPlayer,
     playQueued: track => start(track),
     playNext: track => setNextIds(ids => prioritizeTrack(ids, track.id, currentRef.current?.id)),
     removeNext: id => setNextIds(ids => ids.filter(ident => ident !== id)),
@@ -281,7 +305,10 @@ export default function MusicPlayer({ children }) {
       setQueueIds(queue.filter(track => track.id !== id).map(track => track.id))
       setNextIds(ids => ids.filter(ident => ident !== id))
     },
-    changeMode: mode => accountRequest('music_update', { operation: 'mode', mode }),
+    changeMode: mode => {
+      if (profile) return accountRequest('music_update', { operation: 'mode', mode })
+      setLocalMode(mode)
+    },
     favorite: (id, enabled) => accountRequest('music_update', { operation: 'favorite', track_id: id, enabled }),
   }
 
@@ -309,24 +336,21 @@ export default function MusicPlayer({ children }) {
       {current && !expanded && (
         <aside className="music-mini" aria-label="迷你音乐播放器">
           <div className="music-mini-progress" aria-hidden="true"><span style={{ width: `${duration ? Math.min(100, position / duration * 100) : 0}%` }} /></div>
-          <button type="button" className="music-mini-title" aria-label="展开完整播放器" onClick={() => setExpanded(true)}>
+          <button type="button" className="music-mini-title" aria-label="展开完整播放器" onClick={() => openPlayer()}>
             <strong>{current.title}</strong><small>{musicArtist(current.artist)} · {waiting ? '正在缓冲' : playing ? '正在播放' : '已暂停'}</small>
           </button>
-          <button type="button" className="music-icon-button" onClick={toggle} disabled={waiting} aria-label={waiting ? '正在缓冲音乐' : playing ? '暂停音乐' : '播放音乐'}>
+          <button type="button" className="music-icon-button" onClick={toggle} aria-label={waiting ? '取消缓冲音乐' : playing ? '暂停音乐' : '播放音乐'}>
             {waiting ? <span className="music-buffer-spinner" aria-hidden="true" /> : <MusicIcon name={playing ? 'pause' : 'play'} />}
           </button>
           <button type="button" className="music-icon-button" onClick={() => step(1)} disabled={!queue.length && !nextUp.length} aria-label="下一首音乐"><MusicIcon name="next" /></button>
+          <button type="button" className="music-icon-button" onClick={() => openPlayer('queue')} aria-label="打开播放队列"><MusicIcon name="list" size={19} /></button>
           <button type="button" className="music-icon-button" onClick={stop} aria-label="关闭音乐播放器"><MusicIcon name="close" size={17} /></button>
-          {waiting && <div className="music-buffer-notice" role="status" aria-live="polite">
-            <span className="music-buffer-spinner" aria-hidden="true" />
-            <div><strong>正在加载音频，请稍候…</strong><small>首次播放或无损音频可能较慢，无需重复点击</small></div>
-            <button type="button" onClick={pause}>取消</button>
-          </div>}
+          {waiting && <p role="status" aria-live="polite">正在缓冲 · 可暂停或切换下一首</p>}
           {error && <p role="alert">{error}</p>}
           {accountError && <p role="alert">{accountError}</p>}
         </aside>
       )}
-      {current && expanded && <MusicNowPlaying />}
+      {current && expanded && <MusicNowPlaying initialPane={expandedPane} />}
     </MusicContext.Provider>
   )
 }

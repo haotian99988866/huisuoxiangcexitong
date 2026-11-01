@@ -14,7 +14,8 @@ export function orderMatches(order, filter) {
 }
 
 export function navigationSection(pathname) {
-  if (/^\/(?:media|movies|music)(?:\/|$)/.test(pathname)) return 'media'
+  if (/^\/(?:media|movies)(?:\/|$)/.test(pathname)) return 'movies'
+  if (/^\/music(?:\/|$)/.test(pathname)) return 'music'
   if (/^\/announcements(?:\/|$)/.test(pathname)) return 'news'
   if (/^\/(?:services|membership)(?:\/|$)/.test(pathname)) return 'services'
   if (/^\/(?:personal|recharge|orders|wallet-history|admin)(?:\/|$)/.test(pathname)) return 'personal'

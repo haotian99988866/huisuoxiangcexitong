@@ -8,7 +8,7 @@ import InkScenery from '../components/InkScenery'
 import CopyBooking from '../components/CopyBooking'
 import { bookingUrl } from '../utils/booking'
 import { contactName, contactUrl, mediaUrl, tenantPath } from '../utils/tenant'
-import { API_BASE_URL, bindBackButton, closeMiniApp, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
+import { API_BASE_URL, bindBackButton, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
 
 // 首页默认显示“名玺水汇会所”，找不到时退回列表第一个
 const HOME_VENUE_NAME = '名玺水汇会所'
@@ -468,13 +468,12 @@ export default function VenueList() {
       setPhotoLoadState('idle')
     } else if (selectedTechnicianCode) {
       setSelectedTechnicianCode('')
-    } else {
-      closeMiniApp()
     }
   }
   const goBackRef = useRef(goBack)
   goBackRef.current = goBack
-  useEffect(() => bindBackButton(() => goBackRef.current()), [])
+  const hasDetail = Boolean(ktvVideo || deliveryViewer || photoViewerIndex !== null || selectedTechnicianCode)
+  useEffect(() => bindBackButton(hasDetail ? () => goBackRef.current() : null), [hasDetail])
   useEffect(() => {
     if (!selectedTechnicianCode) return undefined
     const closeOnEscape = event => {

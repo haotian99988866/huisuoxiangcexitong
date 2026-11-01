@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { API_BASE_URL, bindBackButton, closeMiniApp, trackVisit } from '../utils/twa'
+import { API_BASE_URL, bindBackButton, trackVisit } from '../utils/twa'
 import { getTenant, hasAnnouncementAccess, hasDeliveryAccess, hasVenueAccess, initializeTenant, setTenant, tenantHeaders, tenantPath } from '../utils/tenant'
 
 export default function TenantGate({ children }) {
@@ -49,7 +49,7 @@ export default function TenantGate({ children }) {
 
   useEffect(() => {
     if (!state.error) return undefined
-    return bindBackButton(closeMiniApp)
+    return bindBackButton(null)
   }, [state.error])
 
   useEffect(() => {

@@ -4,13 +4,16 @@ import { money, navigationSection, orderMatches, orderGuidance, validPurchaseAtt
 
 test('navigation groups old and new deep links under the right main destination', () => {
   for (const path of ['/', '/venue/7', '/venue/7/technicians']) assert.equal(navigationSection(path), 'home')
-  for (const path of ['/media', '/movies', '/music']) assert.equal(navigationSection(path), 'media')
+  for (const path of ['/media', '/movies', '/movies/12']) assert.equal(navigationSection(path), 'movies')
+  for (const path of ['/music', '/music/12']) assert.equal(navigationSection(path), 'music')
   for (const path of ['/announcements', '/announcements/12']) assert.equal(navigationSection(path), 'news')
   for (const path of ['/services', '/membership']) assert.equal(navigationSection(path), 'services')
   for (const path of ['/personal', '/recharge', '/orders', '/orders/abc', '/wallet-history', '/admin']) {
     assert.equal(navigationSection(path), 'personal')
   }
   assert.equal(navigationSection('/membership-other'), 'home')
+  assert.equal(navigationSection('/music-other'), 'home')
+  assert.equal(navigationSection('/movies-other'), 'home')
 })
 
 test('order filters keep refunds and uncertain outcomes distinct from completion', () => {
