@@ -6,12 +6,12 @@ export default function AccountAccess({ loading }) {
   return <section className="membership-panel">
     <h2>{telegram ? '账户识别未完成' : '登录我的账户'}</h2>
     {telegram ? <>
-      <p>请在 Telegram 客户端登录自己的账户，再重新打开小程序。不需要在此页面输入密码或验证码。</p>
+      <p>请重新打开 Telegram 小程序，无需输入密码。</p>
       <button type="button" onClick={() => window.location.reload()}>重新识别账户</button>
     </> : <>
-      <p>私聊机器人发送 /member，用当前浏览器打开专属登录链接。登录后可在服务、我的和订单页面之间直接切换。</p>
-      <p>链接仅能使用一次，10 分钟有效，请勿转发；网站会话有效期 24 小时。</p>
-      <a href="https://t.me/haotianzhaopian_bot" target="_blank" rel="noreferrer">前往机器人获取登录链接</a>
+      <p>向机器人发送 /member，打开专属登录链接。</p>
+      <a className="account-primary-link" href="https://t.me/haotianzhaopian_bot" target="_blank" rel="noreferrer">前往 Telegram 登录</a>
+      <details className="account-details"><summary>登录安全说明</summary><p>链接一次有效，10分钟过期，请勿转发。网站会话24小时有效，无需提供密码或验证码。</p></details>
       <div className="membership-actions"><button type="button" onClick={() => window.location.reload()}>重新读取账户</button></div>
     </>}
   </section>

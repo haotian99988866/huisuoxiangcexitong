@@ -48,8 +48,10 @@ export default function MemberSimulation({ userId }) {
   }
   return <section className="membership-panel">
     <h2>管理员隔离模拟测试</h2>
-    <p><strong>不是正式充值：不转账、不扣正式余额、不消耗 Stars、不赠送真实会员。</strong></p>
-    <p>独立测试余额初始 $50，仅用于界面和模拟订单演练；这不能替代官方赠送接口的真实验收。</p>
+    <p><strong>隔离模拟 · 不动真实资金或会员</strong></p>
+    <details className="account-details"><summary>模拟范围</summary>
+      <p>独立测试余额初始 $50，不转账、不扣正式余额、不消耗 Stars、不赠送会员。仅供模拟订单演练，不能代替实际履约验收。</p>
+    </details>
     {account && <p className="membership-balance">测试余额 ${Number(account.balance).toFixed(2)}</p>}
     {error && <p role="alert" className="membership-error">{error}</p>}
     {notice && <p role="status" className="membership-notice">{notice}</p>}

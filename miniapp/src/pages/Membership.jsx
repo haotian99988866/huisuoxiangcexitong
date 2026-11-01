@@ -129,7 +129,7 @@ export default function Membership() {
     <header className="membership-header">
       {!hasTelegramBackButton && <Link to="/services">← 服务中心</Link>}
       <h1>Telegram会员</h1>
-      <p>选择套餐，核对后确认开通。</p>
+      <p>余额付款 · 昊天人工开通</p>
     </header>
     {(error || localError) && <p className="membership-error" role="alert">{localError || error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
@@ -137,7 +137,7 @@ export default function Membership() {
         你有一笔开通结果待核实的订单，请勿重复购买。<Link to={`/orders/${attention.order_id}`}>查看订单 →</Link>
       </p>}
       <section className="membership-panel">
-          <h2>选择套餐</h2>
+          <div className="membership-row"><h2>选择时长</h2><span className="membership-tag">PREMIUM</span></div>
           {!catalog && !error && <p role="status">正在读取套餐…</p>}
           <div className="membership-plans">
             {catalog?.plans.map(plan => <button key={plan.months} type="button"
@@ -152,7 +152,7 @@ export default function Membership() {
         <button type="button" disabled={busy} onClick={() => setConfirmationOpen(true)}>核实这笔订单</button></p>}
       {recoveryError && <Link to="/orders">先查询订单并联系客服 →</Link>}
       <Link to="/orders">我的订单 →</Link>
-      {confirmationOpen && <MusicDialog title="确认会员套餐" onClose={() => setConfirmationOpen(false)}>
+      {confirmationOpen && <MusicDialog className="account-sheet" title="确认会员套餐" onClose={() => setConfirmationOpen(false)}>
         {(error || localError) && <p className="membership-error" role="alert">{localError || error}</p>}
         <form onSubmit={purchase}>
           <h3>Telegram Premium · {months}个月</h3>
@@ -163,13 +163,14 @@ export default function Membership() {
               autoCapitalize="none" autoCorrect="off" value={username} disabled={busy || Boolean(pending) || recoveryError}
               onChange={event => setUsername(event.target.value)} />
           </label>
-          <p>收件人需先向机器人发送 /start；无需密码或验证码。请核对用户名，成功开通通常无法撤回。</p>
+          <p>收件人先向机器人发送 /start，无需密码。</p>
           {catalog && !catalog.enabled && <p role="status">正式会员购买暂未开放，不会扣款开通。</p>}
           {pending ? <div role="status">
             <p className="membership-reference">待确认订单：{pending.order_id}。重试沿用同一订单，请勿重新下单。</p>
             <button type="button" disabled={busy} onClick={checkPending}>查询这笔订单</button>
           </div> : insufficient ? <p>余额不足，还差 ${money(Number(selected.price_usd) - Number(account.balance))} USD。充值需人工核款，到账后请返回确认购买。</p> : null}
-          <p>确认后扣除站内余额，由昊天手动开通并确认完成；明确未开通时由昊天确认退回余额，结果不明先核实，请勿重复购买。</p>
+          <p>确认即扣余额，由昊天人工开通。</p>
+          <details className="account-details"><summary>开通与退款规则</summary><p>请核对用户名，已开通通常无法撤回。明确未开通时由昊天确认退回站内余额；结果不明先核实，请勿重复购买。</p></details>
           <div className="membership-actions">
             <button type="button" disabled={busy} onClick={() => refresh().catch(reportFailure)}>刷新余额</button>
             {!pending && insufficient ? <button type="button" className="membership-primary" disabled={busy || recoveryError} onClick={goRecharge}>余额不足，去充值</button>

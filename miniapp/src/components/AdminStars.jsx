@@ -94,9 +94,11 @@ export default function AdminStars({ userId }) {
 
   return <section className="admin-card" aria-label="补充机器人 Stars">
     <div className="admin-header"><h2>补充机器人 Stars</h2>
-      <button type="button" disabled={busy} onClick={refreshStatus}>{busy ? '读取中…' : '刷新 Stars 库存与记录'}</button></div>
-    <p className="admin-hint">仅管理员 · 使用个人账号 Stars 支付给机器人，不充值客户美元余额，不自动开启会员销售。个人 Stars 不足时请先在 Telegram 购买。</p>
-    {data && <p><strong>机器人实际库存：{data.balance} Stars</strong>{data.nanostar_amount !== 0 && `（另有 ${data.nanostar_amount} 纳星）`}</p>}
+      <button type="button" disabled={busy} onClick={refreshStatus}>{busy ? '读取中…' : '刷新库存'}</button></div>
+    {data && <p className="admin-star-balance"><strong>{data.balance}</strong> Stars{data.nanostar_amount !== 0 && `（另有 ${data.nanostar_amount} 纳星）`}</p>}
+    <details className="account-details"><summary>补充方式与规则</summary>
+      <p>用个人账号 Stars 支付给机器人；不足时先在 Telegram 购买。不增加客户美元余额，不自动开启会员销售。付款以官方成功通知及实际库存为准。</p>
+    </details>
     {error && <p role="alert" className="admin-error">{error}</p>}
     {notice && <p role="status" className="admin-notice">{notice}</p>}
     <form onSubmit={event => { event.preventDefault(); setConfirming(true) }}>
@@ -105,11 +107,13 @@ export default function AdminStars({ userId }) {
       <button type="submit" disabled={busy || !data}>{attempt ? '继续原补充订单' : '补充 Stars'}</button>
     </form>
     {attempt && <p className="admin-hint">待核对订单：{attempt.order_id}。付款窗口有效期 15 分钟；结果不明时先刷新，勿新建订单重复付款。</p>}
+    <details className="account-details"><summary>补充记录 · 最近10笔</summary>
     {data?.orders.map(row => <article className="admin-tenant" key={row.order_id}>
       <p><strong>{row.stars} Stars · {statuses[row.status] || row.status}</strong></p>
       <p>管理员 {row.admin_id} · {row.created_at}</p><p>订单 {row.order_id}</p>
     </article>)}
-    {confirming && <MusicDialog title="确认补充机器人 Stars" onClose={() => { if (!lock.current) setConfirming(false) }}>
+    </details>
+    {confirming && <MusicDialog className="account-sheet" title="确认补充机器人 Stars" onClose={() => { if (!lock.current) setConfirming(false) }}>
       <p>本次将从你的个人 Telegram 账号支付 <strong>{attempt?.stars || stars} Stars</strong> 给机器人。</p>
       <p>不扣美元余额，不购买会员；请在官方付款窗口再次核对机器人和数量。订单过期或取消不等于退款，以官方交易及实际库存为准。</p>
       <button type="button" disabled={busy} onClick={pay}>{busy ? '创建付款窗口…' : '打开官方 Stars 付款窗口'}</button>

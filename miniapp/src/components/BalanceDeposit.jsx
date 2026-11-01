@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { requestMember, uploadDeposit } from '../utils/membership'
+import { openTelegramLink } from '../utils/twa'
 
 export default function BalanceDeposit({ account, onRefresh, onFailure, onPendingChange }) {
   const [method, setMethod] = useState('usdt')
@@ -69,7 +70,7 @@ export default function BalanceDeposit({ account, onRefresh, onFailure, onPendin
         ? await requestMember('member_deposit', { method, amount })
         : await uploadDeposit(method, amount, proof)
       setSubmitted({ id: result.id, claimed: amount, status: 'pending' })
-      setNotice(`申请 #${result.id} 已提交。管理员核实真实到账后才增加可用余额；到账不会自动购买商品。${result.warning || ''}`)
+      setNotice(result.warning || '')
       setAmount('')
       setProof(null)
       if (fileRef.current) fileRef.current.value = ''
@@ -80,10 +81,15 @@ export default function BalanceDeposit({ account, onRefresh, onFailure, onPendin
     } finally { lock.current = false; setBusy(false) }
   }
 
-  if (pending) return <div className="balance-deposit" role="status">
-    <h3>充值申请等待审核</h3>
-    <p>申请 #{pending.id} 已提交，申报金额 {pending.claimed} USD。审核结束前暂停再次充值，请勿重复付款。</p>
-    <p>批准后恢复充值入口；若被拒绝，当天不能再次提交，柬埔寨时间次日00:00恢复。入账金额以管理员复核结果为准。</p>
+  if (pending) return <div className="balance-deposit account-progress" role="status">
+    <span className="progress-mark" aria-hidden="true">◷</span>
+    <span className="account-status">复核中</span>
+    <h3>等待核实到账</h3>
+    <p>申请 #{pending.id} · {pending.claimed} USD</p>
+    <p>暂未入账，请勿重复付款。</p>
+    <details className="account-details"><summary>复核规则</summary>
+      <p>金额以实际复核为准。批准后恢复充值；拒绝后柬埔寨时间次日00:00恢复申请。</p>
+    </details>
     {notice && <p className="membership-notice">{notice}</p>}
     {error && <p className="membership-error" role="alert">{error}</p>}
     <button type="button" disabled={busy} onClick={async () => {
@@ -93,9 +99,12 @@ export default function BalanceDeposit({ account, onRefresh, onFailure, onPendin
     }}>{busy ? '读取中…' : '刷新审核结果'}</button>
   </div>
 
-  if (rejected) return <div className="balance-deposit" role="status">
-    <h3>充值复核申请已拒绝</h3>
-    <p>申请 #{rejected.id} 已拒绝，余额未增加。当天暂停 USDT 和 ABA 申请，请勿再次付款。</p>
+  if (rejected) return <div className="balance-deposit account-progress" role="status">
+    <span className="progress-mark" aria-hidden="true">!</span>
+    <span className="account-status">已拒绝</span>
+    <h3>本次复核未通过</h3>
+    <p>申请 #{rejected.id} · 余额未增加</p>
+    <p>USDT / ABA 当天暂停申请，请勿再次付款。</p>
     <p>柬埔寨时间（UTC+7）{rejected.retry_at.slice(0, 10)} 00:00 恢复申请入口。</p>
     {error && <p className="membership-error" role="alert">{error}</p>}
     <button type="button" disabled={busy} onClick={async () => {
@@ -106,35 +115,39 @@ export default function BalanceDeposit({ account, onRefresh, onFailure, onPendin
   </div>
 
   return <div className="balance-deposit">
-    <p>{method === 'aba' ? '① 联系昊天确认并付款　② 提交金额　③ 等待复核到账' : '① 付款　② 上传截图　③ 等待核款到账'}</p>
-    <p>每笔最多300美元（USDT按1:1），请勿超额付款；有待审核申请时不能再次充值。</p>
-    <div className="membership-actions">
+    <div className="account-segment" aria-label="充值方式">
       {['usdt', 'aba'].map(value => <button key={value} type="button" aria-pressed={method === value}
         disabled={busy} onClick={() => { setMethod(value); setProof(null); if (fileRef.current) fileRef.current.value = ''; setCopied(false); setError(''); setNotice('') }}>
         {value.toUpperCase()}
       </button>)}
     </div>
+    <p>单笔最高 $300 · 到账需人工复核</p>
     {method === 'usdt' ? account.address ? <>
       <h3>USDT · TRON 主网（TRC20）</h3>
-      {qr && <img src={qr} alt="USDT TRC20 收款地址二维码" width="240" height="240" style={{ display: 'block', maxWidth: '100%', height: 'auto', margin: '12px auto' }} />}
-      <p>用 imToken 等钱包扫描二维码，或复制地址转账。二维码只包含收款地址，请选择 USDT 和 TRC20 网络，并填写付款金额。</p>
+      {qr && <img className="account-qr" src={qr} alt="USDT TRC20 收款地址二维码" width="240" height="240" />}
+      <p>仅限官方 USDT / TRC20 · 1 USDT = 1 USD</p>
       <p className="membership-reference">{account.address}</p>
       <button type="button" onClick={copyAddress}>{copied ? '地址已复制' : '复制收款地址'}</button>
-      <p>只收官方 USDT，勿使用其他网络。实际到账 1 USDT = 1 USD，链上手续费由付款方承担。</p>
+      <details className="account-details"><summary>转账注意事项</summary>
+        <p>用 imToken 等钱包扫码或复制地址，手动选择 USDT、TRC20 并填写金额。二维码仅包含地址，请核对收款地址；手续费由付款方承担，请勿超额或重复付款。</p>
+      </details>
     </> : <p role="status">USDT 收款地址未配置，请勿转账。</p>
       : <>
-        <h3>ABA · 人工复核充值</h3>
+        <h3>联系后付款</h3>
         <p role="status">如需ABA充值请联系昊天</p>
-        <p>先私下联系昊天确认美元付款方式，付款后填写金额提交申请，无需上传截图。私聊确认和提交申请都不会增加余额，昊天复核银行真实到账后才入账。</p>
+        <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系昊天 →</button>
+        <p>确认美元付款方式后付款，再提交金额。</p>
       </>}
     {error && <p className="membership-error" role="alert">{error}</p>}
     {notice && <p className="membership-notice" role="status">{notice}</p>}
     {configured && <form onSubmit={submit}>
-      <h3>{method === 'aba' ? '付款后提交复核申请' : '付款后上传凭证'}</h3>
-      {method === 'usdt' && <p>上传钱包／银行的转账成功截图，保留金额、收款方和付款时间；遮盖无关个人信息。截图不代表到账，管理员核实后才入账。</p>}
+      <h3>{method === 'aba' ? '提交付款金额' : '提交付款凭证'}</h3>
+      <details className="account-details"><summary>申请须知</summary>
+        <p>{method === 'usdt' ? '截图需包含金额、收款方及付款时间，请遮盖无关个人信息。' : '无需截图，管理员将核对私聊和银行真实到账。'}提交申请不等于到账；复核金额才计入余额，不会自动购买会员。审核中禁止再次申请；拒绝后柬埔寨时间次日00:00恢复。</p>
+      </details>
       <label>付款金额（{method === 'usdt' ? 'USDT' : 'USD'}）
         <input required type="number" min="0.000001" max="300" step="0.000001"
-          value={amount} disabled={busy} onChange={event => setAmount(event.target.value)} />
+          placeholder="0.00" value={amount} disabled={busy} onChange={event => setAmount(event.target.value)} />
       </label>
       {method === 'usdt' && <label>付款截图（JPG / PNG / WebP，最多 5 MB）
         <input ref={fileRef} required type="file" accept="image/jpeg,image/png,image/webp" disabled={busy}

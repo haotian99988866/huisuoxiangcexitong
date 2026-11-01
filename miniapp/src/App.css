@@ -1,0 +1,83 @@
+:root { color-scheme: light; }
+.ink-app {
+  --booking-border: var(--ink-line); --booking-background: var(--ink-reading); --booking-color: var(--ink-accent);
+  position: relative; isolation: isolate; min-height: 100vh; min-height: 100dvh;
+  color: var(--ink-text); background: var(--ink-paper);
+}
+.app-shell { min-height: 100dvh; }
+.home-page { --home-surface: var(--ink-reading); --home-reading-surface: var(--ink-reading); position: relative; }
+.app-bottom-nav { background: rgba(255,255,255,.96); border-color: var(--ink-line); box-shadow: 0 -4px 24px #252c3806; }
+.app-bottom-nav a { color: var(--ink-muted); font-size: 11px; position: relative; }
+.app-bottom-nav a[aria-current="page"]::before { content: ''; width: 28px; height: 3px; border-radius: 3px; background: #b59460; position: absolute; top: 0; }
+.brand-artwork { position: absolute; width: 240px; height: 240px; right: -60px; top: -36px; pointer-events: none; z-index: -1; opacity: .45; }
+.wallet-card .brand-artwork { right: -70px; top: -46px; opacity: .35; }
+.membership-panel, .admin-card { box-shadow: var(--shadow); }
+.membership-header { padding-top: 6px; }
+.account-page button:where(:not(.module-shortcut)) { min-height: 44px; font: inherit; cursor: pointer; }
+.account-page input { border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); }
+.account-page button:disabled { cursor: default; opacity: .55; }
+.home-page .home-copy-booking { min-height: 44px; }
+.home-notice-icon { display: grid; place-items: center; width: 54px; height: 54px; margin: 0 auto 12px; border: 1px solid var(--ink-line); border-radius: 18px; background: var(--ink-surface); color: var(--ink-accent); }
+.home-notice-icon svg { width: 28px; height: 28px; }
+.home-page h3 > svg { vertical-align: -3px; margin-right: 5px; }
+.home-service-card { padding: 16px; border: 1px solid var(--ink-line); border-radius: 16px; background: var(--ink-reading); box-shadow: var(--shadow); }
+.home-service-card-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.home-service-card-name { min-width: 0; font-size: 15px; font-weight: 600; color: var(--ink-text); overflow-wrap: anywhere; }
+.home-service-card-price { flex-shrink: 0; font-size: 15px; font-weight: 700; color: var(--ink-accent); font-variant-numeric: tabular-nums; }
+.home-service-card-description { margin-top: 5px; font-size: 12px; color: var(--ink-muted); }
+.home-service-card-duration { display: flex; align-items: center; gap: 5px; margin-top: 8px; font-size: 12px; color: var(--ink-muted); }
+.home-service-card-duration svg { width: 15px; height: 15px; }
+.ink-app .detail-card, .ink-app .tech-card { background: var(--ink-reading); border: 1px solid var(--ink-line); box-shadow: var(--shadow); }
+.ink-app .announcement-card { background: var(--ink-reading); border-color: var(--ink-line); border-left-color: #b59460; box-shadow: none; }
+.ink-app :is(.announcement-card-label,.announcement-card-time,.announcement-card-action) { color: var(--ink-muted); }
+.ink-app .announcement-card-title { color: var(--ink-text); }
+.movie-navigation, .music-navigation, .news-sticky { background: var(--ink-header); }
+.movie-search, .music-search { background: white; border-color: var(--ink-line); border-radius: 14px; }
+.movie-search input, .music-search input { color: var(--ink-text); }
+.music-search:focus-within { border-color: #b59460; box-shadow: 0 0 0 3px #b5946012; background: white; }
+.movies-page .movie-poster { border: 0; border-radius: 16px; box-shadow: 0 5px 15px #252c3810; }
+.movie-card-badge, .movie-card-play { background: #202734b8; backdrop-filter: blur(8px); }
+.movie-card h2 { font-size: 15px; font-weight: 650; }
+.movie-episodes button { box-shadow: var(--shadow); }
+.movie-grid { gap: 20px 14px; }
+.music-page { --music-green: var(--ink-accent); --music-muted: var(--ink-muted); color: var(--ink-text); }
+.music-page .music-search-submit, .movie-search button, .movie-state button, .music-page .music-play-all {
+  background: #292f3b; color: #fff; border-radius: 11px;
+}
+.music-page .music-list { box-shadow: var(--shadow); border-radius: 18px; }
+.music-page .music-row.is-current { background: #faf5ec; }
+.music-page .music-track-copy small, .music-page .music-song-number { color: var(--ink-muted); }
+.music-page :is(.music-login-hint,.music-hint,.music-time,.music-page-jump,.music-section-title p) { color: var(--ink-muted); }
+.music-page .music-art { background: linear-gradient(135deg, #f0e4cd, #ced9e7); color: #695637; }
+.music-playlist-art { background: linear-gradient(140deg, #a9b9d0, #4b5c76); }
+.music-color-1 { background: linear-gradient(140deg, #d9bd8d, #886b49); }
+.music-color-2 { background: linear-gradient(140deg, #c1b5d5, #776688); }
+.music-search input::placeholder { color: var(--ink-muted); }
+.music-page .music-page-jump input { border-color: var(--ink-line); color: var(--ink-text); background: white; }
+.music-page .music-page-jump button { color: var(--ink-accent); }
+.music-page .music-page-go { background: var(--ink-wash); }
+.music-page .music-empty { color: var(--ink-muted); background: var(--ink-reading); }
+.music-page .music-empty h3 { color: var(--ink-text); }
+.music-page .music-primary, .ink-app .music-sheet .music-primary { background: #292f3b; color: white; }
+.ink-app .music-sheet .music-icon-button { padding: 0; border: 0; background: transparent; }
+.music-full-art { background: radial-gradient(circle at 70% 20%, #e4cba6, transparent 65%), linear-gradient(145deg, #e6e9f0, #f5f2ee); border-color: #ffffff; box-shadow: 0 16px 40px #252c3812; }
+.music-full-art .music-vinyl { background: repeating-radial-gradient(circle, #262b34 0 2px, #39414e 3px 4px); border-color: #252c3812; }
+.music-full-art .music-vinyl span { background: #e0c18f; border-color: #c6a572; color: #59401f; }
+.ink-app .music-full-controls .music-main-toggle { background: #292f3b; color: white; border: 0; }
+.music-mini { background: #292f3b; border-color: #3a4352; box-shadow: 0 10px 28px #252c3824; }
+.music-mini-progress span { background: #e0c18f; }
+.music-toast { background: #292f3b; color: white; }
+.module-backdrop { background: #20273470; backdrop-filter: blur(5px); }
+.module-panel { background: white; color: var(--ink-text); }
+.module-current, .module-panel h2, .module-group h3 { font-family: inherit; }
+.module-tile { background: var(--ink-surface); border-color: var(--ink-line); color: var(--ink-text); }
+.module-tile.selected { background: var(--ink-wash); color: var(--ink-accent); }
+.news-toolbar-title, .news-article-body { color: var(--ink-text); }
+.news-feed-item { border-radius: 18px; background: white; box-shadow: var(--shadow); }
+.news-cover { border-radius: 12px; background: var(--ink-surface); color: var(--ink-muted); }
+.news-eyebrow, .news-category, .news-feed-kicker, .news-byline strong { color: var(--ink-muted); }
+.news-latest { background: var(--ink-wash); color: var(--ink-accent); }
+.news-source-mark { font-family: inherit; background: var(--ink-wash); color: var(--ink-accent); }
+.news-pagination > button { background: var(--ink-surface); }
+.news-reading-progress > span { background: #b59460; }
+@media (prefers-reduced-motion: reduce) { .ink-app *, .ink-app *::before { scroll-behavior: auto; } }

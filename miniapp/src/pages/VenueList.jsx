@@ -4,7 +4,6 @@ import { useModuleState, useModuleScroll } from '../utils/moduleState'
 import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
 import ModuleIcon from '../components/ModuleIcon'
-import InkScenery from '../components/InkScenery'
 import CopyBooking from '../components/CopyBooking'
 import { bookingUrl } from '../utils/booking'
 import { contactName, contactUrl, mediaUrl, tenantPath } from '../utils/tenant'
@@ -95,19 +94,19 @@ function NoticeCard({ icon, title, updatedAt, children }) {
       padding: '28px 18px',
       textAlign: 'center',
       background: 'var(--home-surface)',
-      border: '1px solid rgba(102, 119, 93, 0.18)',
+      border: '1px solid var(--ink-line)',
       borderRadius: '14px',
       color: 'var(--ink-accent)',
       boxShadow: '0 3px 14px rgba(44, 65, 48, 0.03)'
     }}>
       <div className="home-notice-icon"><ModuleIcon name={icon} /></div>
       <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '8px' }}>{title}</div>
-      <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.7, color: '#627264' }}>
+      <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.7, color: 'var(--ink-muted)' }}>
         {children}
       </p>
       <ContactButton />
       {updatedAt && (
-        <div style={{ marginTop: '14px', fontSize: '11px', color: '#667367' }}>
+        <div style={{ marginTop: '14px', fontSize: '11px', color: 'var(--ink-muted)' }}>
           最近更新：{updatedAt}
         </div>
       )}
@@ -129,8 +128,8 @@ const photoViewerButtonStyle = {
 const attendancePanelStyle = {
   marginBottom: '20px',
   background: 'var(--home-surface)',
-  border: '1px solid rgba(102, 119, 93, 0.14)',
-  boxShadow: '0 3px 14px rgba(44, 65, 48, 0.03)',
+  border: '1px solid var(--ink-line)',
+  boxShadow: 'var(--shadow)',
   borderRadius: '12px',
   padding: '16px'
 }
@@ -618,13 +617,13 @@ export default function VenueList() {
           overflow: 'hidden',
           border: photoIds.length > 0
             ? '1px solid rgba(60, 45, 35, 0.12)'
-            : '1px solid #dcebe2',
+            : '1px solid var(--ink-line)',
           borderRadius: '12px',
-          backgroundColor: photoIds.length > 0 ? '#e9e2d9' : '#eaf4ee',
+          backgroundColor: photoIds.length > 0 ? '#e9e2d9' : 'var(--ink-surface)',
           backgroundImage: photoIds.length > 0
             ? 'none'
-            : 'linear-gradient(145deg, #f1f8f3, #e4f0e8)',
-          color: photoIds.length > 0 ? '#fff' : '#36734f',
+            : 'linear-gradient(145deg, #f6eee1, #e8edf5)',
+          color: photoIds.length > 0 ? '#fff' : 'var(--ink-accent)',
           fontSize: '14px',
           fontWeight: 700,
           textShadow: photoIds.length > 0 ? '0 1px 3px rgba(0, 0, 0, 0.5)' : 'none',
@@ -653,7 +652,6 @@ export default function VenueList() {
 
   const renderServiceItem = item => (
     <div key={item.id} className="home-service-card">
-      <InkScenery className="service-ink-scenery" compact />
       <div className="home-service-card-heading">
         <div className="home-service-card-name">
           {item.name}
@@ -724,14 +722,14 @@ export default function VenueList() {
                   overflow: 'hidden',
                   border: photoIds.length > 0
                     ? '1px solid rgba(60, 45, 35, 0.12)'
-                    : '1px solid #dcebe2',
+                    : '1px solid var(--ink-line)',
                   borderRadius: '50%',
-                  backgroundColor: photoIds.length > 0 ? '#e9e2d9' : '#eaf4ee',
+                  backgroundColor: photoIds.length > 0 ? '#e9e2d9' : 'var(--ink-surface)',
                   position: 'relative',
                   backgroundImage: photoIds.length > 0
                     ? 'none'
-                    : 'linear-gradient(145deg, #f1f8f3, #e4f0e8)',
-                  color: photoIds.length > 0 ? '#fff' : '#36734f',
+                    : 'linear-gradient(145deg, #f6eee1, #e8edf5)',
+                  color: photoIds.length > 0 ? '#fff' : 'var(--ink-accent)',
                   fontSize: '8px',
                   fontWeight: 700,
                   textShadow: photoIds.length > 0 ? '0 1px 2px rgba(0, 0, 0, 0.7)' : 'none',
@@ -776,9 +774,9 @@ export default function VenueList() {
         zIndex: 20,
         padding: '10px 12px 10px',
         margin: '-12px -12px 14px',
-        background: 'rgba(250, 249, 243, 0.97)',
-        borderBottom: '1px solid rgba(158, 132, 101, 0.16)',
-        boxShadow: '0 4px 14px rgba(120, 90, 50, 0.07)'
+        background: 'var(--ink-header)',
+        borderBottom: '1px solid var(--ink-line)',
+        boxShadow: '0 4px 18px rgba(34, 40, 52, 0.04)'
       }}>
         {isFullscreen && <FullscreenAnnouncementBar />}
         <ModuleTabs active={deliveryCategories.length ? 'delivery' : 'venue'} />
@@ -807,9 +805,9 @@ export default function VenueList() {
               style={{
                 flex: '1 1 0',
                 minWidth: '0',
-                height: '40px',
+                height: '44px',
                 padding: '0 30px 0 12px',
-                border: '1px solid rgba(82, 105, 90, 0.25)',
+                border: '1px solid var(--ink-line)',
                 borderRadius: '12px',
                 color: 'var(--ink-accent)',
                 fontSize: '14px',
@@ -817,7 +815,7 @@ export default function VenueList() {
                 outline: 'none',
                 appearance: 'none',
                 WebkitAppearance: 'none',
-                background: "rgba(255,254,249,.85) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2352695a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") no-repeat right 12px center",
+                background: "var(--ink-reading) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23746b5d' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") no-repeat right 12px center",
                 boxShadow: '0 1px 3px rgba(120, 90, 50, 0.06)'
               }}
             >
@@ -840,11 +838,11 @@ export default function VenueList() {
               gap: '6px',
               flex: '0 0 auto',
               minWidth: '104px',
-              height: '40px',
+              height: '44px',
               padding: '0 10px',
-              background: 'rgba(56, 131, 93, 0.1)',
-              color: '#28734d',
-              border: '1px solid rgba(56, 131, 93, 0.18)',
+              background: 'var(--ink-wash)',
+              color: 'var(--ink-accent)',
+              border: '1px solid #e3d4bb',
               borderRadius: '12px',
               fontSize: '11px',
               fontWeight: 600,
@@ -1008,7 +1006,7 @@ export default function VenueList() {
                             padding: '8px 10px',
                             fontSize: '13px',
                             lineHeight: 1.5,
-                            color: '#4a3b28',
+                            color: 'var(--ink-text)',
                             display: '-webkit-box',
                             WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical',
@@ -1132,7 +1130,7 @@ export default function VenueList() {
                           objectFit: 'cover',
                           borderRadius: '8px',
                           opacity: index === deliveryIndex ? 1 : 0.5,
-                          border: index === deliveryIndex ? '2px solid #8fa790' : '2px solid transparent',
+                          border: index === deliveryIndex ? '2px solid #e0c18f' : '2px solid transparent',
                           boxSizing: 'border-box',
                           background: '#222',
                         }
@@ -1258,7 +1256,7 @@ export default function VenueList() {
                     return (
                     <div key={video.id} style={{
                       background: 'var(--home-surface)', borderRadius: '14px', overflow: 'hidden',
-                      border: '1px solid #eee3cf', boxShadow: '0 4px 14px rgba(128, 100, 60, 0.12)'
+                      border: '1px solid var(--ink-line)', boxShadow: 'var(--shadow)'
                     }}>
                       <div
                         onClick={() => setKtvVideo(video)}
@@ -1309,7 +1307,7 @@ export default function VenueList() {
                         gap: '6px', padding: '10px'
                       }}>
                         <div style={{
-                          fontSize: '13px', fontWeight: 600, color: '#5a4630', minWidth: 0,
+                          fontSize: '13px', fontWeight: 600, color: 'var(--ink-text)', minWidth: 0,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
                         }}>
                           {info.hall}{video.room_number ? ` ${video.room_number}` : ''}
@@ -1389,7 +1387,7 @@ export default function VenueList() {
                 <div style={{ marginTop: '20px' }}>
                   <h3 style={{ ...attendanceInlineHeadingStyle, marginBottom: '10px' }}><ModuleIcon name="recharge" />消费模式及价格</h3>
                   <div style={{
-                    background: 'var(--home-reading-surface)', border: '1px solid #dfe4d7',
+                    background: 'var(--home-reading-surface)', border: '1px solid var(--ink-line)',
                     borderRadius: '14px', padding: '6px 14px'
                   }}>
                     {selectedVenue.ktv_texts.flatMap(ktvPriceLines).map((line, index) => (
@@ -1397,7 +1395,7 @@ export default function VenueList() {
                         margin: 0, padding: '8px 0', fontSize: '13px', lineHeight: 1.6,
                         color: line.includes('消费明细') ? 'var(--ink-accent)' : '#555',
                         fontWeight: line.includes('消费明细') ? 700 : 400,
-                        borderBottom: '1px dashed #52695a30'
+                        borderBottom: '1px dashed var(--ink-line)'
                       }}>
                         {line}
                       </p>
@@ -1620,7 +1618,7 @@ export default function VenueList() {
             }}>
               <h2
                 id="technician-detail-title"
-                style={{ margin: 0, fontSize: '20px', color: '#2c7a56' }}
+                style={{ margin: 0, fontSize: '20px', color: 'var(--ink-text)' }}
               >
                 技师 {selectedTechnicianCode}
               </h2>
@@ -1729,10 +1727,10 @@ export default function VenueList() {
                 <h3 style={{
                   margin: '0 0 9px',
                   paddingLeft: '8px',
-                  borderLeft: '3px solid #4a8b68',
+                  borderLeft: '3px solid #b59460',
                   fontSize: '15px',
                   lineHeight: 1.2,
-                  color: '#34483c'
+                  color: 'var(--ink-text)'
                 }}>
                   技师基本信息
                 </h3>
@@ -1740,9 +1738,9 @@ export default function VenueList() {
                   display: 'grid',
                   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                   padding: '4px 12px',
-                  border: '1px solid #e7eee9',
+                  border: '1px solid var(--ink-line)',
                   borderRadius: '12px',
-                  background: '#f8faf8'
+                  background: 'var(--ink-reading)'
                 }}>
                   {[
                     ['technician_code', '工号'],
@@ -1760,17 +1758,17 @@ export default function VenueList() {
                         gap: '8px',
                         minWidth: 0,
                         padding: '9px 2px',
-                        borderBottom: '1px solid #e8eeea'
+                        borderBottom: '1px solid var(--ink-line)'
                       }}
                     >
                       <span style={{
                         flexShrink: 0,
-                        color: '#829087',
+                        color: 'var(--ink-muted)',
                         fontSize: '12px'
                       }}>{label}</span>
                       <strong style={{
                         minWidth: 0,
-                        color: '#34483c',
+                        color: 'var(--ink-text)',
                         fontSize: '14px',
                         fontWeight: 650,
                         overflowWrap: 'anywhere'
@@ -1790,7 +1788,7 @@ export default function VenueList() {
                       margin: 0,
                       padding: '12px',
                       borderRadius: '10px',
-                      background: '#f7f8f7',
+                      background: 'var(--ink-surface)',
                       color: '#666',
                       fontSize: '13px',
                       lineHeight: 1.7,
@@ -1829,8 +1827,8 @@ export default function VenueList() {
                       style={{
                         padding: '6px 11px',
                         borderRadius: '16px',
-                        background: '#f0f7f4',
-                        color: '#2c7a56',
+                        background: 'var(--ink-wash)',
+                        color: 'var(--ink-accent)',
                         fontSize: '13px'
                       }}
                     >

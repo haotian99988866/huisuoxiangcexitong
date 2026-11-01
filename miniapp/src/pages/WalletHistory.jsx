@@ -38,15 +38,14 @@ export default function WalletHistory() {
     <header className="membership-header">
       {!hasTelegramBackButton && <Link to="/personal">← 我的钱包</Link>}
       <h1>{ledgerView ? '资金明细' : '充值记录'}</h1>
-      <p>充值申请与实际入账分开，只有核款通过才增加可用余额。</p>
     </header>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <section className="membership-panel">
-      <nav className="membership-actions" aria-label="钱包记录类型">
+      <nav className="account-segment" aria-label="钱包记录类型">
         <button type="button" aria-pressed={!ledgerView} onClick={() => setParams({ view: 'deposits' }, { replace: true })}>充值申请</button>
-        <button type="button" aria-pressed={ledgerView} onClick={() => setParams({ view: 'ledger' }, { replace: true })}>实际资金流水</button>
+        <button type="button" aria-pressed={ledgerView} onClick={() => setParams({ view: 'ledger' }, { replace: true })}>资金流水</button>
       </nav>
-      <p>展示最近 30 条{ledgerView ? '实际余额变动' : '充值申请及核款结果'}；更早记录请联系客服查询。</p>
+      <p>最近30条 · {ledgerView ? '实际余额变动' : '复核通过才入账'}</p>
       {ledgerView ? <>
         {ledgerError && <p className="membership-error" role="alert">{ledgerError}</p>}
         {!ledger && !ledgerError && <p role="status">正在读取流水…</p>}
@@ -55,8 +54,8 @@ export default function WalletHistory() {
           <div className="membership-row"><strong>{labels[entry.event] || entry.event}</strong>
             <strong>{Number(entry.amount) > 0 ? '+' : ''}{money(entry.amount)} USD</strong></div>
           <p>{entry.created_at}</p>
-          {entry.event === 'deposit' ? <p>充值申请 #{entry.reference}</p>
-            : <Link className="membership-reference" to={`/orders/${entry.reference}`}>订单 {entry.reference} →</Link>}
+          {entry.event === 'deposit' ? <p>充值 #{entry.reference}</p>
+            : <Link to={`/orders/${entry.reference}`}>查看订单 →</Link>}
         </article>)}
       </> : <DepositRecords deposits={account.deposits} />}
       <button type="button" disabled={busy} onClick={async () => {

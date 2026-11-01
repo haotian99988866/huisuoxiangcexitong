@@ -52,24 +52,23 @@ export default function Orders() {
     <header className="membership-header">
       {!hasTelegramBackButton && <Link to={orderId ? '/orders' : '/personal'}>← {orderId ? '全部订单' : '我的'}</Link>}
       <h1>{orderId ? '订单详情' : '我的订单'}</h1>
-      <p>这里展示会员购买订单；余额充值申请请查看充值记录。</p>
     </header>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {!account ? <AccountAccess loading={loading} /> : orderId ? <>
       {detailError && <p className="membership-error" role="alert">{detailError}</p>}
       {!order && !detailError && <p role="status">正在查询订单…</p>}
       {order && <section className="membership-panel">
-        <h2>{memberStatuses[order.status] || order.status}</h2>
-        <p>{orderGuidance(order.status)}</p>
+        <span className="account-status">{memberStatuses[order.status] || order.status}</span>
         <h3>Telegram Premium · {order.months}个月</h3>
+        <p className="membership-balance">${money(order.price_usd)}</p>
+        <p>{orderGuidance(order.status)}</p>
         <p>收件人：@{order.recipient_username}</p>
-        <p>支付金额：${money(order.price_usd)} USD</p>
-        <p>订单编号</p><p className="membership-reference">{order.order_id}</p>
-        <p>请保留订单编号。退款回站内余额，结果不明时先核实，不要重新下单。</p>
+        <details className="account-details"><summary>订单编号与售后</summary><p className="membership-reference">{order.order_id}</p>
+          <p>请保留编号。退款回站内余额；结果不明先核实，不要重新下单。</p></details>
       </section>}
       <section className="membership-panel membership-actions">
         <button type="button" onClick={() => setAttempt(value => value + 1)}>刷新订单</button>
-        <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系客服 · 提供订单编号</button>
+        <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系客服</button>
         <Link to="/personal">查看账户余额</Link>
       </section>
     </> : <section className="membership-panel">
@@ -77,7 +76,7 @@ export default function Orders() {
         {orderFilters.map(([key, label]) => <button key={key} type="button" aria-pressed={filter === key}
           onClick={() => setParams(key === 'all' ? {} : { filter: key }, { replace: true })}>{label}</button>)}
       </nav>
-      <p>展示最近 30 笔会员订单，可按状态筛选；早期订单请保留编号联系客服查询。</p>
+      <p>最近30笔 · 更早记录请联系客服</p>
       {shown.length ? shown.map(item => <OrderSummary key={item.order_id} order={item} />) : <p>暂无此类订单。</p>}
       <button type="button" disabled={busy} onClick={async () => {
         setBusy(true)

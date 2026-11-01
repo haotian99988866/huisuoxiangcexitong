@@ -90,22 +90,22 @@ export default function DepositReview({ onReviewed }) {
   return <section className="admin-card" aria-label="充值审核">
     <div className="admin-header"><h2>充值审核</h2>
       <button type="button" disabled={loading || busy} onClick={refresh}>{loading ? '读取中…' : '刷新申请'}</button></div>
-    <p className="admin-hint">显示最早 8 笔待核款申请，处理后刷新查看下一批。请独立核实钱包／银行真实到账，不能仅凭截图入账。</p>
+    <p className="admin-hint">最早8笔 · 必须核实真实到账</p>
     {!selected && error && <p role="alert" className="admin-error">{error}</p>}
     {notice && <p role="status" className="admin-notice">{notice}</p>}
     {!loading && !error && !rows.length && <p>暂无待审核充值。</p>}
     {rows.map(row => <article className="admin-tenant" key={row.id}>
       <div className="admin-header"><h3>申请 #{row.id} · {row.method.toUpperCase()}</h3><strong>${money(row.claimed)}</strong></div>
       <p>用户 {row.user_id} · {row.created_at}</p>
-      <p>{row.manual_review ? 'ABA 私下联系后提交金额，需核对私聊及银行记录' : row.has_proof ? '已上传付款凭证' : '已提交交易编号'}</p>
+      <p>{row.manual_review ? '金额申请 · 无截图' : row.has_proof ? '付款凭证已上传' : '交易编号已提交'}</p>
       <button type="button" disabled={busy || loading} onClick={() => open(row)}>查看并审核</button>
     </article>)}
-    {selected && <MusicDialog title={`审核充值申请 #${selected.id}`} onClose={() => { if (!lock.current) { setSelected(null); setDecision(null) } }}>
+    {selected && <MusicDialog className="account-sheet" title={`审核充值申请 #${selected.id}`} onClose={() => { if (!lock.current) { setSelected(null); setDecision(null) } }}>
       {error && <p role="alert" className="admin-error">{error}</p>}
       <p>用户 {selected.user_id} · {selected.method.toUpperCase()} · 申报 ${money(selected.claimed)} USD</p>
       <p style={{ overflowWrap: 'anywhere' }}>收款：{selected.address}</p>
       <p>{selected.created_at}</p>
-      {selected.manual_review && <p>此申请没有付款截图或客户交易编号。请按用户编号核对私聊记录，并在银行独立核实美元收款账户、真实交易编号及到账金额；不能仅凭私聊确认入账。</p>}
+      {selected.manual_review && <p>无截图：请核对该用户私聊及银行真实到账，不能仅凭私聊入账。</p>}
       {imageLoading && <p role="status">正在读取付款凭证…</p>}
       {imageError && <p role="alert">{imageError}<button type="button" onClick={() => setImageAttempt(value => value + 1)}>重试凭证</button></p>}
       {image && <img src={image} alt={`申请 #${selected.id} 付款凭证`}
@@ -126,7 +126,7 @@ export default function DepositReview({ onReviewed }) {
       </div> : <form onSubmit={event => { event.preventDefault(); setVerified(false); setDecision('approve') }}>
         <fieldset disabled={busy}>
           <label>复核实际到账金额（USD）<input required type="number" min="0.000001" max="1000000" step="0.000001" placeholder="根据钱包／银行真实到账填写" value={amount} onChange={event => setAmount(event.target.value)} /></label>
-          <p>客户申报仅供对照；余额与资金流水以你复核填写的实际到账金额为准。</p>
+          <p>以复核金额入账，申报仅供对照。</p>
           <label>核实的真实交易编号<input required value={reference} disabled={!selected.has_proof && !selected.manual_review}
             pattern={selected.method === 'usdt' ? '[0-9a-fA-F]{64}' : '[A-Za-z0-9_\\-]{6,100}'}
             maxLength={selected.method === 'usdt' ? 64 : 100} onChange={event => setReference(event.target.value)} /></label>

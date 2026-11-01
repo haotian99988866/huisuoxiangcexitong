@@ -60,7 +60,7 @@ export default function TechnicianList() {
           </div>
           
           {t.specialty && (
-            <p style={{color:'#627264', fontSize:14, marginBottom:6}}>{t.specialty}</p>
+            <p style={{color:'var(--ink-muted)', fontSize:14, marginBottom:6}}>{t.specialty}</p>
           )}
         </div>
       ))}

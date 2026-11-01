@@ -26,6 +26,7 @@ export default function Admin() {
   const [editor, setEditor] = useState(null)
   const [confirmation, setConfirmation] = useState(null)
   const [copyFallback, setCopyFallback] = useState('')
+  const [section, setSection] = useState('deposits')
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const inFlight = useRef(false)
   const mounted = useRef(true)
@@ -153,15 +154,12 @@ export default function Admin() {
         <h1>运营管理台</h1>
         <button type="button" disabled={loading || saving} onClick={refresh}>{loading ? '读取中…' : '刷新'}</button>
       </header>
-      <p className="admin-hint">仅平台管理员 · 人工核款与租户管理</p>
+      <p className="admin-hint">平台管理员</p>
       {error && <p role="alert" className="admin-error">{error}</p>}
       {notice && <p role="status" className="admin-notice">{notice}</p>}
       {copyFallback && <input aria-label="专属入口链接" readOnly value={copyFallback} onFocus={event => event.target.select()} />}
       {!data && !loading && !error && <p>暂无管理数据</p>}
       {data && <>
-        <DepositReview onReviewed={refresh} />
-        <AdminStars userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} />
-        <MemberSimulation userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} />
         <section aria-label="运营概览" className="admin-stats">
           {[
             ['租户总数', data.counts.total], ['已启用', data.counts.active],
@@ -170,17 +168,24 @@ export default function Admin() {
             ['待核充值', data.counts.pending_deposits],
           ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
         </section>
-        <p className="admin-hint">统计时间：{formatDate(data.server_time)}。充值审核通过后增加账户余额，不自动购买会员。</p>
+        <nav className="admin-sections" aria-label="管理功能">
+          {[['deposits', '充值复核'], ['stars', 'Stars'], ['tenants', '租户'], ['tools', '工具']].map(([key, label]) =>
+            <button key={key} type="button" aria-pressed={section === key} disabled={saving}
+              onClick={() => setSection(key)}>{label}</button>)}
+        </nav>
+        <div hidden={section !== 'deposits'}><DepositReview onReviewed={refresh} /></div>
+        <div hidden={section !== 'stars'}><AdminStars userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} /></div>
+        <div hidden={section !== 'tenants'}>
         <section className="admin-card">
           <div className="admin-header"><h2>租户管理</h2><button type="button" disabled={saving || loading} onClick={() => edit(null)}>新建租户</button></div>
-          <p className="admin-hint">共享机器人及公共观影频道；客户与频道成员并非完全隔离。</p>
+          <details className="account-details"><summary>租户权限说明</summary><p>共享机器人及公共观影频道，客户与频道成员并非完全隔离。</p></details>
           {data.tenants.length === 0 && <p>暂无租户，可先创建草稿。</p>}
           {data.tenants.map(row => (
             <article key={row.slug} className="admin-tenant">
               <div className="admin-header"><h3>{row.brand_name}</h3><span>{labels[row.effective_status]}</span></div>
               <p>{row.slug} · @{row.contact_username}</p>
               <p>到期：{formatDate(row.expires_at)}</p>
-              <p>展示项目：{row.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || `项目 ${id}`).join('、')} · 公告{row.announcements_enabled ? '已开放' : '未开放'}</p>
+              <details className="account-details"><summary>展示权限</summary><p>{row.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || `项目 ${id}`).join('、')} · 公告{row.announcements_enabled ? '已开放' : '未开放'}</p></details>
               <div className="admin-actions">
                 <button type="button" disabled={saving || loading} onClick={() => edit(row)}>编辑 / 续期 / 暂停</button>
                 <button type="button" disabled={saving} onClick={() => copy(row.slug)}>复制入口</button>
@@ -234,13 +239,19 @@ export default function Admin() {
             </div>}
           </section>
         )}
+        </div>
+        <div hidden={section !== 'tools'}>
+        <details className="admin-card"><summary>隔离模拟工具</summary>
+          <MemberSimulation userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} />
+        </details>
         <section className="admin-card"><h2>最近操作</h2>
-          <p className="admin-hint">显示最近 30 条；创建、修改、续期、暂停均记录操作者和前后配置。</p>
+          <p className="admin-hint">最近30条 · {formatDate(data.server_time)}</p>
           {data.audit.length === 0 && <p>暂无操作记录</p>}
           {data.audit.map(row => <p className="admin-audit" key={row.id}>
             {formatDate(row.created_at)} · {row.tenant_slug} · {row.action === 'create' ? '创建' : '更新'} · {row.source === 'cli' ? '本机命令行' : `管理员 ${row.actor_id}`}
           </p>)}
         </section>
+        </div>
       </>}
     </main>
   )

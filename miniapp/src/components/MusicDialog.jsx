@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { registerBackOverlay } from '../utils/twa'
 import MusicIcon from './MusicIcon'
 
-export default function MusicDialog({ title, onClose, children, full = false }) {
+export default function MusicDialog({ title, onClose, children, full = false, className = '' }) {
   const ref = useRef(null)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
@@ -21,7 +21,7 @@ export default function MusicDialog({ title, onClose, children, full = false }) 
     }
   }, [])
   return (
-    <dialog ref={ref} className={`music-sheet${full ? ' music-full-player' : ''}`} aria-label={title}
+    <dialog ref={ref} className={`music-sheet${full ? ' music-full-player' : ''}${className ? ` ${className}` : ''}`} aria-label={title}
       onClose={event => { if (!event.currentTarget.open) closeRef.current() }}
       onCancel={event => { event.preventDefault(); closeRef.current() }}
       onClick={event => { if (event.target === event.currentTarget && !full) closeRef.current() }}>

@@ -3,8 +3,6 @@ import { musicTime, useMusic } from './MusicPlayer'
 import MusicDialog from './MusicDialog'
 import MusicIcon from './MusicIcon'
 import { musicArtist } from '../utils/musicPlayback'
-import SeasonalOrnament from './SeasonalOrnament'
-import InkScenery from './InkScenery'
 
 const modes = { sequential: '顺序循环', shuffle: '随机播放', single: '单曲循环' }
 
@@ -26,10 +24,8 @@ export default function MusicNowPlaying({ initialPane = 'player' }) {
     <MusicDialog full title={pane === 'queue' ? '播放队列' : pane === 'settings' ? '播放设置' : '正在播放'} onClose={() => player.setExpanded(false)}>
       {pane === 'player' ? <div className="music-playback-screen">
         <div className={`music-full-art${player.playing ? ' is-playing' : ''}`} aria-hidden="true">
-          <InkScenery className="music-ink-scenery" compact />
-          <SeasonalOrnament />
           <div className={`music-vinyl${player.playing ? ' is-playing' : ''}`}><span>♪</span></div>
-          <span className="music-art-caption">山水有韵 · 静听此刻</span>
+          <span className="music-art-caption">HAOTIAN MUSIC</span>
         </div>
         <div className="music-full-track">
           <div><h2>{track.title}</h2><p>{musicArtist(track.artist)}{track.album ? ` · ${track.album}` : ''}</p></div>

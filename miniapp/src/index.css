@@ -14,28 +14,28 @@ html::-webkit-scrollbar,
 }
 
 :root {
-  --ink-text: #304639;
-  --ink-muted: #627264;
-  --ink-accent: #365544;
-  --ink-paper: #f8f6ef;
-  --ink-wash: #e1e8d8;
-  --ink-line: rgba(82,105,90,.2);
-  --ink-surface: rgba(255,254,249,.75);
-  --ink-reading: rgba(255,254,249,.85);
-  --ink-header: rgba(250,249,243,.97);
+  --ink-text: #252c38;
+  --ink-muted: #69717d;
+  --ink-accent: #805b2e;
+  --ink-paper: #f7f7f9;
+  --ink-wash: #f3ede3;
+  --ink-line: #e5e6eb;
+  --ink-surface: #f2f3f6;
+  --ink-reading: #ffffff;
+  --ink-header: rgba(247,247,249,.97);
   --season-ink: #496b5b;
   --season-wash: #e1e8d8;
   --season-hill: #b5c7b2;
   --season-accent: #bea26a;
-  --primary: #365544;
-  --primary-light: #e6ecdf;
+  --primary: #805b2e;
+  --primary-light: #f3ede3;
   --secondary: #6b7280;
   --accent: #f8bbd0;
-  --bg: #f8f6ef;
+  --bg: #f7f7f9;
   --card: #ffffff;
-  --text: #2d2d2d;
-  --text-light: #627264;
-  --shadow: 0 3px 14px rgba(44, 65, 48, 0.04);
+  --text: #252c38;
+  --text-light: #69717d;
+  --shadow: 0 6px 24px rgba(34, 40, 52, 0.05);
   --radius: 16px;
 }
 
@@ -144,7 +144,7 @@ a {
 }
 
 .btn-primary {
-  background: #365544;
+  background: var(--ink-accent);
   color: white;
 }
 
@@ -153,7 +153,7 @@ a {
 }
 
 .btn-success {
-  background: #365544;
+  background: var(--ink-accent);
   color: white;
 }
 
