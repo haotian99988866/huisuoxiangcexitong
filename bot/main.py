@@ -757,6 +757,7 @@ def handle_photo_message(message):
             file_id,
             image_bytes,
             datetime.fromtimestamp(message.date).date(),
+            published_at=datetime.fromtimestamp(message.date),
         )
     except (pymysql.MySQLError, ValueError):
         logger.exception("Failed to process technician photo %s", message.message_id)
@@ -1042,6 +1043,9 @@ if __name__ == "__main__":
     ensure_movie_tables()
     ensure_music_tables()
     ensure_image_hash_columns()
+    from staff_archive import ensure_tables as ensure_staff_tables, start_worker as start_staff_worker
+    ensure_staff_tables()
+    start_staff_worker()
     from announcements import ensure_tables as ensure_announcement_tables
     from tenants import ensure_tables as ensure_tenant_tables
     ensure_tenant_tables()

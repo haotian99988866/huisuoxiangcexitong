@@ -1,0 +1,47 @@
+{
+  "mingxiBoardPrices": [
+    {"board":"1号牌","member":269,"half":139},
+    {"board":"2号牌","member":299,"half":149},
+    {"board":"3号牌","member":329,"half":169},
+    {"board":"5号牌","member":369,"half":189},
+    {"board":"6号牌","member":399,"half":199},
+    {"board":"7号牌","member":439,"half":219},
+    {"board":"8号牌","member":469,"half":239},
+    {"board":"9号牌","member":499,"half":249},
+    {"board":"名玺牌","member":599,"half":299}
+  ],
+  "kaidiTechnicianCategories": [
+    {"name":"5牌","codes":["530","508","567","513"],"price":99},
+    {"name":"6牌","codes":["628","669","616"],"price":159},
+    {"name":"7牌","codes":["707","712","733","789"],"price":179},
+    {"name":"8牌","codes":["898","886","822","899"],"price":209},
+    {"name":"9牌","codes":["986","901","909","908"],"price":239},
+    {"name":"1牌","codes":["109","102","155","139","107"],"price":269},
+    {"name":"0牌","codes":["068","039","022"],"price":299},
+    {"name":"2牌","codes":[],"price":339},
+    {"name":"车模","codes":["6666","7777"],"price":369},
+    {"name":"日韩","codes":[]}
+  ],
+  "atlanticTechnicianCategories": [
+    {"name":"至尊","price":99},
+    {"name":"佳丽","price":139},
+    {"name":"车模","price":169},
+    {"name":"皇贵妃","price":199},
+    {"name":"皇后","price":229},
+    {"name":"1牌","codes":["100","199","150"],"price":269},
+    {"name":"3牌","price":299},
+    {"name":"0牌","price":329},
+    {"name":"豹子","price":359},
+    {"name":"日韩","price":499}
+  ],
+  "dihaoTechnicianCategories": [
+    {"name":"0牌","price":99},
+    {"name":"1牌","price":149},
+    {"name":"2牌","price":189},
+    {"name":"6牌艺人","price":229},
+    {"name":"7牌公主","price":269},
+    {"name":"8牌佳丽","price":329},
+    {"name":"9牌贵妃","price":369},
+    {"name":"韩国牌","codes":["韩国08"]}
+  ]
+}

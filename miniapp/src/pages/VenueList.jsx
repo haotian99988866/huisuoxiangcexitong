@@ -4,6 +4,8 @@ import { useModuleState, useModuleScroll } from '../utils/moduleState'
 import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
 import ModuleIcon from '../components/ModuleIcon'
+import StaffGallery from '../components/StaffGallery'
+import venuePrices from '../../../shared/venue-prices.json'
 import CopyBooking from '../components/CopyBooking'
 import { useAnalyticsScreen } from '../utils/analytics'
 import { bookingUrl } from '../utils/booking'
@@ -261,54 +263,7 @@ const roomyTechnicianGridStyle = {
   gap: '12px'
 }
 
-const mingxiBoardPrices = [
-  { board: '1号牌', member: 269, half: 139 },
-  { board: '2号牌', member: 299, half: 149 },
-  { board: '3号牌', member: 329, half: 169 },
-  { board: '5号牌', member: 369, half: 189 },
-  { board: '6号牌', member: 399, half: 199 },
-  { board: '7号牌', member: 439, half: 219 },
-  { board: '8号牌', member: 469, half: 239 },
-  { board: '9号牌', member: 499, half: 249 },
-  { board: '名玺牌', member: 599, half: 299 }
-]
-
-const kaidiTechnicianCategories = [
-  { name: '5牌', codes: ['530', '508', '567', '513'], price: 99 },
-  { name: '6牌', codes: ['628', '669', '616'], price: 159 },
-  { name: '7牌', codes: ['707', '712', '733', '789'], price: 179 },
-  { name: '8牌', codes: ['898', '886', '822', '899'], price: 209 },
-  { name: '9牌', codes: ['986', '901', '909', '908'], price: 239 },
-  { name: '1牌', codes: ['109', '102', '155', '139', '107'], price: 269 },
-  { name: '0牌', codes: ['068', '039', '022'], price: 299 },
-  { name: '2牌', codes: [], price: 339 },
-  { name: '车模', codes: ['6666', '7777'], price: 369 },
-  { name: '日韩', codes: [] }
-]
-
-const atlanticTechnicianCategories = [
-  { name: '至尊', price: 99 },
-  { name: '佳丽', price: 139 },
-  { name: '车模', price: 169 },
-  { name: '皇贵妃', price: 199 },
-  { name: '皇后', price: 229 },
-  { name: '1牌', codes: ['100', '199', '150'], price: 269 },
-  { name: '3牌', price: 299 },
-  { name: '0牌', price: 329 },
-  { name: '豹子', price: 359 },
-  { name: '日韩', price: 499 }
-]
-
-const dihaoTechnicianCategories = [
-  { name: '0牌', price: 99 },
-  { name: '1牌', price: 149 },
-  { name: '2牌', price: 189 },
-  { name: '6牌艺人', price: 229 },
-  { name: '7牌公主', price: 269 },
-  { name: '8牌佳丽', price: 329 },
-  { name: '9牌贵妃', price: 369 },
-  { name: '韩国牌', codes: ['韩国08'] }
-]
+const { mingxiBoardPrices, kaidiTechnicianCategories, atlanticTechnicianCategories, dihaoTechnicianCategories } = venuePrices
 
 const formatChannelMessageTime = timestamp => {
   if (!timestamp) return '暂无记录'
@@ -332,6 +287,7 @@ export default function VenueList() {
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   useEffect(() => subscribeFullscreen(setIsFullscreen), [])
   const [list, setList] = useState([])
+  const [showStaffArchive, setShowStaffArchive] = useState(false)
   const [selectedId, setSelectedId] = useModuleState('venue.selection', '')
   const [lastVenueId, setLastVenueId] = useModuleState('venue.lastClub', '')
   const [deliveryCategoryId, setDeliveryCategoryId] = useModuleState('delivery.category', '')
@@ -412,6 +368,7 @@ export default function VenueList() {
       const data = e.data.payload?.list || e.data.payload?.venues || e.data.payload
       if (Array.isArray(data)) {
         const merged = mergeDeliveryVenues(data)
+        setError('')
         setList(merged)
         setSelectedId(currentId => currentId || String(pickHomeVenue(merged)?.id ?? ''))
       }
@@ -419,7 +376,18 @@ export default function VenueList() {
     }
     window.addEventListener('message', fn)
     sendData({ action: 'get_venues' })
-    return () => window.removeEventListener('message', fn)
+    const refresh = () => {
+      if (document.visibilityState === 'visible') sendData({ action: 'get_venues' })
+    }
+    const timer = setInterval(refresh, 60000)
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('focus', refresh)
+    return () => {
+      window.removeEventListener('message', fn)
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('focus', refresh)
+    }
   }, [])
 
   const baseVenue = useMemo(() => {
@@ -446,6 +414,12 @@ export default function VenueList() {
     ? roomyTechnicianGridStyle
     : technicianGridStyle
   const currentShift = selectedVenue?.current_shift || null
+  const hasStaffArchive = [1, 2, 4, 5, 6].includes(selectedVenue?.id)
+  const attendanceViewLabel = currentShift === '晚班' ? '今晚出勤' : '今日出勤'
+  useEffect(() => {
+    setShowStaffArchive(false)
+    setSelectedTechnicianCode('')
+  }, [selectedVenue?.id])
   const isDeliveryDayShift = deliveryCategories.length > 0 && currentShift === '白班'
   const dutyShiftToday = currentShift || selectedVenue?.duty_shift_today
   const dutyLabel = currentShift ? `${currentShift}出勤` : '今日出勤'
@@ -800,6 +774,7 @@ export default function VenueList() {
               onChange={e => {
                 const id = e.target.value
                 setSelectedId(id)
+                sendData({ action: 'get_venues' })
                 const venue = list.find(item => String(item.id) === id)
                 navigate(tenantPath(venue?.delivery_categories ? '/?module=delivery' : '/?module=venue'), { replace: true })
               }}
@@ -833,7 +808,21 @@ export default function VenueList() {
                 ))
               )}
             </select>
-            <div style={{
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto' }}>
+              {hasStaffArchive && <button
+                type="button"
+                onClick={() => {
+                  setShowStaffArchive(value => !value)
+                  setSelectedTechnicianCode('')
+                }}
+                aria-controls="venue-personnel-content"
+                style={{
+                  minHeight: '44px', padding: '0 10px', borderRadius: '12px',
+                  border: '1px solid var(--ink-line)', background: 'var(--ink-reading)',
+                  color: 'var(--ink-accent)', fontSize: '12px', fontWeight: 600, cursor: 'pointer'
+                }}
+              >{showStaffArchive ? attendanceViewLabel : '人员档案'}</button>}
+            {!hasStaffArchive && <div style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -863,6 +852,7 @@ export default function VenueList() {
                   {['4', '5', '6'].includes(String(selectedVenue?.id)) ? '张照片' : '人'}
                 </>
               )}
+            </div>}
             </div>
           </div>
           </div>
@@ -918,7 +908,10 @@ export default function VenueList() {
           加载中...
         </div>
       ) : (
-        <div>
+        <div id="venue-personnel-content">
+          {hasStaffArchive && showStaffArchive
+            ? <StaffGallery key={selectedVenue.id} venue={selectedVenue} />
+            : <>
           {/* 今日在岗技师 / 未发布提示 */}
           {isDeliveryDayShift ? (
             <NoticeCard icon="daylight" title="西港外送只展示晚班出勤">
@@ -1580,6 +1573,7 @@ export default function VenueList() {
               ))}
             </div>
           )}
+          </>}
         </div>
       )}
       {selectedTechnicianCode && selectedVenue && (

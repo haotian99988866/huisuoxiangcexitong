@@ -24,6 +24,8 @@ CLEANUP_TABLES = (
 
 
 def cleanup_expired_data(retention_hours=RETENTION_HOURS):
+    from staff_archive import sync as sync_staff_archive
+    sync_staff_archive()
     deleted = {}
     conn = get_conn()
     try:

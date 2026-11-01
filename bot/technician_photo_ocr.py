@@ -2,6 +2,7 @@ import io
 import logging
 import re
 import threading
+from datetime import datetime
 
 import numpy as np
 import pymysql
@@ -289,13 +290,15 @@ def save_technician_photo(
     file_id: str,
     image_bytes: bytes,
     photo_date,
+    published_at: datetime | None = None,
 ):
+    published_at = published_at or datetime.now()
     conn = get_conn()
     cur = None
     try:
         cur = conn.cursor()
         if venue_id in SHIFT_VENUE_IDS:
-            shift_start, shift_end, _ = current_shift_window()
+            shift_start, shift_end, _ = current_shift_window(published_at)
             cur.execute(
                 """
                 SELECT duty_date, technician_codes
@@ -344,9 +347,9 @@ def save_technician_photo(
             """
             INSERT INTO technician_photos (
                 venue_id, duty_date, technician_code, file_id, channel_id, msg_id,
-                ocr_text, candidate_codes, ocr_confidence, ocr_error, status, image_hash
+                ocr_text, candidate_codes, ocr_confidence, ocr_error, status, image_hash, created_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
             """,
             (
@@ -362,6 +365,7 @@ def save_technician_photo(
                 recognition["ocr_error"],
                 recognition["status"],
                 image_hash,
+                published_at,
             ),
         )
         photo_id = cur.lastrowid

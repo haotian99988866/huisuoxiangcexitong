@@ -71,21 +71,7 @@ video_cache = VideoCache(os.path.join(
     os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "ktv-video-cache"
 ))
 
-_dihao_categories_by_prefix = {
-    "0": "0牌",
-    "1": "1牌",
-    "2": "2牌",
-    "6": "6牌艺人",
-    "7": "7牌公主",
-    "8": "8牌佳丽",
-    "9": "9牌贵妃",
-}
-_dihao_category_labels = {
-    "艺人": "6牌艺人",
-    "公主": "7牌公主",
-    "佳丽": "8牌佳丽",
-    "贵妃": "9牌贵妃",
-}
+from venue_pricing import dihao_category_for_photo as _dihao_category_for_photo
 
 def get_db_connection():
     return pymysql.connect(
@@ -126,7 +112,7 @@ def tenant_context():
         if not isinstance(body, dict):
             return jsonify({"error": "Request body must be a JSON object"}), 400
         allowed = {"tenant_config", "get_venues", "get_venue_detail", "get_technicians",
-                   "get_movies", "get_movie_series"}
+                   "get_movies", "get_movie_series", "get_staff", "get_staff_detail"}
         if g.tenant.get("announcements_enabled"):
             allowed.update({"get_announcements", "get_announcement"})
         if not isinstance(body.get("action"), str) or body["action"] not in allowed:
@@ -138,10 +124,21 @@ def tenant_context():
                 return jsonify({"error": "A valid venue id is required"}), 400
             if venue_id not in g.tenant["venue_ids"]:
                 return jsonify({"error": "此入口未开放该会所"}), 403
+        if body.get("action") == "get_staff" and body.get("venue_id") not in g.tenant["venue_ids"]:
+            return jsonify({"error": "此入口未开放该会所档案"}), 403
     elif request.endpoint == "announcement_media" and not g.tenant.get("announcements_enabled"):
         return jsonify({"error": "此入口未开放公告"}), 403
     elif request.endpoint == "music_audio":
         return jsonify({"error": "此租户入口暂未开放音乐"}), 403
+    elif request.endpoint == "staff_photo_image":
+        from staff_archive import photo
+        try:
+            row = photo(request.view_args["photo_id"])
+            if not row or row["venue_id"] not in g.tenant["venue_ids"]:
+                return jsonify({"error": "此入口未开放该人员照片"}), 403
+        except pymysql.MySQLError:
+            logger.exception("Staff archive media tenant scope failed")
+            return jsonify({"error": "人员档案暂不可用"}), 503
     elif request.endpoint in {"technician_photo_image", "ktv_video", "delivery_media"}:
         if request.endpoint == "delivery_media" and not DELIVERY_VENUE_IDS.intersection(g.tenant["venue_ids"]):
             return jsonify({"error": "此入口未开放外送"}), 403
@@ -173,7 +170,8 @@ def tenant_cache_policy(response):
     admin_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("admin_")
     music_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("music_")
     payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_", "phone_"))
-    if request.path == "/member-deposit" or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
+    staff_request = isinstance(body, dict) and body.get("action") in {"get_staff", "get_staff_detail"}
+    if request.path == "/member-deposit" or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
     return response
@@ -224,24 +222,6 @@ def _confirmed_adult_technician_codes(photos):
         if age and age.isdigit() and int(age) >= 18:
             adult_codes.add(technician_code)
     return adult_codes
-
-
-def _dihao_category_for_photo(technician_code, ocr_text):
-    if technician_code == "韩国08":
-        return "韩国牌"
-    category_labels = set()
-    for line in (ocr_text or "").splitlines():
-        match = re.fullmatch(
-            r"\s*(艺人|公主|佳丽|贵妃)\s*[:：;；]\s*\d{2,4}\s*",
-            line,
-        )
-        if match:
-            category_labels.add(_dihao_category_labels[match.group(1)])
-    if len(category_labels) == 1:
-        return next(iter(category_labels))
-    if len(category_labels) > 1 or not technician_code:
-        return None
-    return _dihao_categories_by_prefix.get(str(technician_code)[0])
 
 
 @app.get("/photos/<int:photo_id>/image")
@@ -339,6 +319,19 @@ def technician_photo_image(photo_id):
         return jsonify({"error": "Photo not found"}), 404
 
     return _telegram_image(photo["file_id"])
+
+
+@app.get("/staff-photos/<int:photo_id>/image")
+def staff_photo_image(photo_id):
+    from staff_archive import photo
+    try:
+        row = photo(photo_id)
+        if not row:
+            return jsonify({"error": "人员照片不存在或已停用"}), 404
+        return _telegram_image(row["file_id"])
+    except pymysql.MySQLError:
+        logger.exception("Staff archive photo unavailable")
+        return jsonify({"error": "人员照片暂不可用"}), 503
 
 
 DELIVERY_VENUE_IDS = {7, 8, 9, 10}
@@ -829,7 +822,8 @@ def webhook():
     if not isinstance(action, str):
         return jsonify({"error": "A valid action is required"}), 400
     if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
-                  "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer"}:
+                  "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer",
+                  "admin_staff", "admin_staff_replace"}:
         from admin_console import authenticate, allowed_admin, dashboard, is_tenant_session, save_from_request
         from tenants import TenantConflict
         init_data = data.get("init_data")
@@ -839,6 +833,14 @@ def webhook():
         if not allowed_admin(user) or is_tenant_session(init_data):
             return jsonify({"error": "仅平台管理员可从主入口访问管理台"}), 403
         try:
+            if action in {"admin_staff", "admin_staff_replace"}:
+                from staff_archive import listing as staff_listing, replace as replace_staff
+                try:
+                    return jsonify(staff_listing(data, admin=True) if action == "admin_staff"
+                                   else replace_staff(data, user["id"]))
+                except RuntimeError:
+                    logger.exception("Staff archive change unavailable")
+                    return jsonify({"error": "档案更新暂不可用，请刷新核对后重试"}), 503
             if action in {"admin_analytics", "admin_analytics_customer"}:
                 from customer_analytics import dashboard as analytics_dashboard, customer_detail
                 response = jsonify(analytics_dashboard(data) if action == "admin_analytics" else customer_detail(data))
@@ -910,6 +912,20 @@ def webhook():
         except pymysql.MySQLError:
             logger.exception("Announcement service unavailable")
             return jsonify({"error": "公告暂不可用，请稍后重试"}), 503
+    if action in {"get_staff", "get_staff_detail"}:
+        from staff_archive import listing as staff_listing, detail as staff_detail
+        try:
+            result = staff_listing(data) if action == "get_staff" else staff_detail(data)
+            if result is None:
+                return jsonify({"error": "人员档案不存在或已停用"}), 404
+            if getattr(g, "tenant", None) and result["venue_id"] not in g.tenant["venue_ids"]:
+                return jsonify({"error": "此入口未开放该会所档案"}), 403
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("Staff archive query failed")
+            return jsonify({"error": "人员档案暂不可用，请稍后重试"}), 503
     if action == "get_music":
         try:
             response = jsonify({"tracks": music_catalog()})
@@ -1521,6 +1537,8 @@ if __name__ == "__main__":
     from music_social import ensure_tables as ensure_music_social_tables
     ensure_music_social_tables()
     ensure_image_hash_columns()
+    from staff_archive import ensure_tables as ensure_staff_tables
+    ensure_staff_tables()
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))
     logger.info("Starting API server on %s:%s", host, port)

@@ -7,6 +7,7 @@ import MemberSimulation from '../components/MemberSimulation'
 import DepositReview from '../components/DepositReview'
 import AdminStars from '../components/AdminStars'
 import CustomerAnalytics from '../components/CustomerAnalytics'
+import StaffAdmin from '../components/StaffAdmin'
 import './Membership.css'
 import './Admin.css'
 
@@ -170,11 +171,12 @@ export default function Admin() {
           ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
         </section>
         <nav className="admin-sections" aria-label="管理功能">
-          {[['analytics', '客户分析'], ['deposits', '充值复核'], ['stars', 'Stars'], ['tenants', '租户'], ['tools', '工具']].map(([key, label]) =>
+          {[['analytics', '客户分析'], ['staff', '人员档案'], ['deposits', '充值复核'], ['stars', 'Stars'], ['tenants', '租户'], ['tools', '工具']].map(([key, label]) =>
             <button key={key} type="button" aria-pressed={section === key} disabled={saving}
               onClick={() => setSection(key)}>{label}</button>)}
         </nav>
         {section === 'analytics' && <CustomerAnalytics />}
+        {section === 'staff' && <StaffAdmin venues={data.venues} />}
         <div hidden={section !== 'deposits'}><DepositReview onReviewed={refresh} /></div>
         <div hidden={section !== 'stars'}><AdminStars userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} /></div>
         <div hidden={section !== 'tenants'}>

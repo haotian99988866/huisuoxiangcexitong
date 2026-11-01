@@ -1,0 +1,25 @@
+.staff-gallery { margin: 0 0 20px; padding: 16px; background: var(--ink-reading); border: 1px solid var(--ink-line); border-radius: 20px; }
+.staff-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.staff-heading h2 { font-size: 17px; margin: 0; }
+.staff-gallery button { cursor: pointer; min-height: 44px; color: var(--ink-text); font: inherit; }
+.staff-heading button { background: none; border: 0; font-size: 12px; color: var(--ink-accent); }
+.staff-meta { font-size: 12px; color: var(--ink-muted); line-height: 1.7; }
+.staff-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.staff-card { min-width: 0; overflow: hidden; border: 1px solid var(--ink-line); border-radius: 14px; background: var(--ink-reading); }
+.staff-open { display: block; padding: 0; width: 100%; border: 0; background: none; text-align: left; }
+.staff-cover { position: relative; aspect-ratio: 3 / 4; background: var(--ink-surface); display: grid; place-items: center; overflow: hidden; }
+.staff-cover img { width: 100%; height: 100%; object-fit: cover; }
+.staff-cover > span:not(.staff-attendance-overlay) { color: var(--ink-muted); font-size: 11px; text-align: center; }
+.staff-attendance-overlay { position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 6px 9px; background: linear-gradient(transparent, #202734c9); color: #fff; font-size: 11px; line-height: 1.5; text-align: center; pointer-events: none; }
+.staff-attendance-overlay.is-on-duty { background: linear-gradient(transparent, #386c52de); }
+.staff-card-info { padding: 9px; display: grid; gap: 4px; }
+.staff-card-info strong { font-size: 13px; overflow-wrap: anywhere; }
+.staff-card-info small { font-size: 11px; color: var(--ink-muted); }
+.staff-gallery .staff-replace { width: 100%; border: 0; border-top: 1px solid var(--ink-line); background: none; font-size: 11px; color: var(--ink-accent); }
+.staff-pages { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 16px 0; font-size: 12px; }
+.staff-pages button { padding: 8px; min-height: 44px; border: 1px solid var(--ink-line); border-radius: 10px; background: var(--ink-reading); }
+.staff-gallery button:disabled { opacity: .5; cursor: default; }
+.staff-gallery button:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 2px; }
+.staff-detail-photo { display: block; width: 100%; max-height: 65dvh; object-fit: contain; border-radius: 12px; }
+.staff-admin-select { width: 100%; min-height: 44px; margin-bottom: 16px; padding: 10px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); }
+@media (max-width: 380px) { .staff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
