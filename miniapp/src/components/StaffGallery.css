@@ -21,5 +21,10 @@
 .staff-gallery button:disabled { opacity: .5; cursor: default; }
 .staff-gallery button:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 2px; }
 .staff-detail-photo { display: block; width: 100%; max-height: 65dvh; object-fit: contain; border-radius: 12px; }
+.staff-customer-actions { display: grid; gap: 8px; }
+.staff-customer-actions p { margin: 0; }
+.staff-customer-actions button { min-height: 44px; width: 100%; padding: 10px 14px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); font: inherit; cursor: pointer; }
+.staff-customer-actions .staff-customer-primary { background: var(--ink-accent); border-color: var(--ink-accent); color: #fff; }
+.staff-customer-actions button:disabled { opacity: .5; cursor: default; }
 .staff-admin-select { width: 100%; min-height: 44px; margin-bottom: 16px; padding: 10px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); }
 @media (max-width: 380px) { .staff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

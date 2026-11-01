@@ -170,7 +170,8 @@ def tenant_cache_policy(response):
     admin_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("admin_")
     music_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("music_")
     payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_", "phone_", "customer_"))
-    staff_request = isinstance(body, dict) and body.get("action") in {"get_staff", "get_staff_detail"}
+    staff_request = isinstance(body, dict) and body.get("action") in {
+        "get_staff", "get_staff_detail", "staff_customer_status", "staff_customer_subscribe"}
     if request.path == "/member-deposit" or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
@@ -823,7 +824,8 @@ def webhook():
         return jsonify({"error": "A valid action is required"}), 400
     if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
                   "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer",
-                  "admin_staff", "admin_staff_replace", "admin_customers", "admin_customer_detail",
+                  "admin_staff", "admin_staff_replace", "admin_staff_management", "admin_staff_management_save",
+                  "admin_customers", "admin_customer_detail",
                   "admin_customer_save", "admin_customer_create", "admin_customer_bind",
                   "admin_consumption_save", "admin_consumption_void"}:
         from admin_console import authenticate, allowed_admin, dashboard, is_tenant_session, save_from_request
@@ -835,6 +837,14 @@ def webhook():
         if not allowed_admin(user) or is_tenant_session(init_data):
             return jsonify({"error": "仅平台管理员可从主入口访问管理台"}), 403
         try:
+            if action in {"admin_staff_management", "admin_staff_management_save"}:
+                from staff_management import overview as staff_management_overview, save as staff_management_save
+                from customer_records import RecordConflict
+                try:
+                    return jsonify(staff_management_overview(data, user["id"]) if action == "admin_staff_management"
+                                   else staff_management_save(data, user["id"]))
+                except RecordConflict as exc:
+                    return jsonify({"error": str(exc)}), 409
             if action in {"admin_customers", "admin_customer_detail", "admin_customer_save", "admin_customer_create", "admin_customer_bind",
                           "admin_consumption_save", "admin_consumption_void"}:
                 from customer_records import directory, detail as customer_record_detail, save as save_customer_record, RecordConflict
@@ -923,6 +933,25 @@ def webhook():
         except pymysql.MySQLError:
             logger.exception("Announcement service unavailable")
             return jsonify({"error": "公告暂不可用，请稍后重试"}), 503
+    if action in {"staff_customer_status", "staff_customer_subscribe"}:
+        from admin_console import authenticate, is_tenant_session
+        from staff_customer_duty import status as customer_duty_status, save as customer_duty_save
+        from customer_records import RecordConflict
+        user = authenticate(data.get("init_data"), os.getenv("TELEGRAM_BOT_TOKEN"))
+        if user is None:
+            return jsonify({"error": "请从 Telegram 重新打开，以验证订阅身份"}), 401
+        if is_tenant_session(data["init_data"]):
+            return jsonify({"error": "请从主入口管理个人订阅"}), 403
+        try:
+            return jsonify(customer_duty_status(data, user["id"]) if action == "staff_customer_status"
+                           else customer_duty_save(data, user["id"]))
+        except RecordConflict as exc:
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("Customer duty subscription unavailable")
+            return jsonify({"error": "出勤订阅暂不可用，请稍后核对"}), 503
     if action in {"get_staff", "get_staff_detail"}:
         from staff_archive import listing as staff_listing, detail as staff_detail
         try:
@@ -931,6 +960,9 @@ def webhook():
                 return jsonify({"error": "人员档案不存在或已停用"}), 404
             if getattr(g, "tenant", None) and result["venue_id"] not in g.tenant["venue_ids"]:
                 return jsonify({"error": "此入口未开放该会所档案"}), 403
+            if action == "get_staff_detail" and result["venue_id"] == 1:
+                from staff_customer_duty import status as customer_duty_status
+                result["customer_duty"] = customer_duty_status(data)
             return jsonify(result)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
@@ -1555,6 +1587,10 @@ if __name__ == "__main__":
     ensure_image_hash_columns()
     from staff_archive import ensure_tables as ensure_staff_tables
     ensure_staff_tables()
+    from staff_management import ensure_tables as ensure_staff_management_tables
+    ensure_staff_management_tables()
+    from staff_customer_duty import ensure_tables as ensure_customer_duty_tables
+    ensure_customer_duty_tables()
     from customer_records import ensure_tables as ensure_customer_record_tables
     ensure_customer_record_tables()
     host = os.getenv("API_HOST", "127.0.0.1")

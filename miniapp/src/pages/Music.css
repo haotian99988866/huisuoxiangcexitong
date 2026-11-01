@@ -21,7 +21,9 @@
 .music-page .music-play-all { background: var(--ink-accent); color: #fffef5; padding: 8px 10px; border-radius: 24px; white-space: nowrap; }
 .music-page .music-list-toolbar { margin-bottom: 16px; }
 .music-page .music-section-title p { font-size: 12px; color: var(--ink-muted); }
-.music-page .music-pagination { border: 1px solid var(--ink-line); border-radius: 14px; margin-top: 18px; background: var(--ink-reading); }
+.music-page .music-pagination { border: 1px solid var(--ink-line); border-radius: 14px; margin-top: 18px; padding: 10px 8px; background: var(--ink-reading); }
+.music-page .music-page-jump { height: auto; min-height: 44px; }
+.music-page .music-page-jump button { height: 44px; white-space: nowrap; }
 .music-mini .music-icon-button { flex-basis: 38px; width: 38px; min-height: 44px; }
 .music-mini .music-mini-title { min-width: 52px; }
 @media (prefers-reduced-motion: reduce) { .music-vinyl.is-playing { animation: none; } }

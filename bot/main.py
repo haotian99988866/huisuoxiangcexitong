@@ -1046,6 +1046,11 @@ if __name__ == "__main__":
     from staff_archive import ensure_tables as ensure_staff_tables, start_worker as start_staff_worker
     ensure_staff_tables()
     start_staff_worker()
+    from staff_management import ensure_tables as ensure_staff_management_tables, start_worker as start_staff_management_worker
+    ensure_staff_management_tables()
+    from staff_customer_duty import ensure_tables as ensure_customer_duty_tables
+    ensure_customer_duty_tables()
+    start_staff_management_worker(bot)
     from announcements import ensure_tables as ensure_announcement_tables
     from tenants import ensure_tables as ensure_tenant_tables
     ensure_tenant_tables()

@@ -6,6 +6,7 @@ import { requestAdmin } from '../utils/admin'
 import { bookingUrl } from '../utils/booking'
 import { useAnalyticsScreen } from '../utils/analytics'
 import { money } from '../utils/commerce'
+import StaffCustomerActions from './StaffCustomerActions'
 import './StaffGallery.css'
 
 async function requestStaff(action, fields, signal) {
@@ -32,6 +33,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
   const [replacement, setReplacement] = useState(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [customerDuty, setCustomerDuty] = useState(null)
   useAnalyticsScreen(selected ? 'technician_detail' : null)
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
   }, [selected, replacement, busy])
   useEffect(() => {
     setDetail(null)
+    setCustomerDuty(null)
     setDetailError('')
     setImageIndex(0)
     setFailedImages(new Set())
@@ -104,6 +107,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
     } finally { setBusy(false) }
   }
   const photo = detail?.photos[imageIndex]
+  const ordinaryMassage = venue.id === 1
 
   return <section className="staff-gallery" aria-label={`${venue.name}人员档案`}>
     <div className="staff-heading">
@@ -146,7 +150,14 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
         <button type="button" disabled={page >= Math.ceil(data.total / 24) || busy} onClick={() => setPage(value => value + 1)}>下一页</button>
       </nav>}
     </>}
-    {selected && <MusicDialog className="account-sheet staff-sheet" title={`${venue.name} · 工号 ${selected.code}`} onClose={() => setSelected(null)}>
+    {selected && <MusicDialog className={ordinaryMassage ? 'staff-sheet' : 'account-sheet staff-sheet'}
+      title={ordinaryMassage ? `工号 ${selected.code}` : `${venue.name} · 工号 ${selected.code}`}
+      scrollBody={ordinaryMassage} onClose={() => setSelected(null)}
+      footer={ordinaryMassage ? <StaffCustomerActions key={selected.id} staffId={selected.id} onState={setCustomerDuty} /> : undefined}>
+      {ordinaryMassage ? <><p className="staff-detail-duty">{customerDuty ? customerDuty.published_at
+        ? `${customerDuty.shift}出勤已发布` : '本班次尚未发布出勤' : '正在核对本班次出勤…'}</p>
+      {customerDuty?.published_at && <p className="staff-meta">发布时间：{customerDuty.published_at}</p>}
+      <p className="staff-meta">仅提供正规按摩信息。未发布不代表实际休息或离职，已发布不代表实时在岗。</p></> : <>
       <p className="staff-detail-duty">{selected.attendance_overlay || selected.duty_label || '出勤记录待确认'}</p>
       <p>{selected.price_usd === null || selected.price_usd === undefined
         ? '价格待确认' : `$${money(selected.price_usd)} 起 · ${selected.price_detail}`}</p>
@@ -154,6 +165,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
       {!selected.duty_label && <p className="staff-meta">天数按最近出勤发布记录计算，未发布不代表实际休息或离职。</p>}
       <p className="staff-meta">档案编号 {selected.id} · 未确认当班出勤不代表休息或离职</p>
       {selected.duty_source === 'photo' && <p className="staff-meta">出勤标签依据会所本班次发布的出勤照片，实际在岗请联系核实。</p>}
+      </>}
       {detailLoading && <p role="status">正在读取相册…</p>}
       {detailError && <p className="membership-error" role="alert">{detailError}</p>}
       {detail && !detail.photos.length && <p>照片待更新</p>}
@@ -168,11 +180,11 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
           <button type="button" disabled={imageIndex + 1 === detail.photos.length} onClick={() => setImageIndex(value => value + 1)}>下一张</button>
         </div>}
       </>}
-      <button type="button" onClick={() => openTelegramLink(bookingUrl({
+      {!ordinaryMassage && <button type="button" onClick={() => openTelegramLink(bookingUrl({
         title: `你好，我想咨询${venue.name} · 工号${selected.code}`,
         details: [`人员档案编号：${selected.id}`],
         links: photo ? [new URL(mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`), window.location.origin).href] : [],
-      }))}>联系{contactName()}咨询</button>
+      }))}>联系{contactName()}咨询</button>}
     </MusicDialog>}
     {replacement && <MusicDialog className="account-sheet" title="确认工号换人" onClose={() => { if (!busy) setReplacement(null) }}>
       <p>{venue.name} · 工号 {replacement.code} · 原档案 {replacement.id}</p>
