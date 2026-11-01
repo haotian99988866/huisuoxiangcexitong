@@ -142,12 +142,32 @@ def parse_caption(caption):
 # ===== 客人私聊机器人时发送欢迎信息 =====
 @bot.message_handler(commands=['start'], chat_types=['private'])
 def handle_start(message):
-    touch_user(message.from_user)
     parts = (message.text or "").split(maxsplit=1)
+    from customer_analytics import bot_event
+    payload = parts[1] if len(parts) == 2 else ""
+    try:
+        bot_event(message.from_user.to_dict(), "started", payload[4:] if payload.startswith("ref_") else None)
+    except (ValueError, pymysql.MySQLError):
+        logger.exception("Failed to record authenticated bot start")
+    touch_user(message.from_user)
     if len(parts) == 2 and (parts[1] == "news" or parts[1].startswith("news_")):
         show_news_menu(message, "" if parts[1] == "news" else parts[1][5:])
         return
     send_welcome(bot, message.chat.id)
+
+
+@bot.my_chat_member_handler()
+def handle_bot_membership(event):
+    if event.chat.type != "private" or event.chat.id != event.from_user.id:
+        return
+    status = event.new_chat_member.status
+    if status not in {"member", "kicked"}:
+        return
+    from customer_analytics import bot_event
+    try:
+        bot_event(event.from_user.to_dict(), "blocked" if status == "kicked" else "reachable")
+    except (ValueError, pymysql.MySQLError):
+        logger.exception("Failed to record observed bot availability")
 
 
 def show_news_menu(message, slug=""):
@@ -999,6 +1019,8 @@ if __name__ == "__main__":
     print("🤖 机器人启动 — 监听会所频道模式")
     print(f"📋 已监听 {len(LISTEN_CHANNELS)} 个频道")
     ensure_table()
+    from customer_analytics import ensure_tables as ensure_analytics_tables
+    ensure_analytics_tables()
     ensure_tables()
     ensure_sub_tables()
     ensure_admin_tables()
@@ -1014,4 +1036,4 @@ if __name__ == "__main__":
     news_subscription.start_worker(bot)
     logger.warning("News subscription worker ready")
     start_cleanup_thread()
-    bot.infinity_polling()
+    bot.infinity_polling(allowed_updates=[])

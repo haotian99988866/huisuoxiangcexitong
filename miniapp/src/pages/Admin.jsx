@@ -6,6 +6,7 @@ import { localDateInput, requestAdmin, tenantLink, utcExpiry } from '../utils/ad
 import MemberSimulation from '../components/MemberSimulation'
 import DepositReview from '../components/DepositReview'
 import AdminStars from '../components/AdminStars'
+import CustomerAnalytics from '../components/CustomerAnalytics'
 import './Membership.css'
 import './Admin.css'
 
@@ -26,7 +27,7 @@ export default function Admin() {
   const [editor, setEditor] = useState(null)
   const [confirmation, setConfirmation] = useState(null)
   const [copyFallback, setCopyFallback] = useState('')
-  const [section, setSection] = useState('deposits')
+  const [section, setSection] = useState('analytics')
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const inFlight = useRef(false)
   const mounted = useRef(true)
@@ -169,10 +170,11 @@ export default function Admin() {
           ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
         </section>
         <nav className="admin-sections" aria-label="管理功能">
-          {[['deposits', '充值复核'], ['stars', 'Stars'], ['tenants', '租户'], ['tools', '工具']].map(([key, label]) =>
+          {[['analytics', '客户分析'], ['deposits', '充值复核'], ['stars', 'Stars'], ['tenants', '租户'], ['tools', '工具']].map(([key, label]) =>
             <button key={key} type="button" aria-pressed={section === key} disabled={saving}
               onClick={() => setSection(key)}>{label}</button>)}
         </nav>
+        {section === 'analytics' && <CustomerAnalytics />}
         <div hidden={section !== 'deposits'}><DepositReview onReviewed={refresh} /></div>
         <div hidden={section !== 'stars'}><AdminStars userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} /></div>
         <div hidden={section !== 'tenants'}>

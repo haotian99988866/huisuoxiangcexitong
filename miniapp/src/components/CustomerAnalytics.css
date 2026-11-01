@@ -1,0 +1,31 @@
+.customer-analytics { min-width: 0; }
+.analytics-heading { margin: 22px 0 12px; }
+.analytics-periods { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; }
+.analytics-periods button[aria-pressed="true"] { color: var(--ink-accent); background: var(--ink-wash); border-color: #c7ad88; }
+.analytics-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-top: 14px; }
+.analytics-metrics > div { padding: 14px; border: 1px solid var(--ink-line); border-radius: 16px; background: white; }
+.analytics-metrics span { display: block; color: var(--ink-muted); font-size: 11px; }
+.analytics-metrics strong { display: block; font-size: clamp(16px,4vw,24px); margin-top: 7px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.analytics-trend svg { display: block; width: 100%; height: auto; margin-top: 16px; }
+.analytics-trend svg text { font-size: 12px; fill: var(--ink-muted); }
+.admin-console .analytics-trend select { width: auto; max-width: 150px; }
+.analytics-table-scroll { max-width: 100%; overflow-x: auto; margin-top: 12px; border: 1px solid var(--ink-line); border-radius: 12px; }
+.analytics-table-scroll table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.analytics-table-scroll th,.analytics-table-scroll td { padding: 12px; border-bottom: 1px solid var(--ink-line); white-space: nowrap; }
+.analytics-table-scroll thead { background: var(--ink-surface); color: var(--ink-muted); }
+.analytics-table-scroll tbody tr:last-child > * { border-bottom: 0; }
+.analytics-table-scroll tbody th { font-weight: 500; }
+.analytics-table-scroll small { display: block; font-size: 10px; color: var(--ink-muted); margin-top: 4px; }
+.analytics-table-scroll button { color: var(--ink-accent); background: transparent; border: 0; padding: 0 2px; text-align: left; max-width: 180px; white-space: normal; overflow-wrap: anywhere; }
+.analytics-pager { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 14px; font-size: 11px; color: var(--ink-muted); }
+.admin-console .analytics-pager button { padding: 8px; }
+.analytics-search { display: flex; gap: 6px; align-items: end; }
+.analytics-search input { flex: 1; }
+.analytics-search button { flex-shrink: 0; }
+.analytics-session { border-top: 1px solid var(--ink-line); padding: 12px 0; }
+.analytics-session summary { cursor: pointer; min-height: 44px; font-size: 12px; }
+.analytics-session strong,.analytics-session small { display: inline-block; margin-left: 8px; }
+.analytics-session small { color: var(--ink-muted); }
+.analytics-detail > .admin-header { margin-top: 18px; }
+.admin-sections { grid-template-columns: repeat(5,minmax(0,1fr)); }
+@media (min-width:600px) { .analytics-metrics { grid-template-columns: repeat(4,minmax(0,1fr)); } }

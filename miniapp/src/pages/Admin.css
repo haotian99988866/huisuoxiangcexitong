@@ -24,7 +24,7 @@
 .admin-check input { width: 18px; height: 18px; flex-shrink: 0; }
 .admin-confirm { background: #faf5ed; border: 1px solid #e4d7c3; padding: 14px; margin-top: 16px; border-radius: 14px; }
 .admin-audit { font-size: 12px; line-height: 1.8; border-top: 1px solid var(--ink-line); padding: 8px 0; }
-.admin-sections { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin: 18px 0 4px; background: var(--ink-surface); padding: 5px; border-radius: 14px; }
+.admin-sections { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; margin: 18px 0 4px; background: var(--ink-surface); padding: 5px; border-radius: 14px; }
 .admin-sections button { border: 0; background: transparent; padding: 8px 2px; font-size: 12px; }
 .admin-sections button[aria-pressed="true"] { background: var(--ink-reading); color: var(--ink-accent); box-shadow: var(--shadow); }
 .admin-star-balance { color: var(--ink-accent); font-size: 14px; margin: 14px 0; }

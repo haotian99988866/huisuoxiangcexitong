@@ -3,10 +3,12 @@ import { musicTime, useMusic } from './MusicPlayer'
 import MusicDialog from './MusicDialog'
 import MusicIcon from './MusicIcon'
 import { musicArtist } from '../utils/musicPlayback'
+import { useAnalyticsScreen } from '../utils/analytics'
 
 const modes = { sequential: '顺序循环', shuffle: '随机播放', single: '单曲循环' }
 
 export default function MusicNowPlaying({ initialPane = 'player' }) {
+  useAnalyticsScreen('music_player')
   const player = useMusic()
   const [pane, setPane] = useState(initialPane)
   const [scrub, setScrub] = useState(null)

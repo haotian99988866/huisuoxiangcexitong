@@ -65,15 +65,6 @@ export default function Personal() {
         {attention ? <OrderSummary order={attention} /> : orders[0] ? <OrderSummary order={orders[0]} /> : <p>暂无订单</p>}
       </section>
     </>}
-    <section className="membership-panel" aria-labelledby="my-content">
-      <h2 id="my-content">我的内容</h2>
-      <div className="account-menu">
-        <Link to="/music?view=favorites">音乐收藏</Link>
-        <Link to="/music?view=playlists">我的歌单</Link>
-        <Link to="/?module=venue">出勤与提醒</Link>
-        <button type="button" onClick={() => openTelegramLink('https://t.me/haotianzhaopian_bot?start=news')}>资讯订阅管理</button>
-      </div>
-    </section>
     <section className="membership-panel" aria-labelledby="my-help">
       <h2 id="my-help">帮助与账户</h2>
       <div className="account-menu">

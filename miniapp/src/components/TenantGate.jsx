@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { API_BASE_URL, bindBackButton, trackVisit } from '../utils/twa'
+import { API_BASE_URL, bindBackButton } from '../utils/twa'
 import { getTenant, hasAnnouncementAccess, hasDeliveryAccess, hasVenueAccess, initializeTenant, setTenant, tenantHeaders, tenantPath } from '../utils/tenant'
 
 export default function TenantGate({ children }) {
@@ -17,7 +17,6 @@ export default function TenantGate({ children }) {
       timer = setTimeout(() => controller.abort(), 15000)
       try {
         const slug = initializeTenant()
-        if (slug === null) trackVisit()
         if (slug !== null) {
           const response = await fetch(`${API_BASE_URL}/webhook`, {
             method: 'POST',

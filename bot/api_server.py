@@ -829,7 +829,7 @@ def webhook():
     if not isinstance(action, str):
         return jsonify({"error": "A valid action is required"}), 400
     if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
-                  "admin_stars", "admin_stars_invoice"}:
+                  "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer"}:
         from admin_console import authenticate, allowed_admin, dashboard, is_tenant_session, save_from_request
         from tenants import TenantConflict
         init_data = data.get("init_data")
@@ -839,6 +839,11 @@ def webhook():
         if not allowed_admin(user) or is_tenant_session(init_data):
             return jsonify({"error": "仅平台管理员可从主入口访问管理台"}), 403
         try:
+            if action in {"admin_analytics", "admin_analytics_customer"}:
+                from customer_analytics import dashboard as analytics_dashboard, customer_detail
+                response = jsonify(analytics_dashboard(data) if action == "admin_analytics" else customer_detail(data))
+                response.headers["Cache-Control"] = "private, no-store"
+                return response
             if action in {"admin_stars", "admin_stars_invoice"}:
                 import telebot
                 from admin_stars import create_invoice, dashboard as stars_dashboard
@@ -1052,6 +1057,30 @@ def webhook():
         except pymysql.MySQLError:
             logger.exception("余额服务数据库操作失败")
             return jsonify({"error": "余额服务暂不可用，请稍后重试"}), 503
+    if action in {"analytics_record", "analytics_preferences"}:
+        from admin_console import authenticate, is_tenant_session
+        from customer_analytics import preferences, record
+        init_data = data.get("init_data")
+        user = authenticate(init_data, os.getenv("TELEGRAM_BOT_TOKEN"))
+        if user is None:
+            return jsonify({"error": "请从 Telegram 主入口打开，以验证浏览账户"}), 401
+        if is_tenant_session(init_data):
+            return jsonify({"error": "专属租户入口不记录平台客户行为"}), 403
+        try:
+            if action == "analytics_preferences" and "recording" in data and type(data["recording"]) is not bool:
+                raise ValueError("浏览记录开关必须为布尔值")
+            result = record(user, data, init_data) if action == "analytics_record" else preferences(
+                user, data.get("recording"), init_data)
+            if result.pop("new_session", False):
+                record_visit(user)
+            response = jsonify(result)
+            response.headers["Cache-Control"] = "private, no-store"
+            return response
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("Customer analytics request failed action=%s", action)
+            return jsonify({"error": "浏览统计暂不可用，请稍后重试"}), 503
     if action == "track_visit":
         try:
             user = verify_init_data(
@@ -1487,6 +1516,8 @@ if __name__ == "__main__":
     from member_simulation import ensure_tables as ensure_member_simulation_tables
     ensure_member_simulation_tables()
     ensure_table()
+    from customer_analytics import ensure_tables as ensure_analytics_tables
+    ensure_analytics_tables()
     ensure_movie_tables()
     ensure_music_tables()
     announcements.ensure_tables()

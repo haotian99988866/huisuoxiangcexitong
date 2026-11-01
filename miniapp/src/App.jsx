@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import VenueList from './pages/VenueList'
 import VenueDetail from './pages/VenueDetail'
@@ -18,12 +18,16 @@ import MusicPlayer from './components/MusicPlayer'
 import { isTenantEntry } from './utils/tenant'
 import { modules } from './utils/modules'
 import TenantGate from './components/TenantGate'
+import AnalyticsTracker from './components/AnalyticsTracker'
 import './App.css'
 
 // 机器人按钮带 startapp=movies 时直接进入观影页
 function StartParamRedirect() {
   const navigate = useNavigate()
+  const applied = useRef(false)
   useEffect(() => {
+    if (applied.current) return
+    applied.current = true
     const param = window.Telegram?.WebApp?.initDataUnsafe?.start_param
     if (/^playlist_[0-9a-f]{32}$/.test(param || '')) {
       navigate(`/music?playlist=${param.slice(9)}`, { replace: true })
@@ -70,6 +74,7 @@ function Content() {
     </>
   )
   return <div className="ink-app">
+    <AnalyticsTracker />
     {isTenantEntry() ? routes : <MusicPlayer><AppNavigation>{routes}</AppNavigation></MusicPlayer>}
   </div>
 }

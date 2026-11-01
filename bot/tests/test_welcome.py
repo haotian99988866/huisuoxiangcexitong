@@ -1,22 +1,27 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import bot_profile
 import welcome
 
 
 class WelcomeTests(unittest.TestCase):
-    def test_main_menu_has_direct_music_and_preserves_existing_entries(self):
+    def test_main_menu_has_direct_music_and_hides_selected_entries(self):
         buttons = [button for row in welcome.home_keyboard().keyboard for button in row]
         self.assertEqual(sum(button.url == welcome.MUSIC_URL for button in buttons), 1)
         self.assertTrue(welcome.MUSIC_URL.endswith("?startapp=music"))
-        self.assertTrue({welcome.MINIAPP_URL, welcome.MOVIES_URL, welcome.RECHARGE_URL,
-                         welcome.SERVICES_URL, welcome.PERSONAL_URL,
+        self.assertTrue({welcome.MINIAPP_URL, welcome.MOVIES_URL, welcome.PERSONAL_URL,
                          welcome.CONTACT_URL, welcome.CHANNEL_URL, welcome.SHARE_URL}
                         .issubset({button.url for button in buttons}))
-        self.assertTrue({"menu:promo", "menu:help", "sub:menu", "news:menu"}
+        self.assertTrue({"menu:help", "sub:menu", "news:menu"}
                         .issubset({button.callback_data for button in buttons}))
-        self.assertEqual(sum(button.callback_data == "member:login" for button in buttons), 1)
+        self.assertFalse({welcome.RECHARGE_URL, welcome.SERVICES_URL}
+                         & {button.url for button in buttons})
+        self.assertNotIn("menu:promo", {button.callback_data for button in buttons})
+        self.assertNotIn("member:login", {button.callback_data for button in buttons})
+        news_buttons = [button for button in buttons if button.callback_data == "news:menu"]
+        self.assertEqual([button.text for button in news_buttons], ["📰 东南亚大事件订阅"])
+        self.assertIn("【📰 东南亚大事件订阅】", welcome.HELP_TEXT)
 
     def test_descriptions_fit_telegram_limits_and_cover_current_modules(self):
         self.assertLessEqual(len(bot_profile.DESCRIPTION.encode("utf-16-le")) // 2, 512)
@@ -36,7 +41,8 @@ class WelcomeTests(unittest.TestCase):
 
     def test_start_sends_current_text_and_keyboard_without_preview(self):
         bot = Mock()
-        welcome.send_welcome(bot, 123)
+        with patch("customer_analytics.invite_link", return_value=welcome.BOT_URL + "?start=ref_" + "a" * 32):
+            welcome.send_welcome(bot, 123)
         args, options = bot.send_message.call_args
         self.assertEqual(args, (123, welcome.HOME_TEXT))
         self.assertEqual(options["parse_mode"], "HTML")

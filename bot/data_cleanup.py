@@ -39,6 +39,8 @@ def cleanup_expired_data(retention_hours=RETENTION_HOURS):
     finally:
         conn.close()
     deleted["page_visits"] = delete_old_visits()
+    from customer_analytics import cleanup as cleanup_analytics
+    deleted["analytics_details"] = cleanup_analytics()
     deleted["bot_relay"] = delete_old_relays()
     deleted["bot_push_log"] = delete_old_push_logs()
     return deleted

@@ -158,6 +158,28 @@ def enqueue_new_messages(store, source_id, target_id, boundary, messages):
         logger.info("Queued source message(s) %s", [message.id for message in messages])
 
 
+async def complete_album(user, source, messages):
+    if not messages or not getattr(messages[0], "grouped_id", None):
+        return messages
+    group_id = messages[0].grouped_id
+    if any(message.grouped_id != group_id for message in messages):
+        raise ValueError("Album job contains different media groups.")
+    # Telegram albums contain up to ten messages; events can omit the caption-bearing member.
+    ids = [message.id for message in messages]
+    nearby = await user.get_messages(
+        source, ids=list(range(max(1, min(ids) - 9), max(ids) + 10)),
+    )
+    album = sorted(
+        (message for message in nearby if message is not None and message.grouped_id == group_id),
+        key=lambda message: message.id,
+    )
+    if not set(ids).issubset({message.id for message in album}):
+        raise ValueError("Source album member was deleted or is unavailable.")
+    if len(album) > 10:
+        raise ValueError("Source album exceeds Telegram's ten-item limit.")
+    return album
+
+
 async def reconcile_messages(user, source, target, store, boundary):
     progress = store.progress(source.id, str(target.id), boundary)
     messages = [message async for message in user.iter_messages(
@@ -176,8 +198,11 @@ async def reconcile_messages(user, source, target, store, boundary):
         # A full batch may end halfway through an album. Leave its last group for the next scan.
         if len(messages) == 201 and index == len(groups) - 1:
             break
-        enqueue_new_messages(store, source.id, target.id, boundary, group)
-        store.advance(source.id, str(target.id), group[-1].id)
+        complete = await complete_album(user, source, group)
+        if (now - complete[-1].date).total_seconds() < 10:
+            break
+        enqueue_new_messages(store, source.id, target.id, boundary, complete)
+        store.advance(source.id, str(target.id), complete[-1].id)
     return len(messages)
 
 
@@ -227,6 +252,12 @@ async def deliver(user, bot, source, target, store, job, directory):
     messages = await user.get_messages(source, ids=json.loads(job["message_ids"]))
     if not messages or any(message is None for message in messages):
         raise ValueError("Source message was deleted or is unavailable.")
+    complete = await complete_album(user, source, messages)
+    if getattr(messages[0], "grouped_id", None) and (
+        {message.id for message in complete} != set(json.loads(job["message_ids"]))
+    ):
+        raise ValueError("Incomplete album job; caption may be missing. Inspect before sending.")
+    messages = complete
     if any(getattr(message, "noforwards", False) for message in messages):
         store.update(job, "skipped", error="Source message has protected content.")
         logger.warning("Skipped protected job %s", job["job_key"])
@@ -439,7 +470,11 @@ async def run(mode, directory):
         store.recover()
 
         async def receive(messages):
-            enqueue_new_messages(store, source.id, target.id, boundary, messages)
+            # Allow all album members and their captions to reach the source before queuing.
+            if messages and messages[0].grouped_id:
+                await asyncio.sleep(10)
+            complete = await complete_album(user, source, messages)
+            enqueue_new_messages(store, source.id, target.id, boundary, complete)
 
         async def on_message(event):
             if not event.message.grouped_id:

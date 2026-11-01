@@ -5,6 +5,7 @@ import ModuleIcon from '../components/ModuleIcon'
 import { rememberModuleScroll, useModuleState, useModuleScroll } from '../utils/moduleState'
 import { mediaUrl, tenantHeaders } from '../utils/tenant'
 import { movieSummary } from '../utils/catalogSummary'
+import { useAnalyticsScreen } from '../utils/analytics'
 import { API_BASE_URL, bindBackButton, hasTelegramBackButton, openTelegramLink, subscribeFullscreen } from '../utils/twa'
 import './MovieList.css'
 
@@ -83,6 +84,7 @@ export default function MovieList() {
     return () => { active = false; clearTimeout(timer); controller.abort() }
   }, [openSeries, attempt])
   useEffect(() => bindBackButton(openSeries ? () => setOpenSeries(null) : null), [openSeries])
+  useAnalyticsScreen(openSeries ? 'movie_detail' : null)
 
   function openItem(item) {
     if (item.url) { openMovie(item.url); return }

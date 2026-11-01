@@ -5,6 +5,7 @@ import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Annou
 import ModuleTabs from '../components/ModuleTabs'
 import ModuleIcon from '../components/ModuleIcon'
 import CopyBooking from '../components/CopyBooking'
+import { useAnalyticsScreen } from '../utils/analytics'
 import { bookingUrl } from '../utils/booking'
 import { contactName, contactUrl, mediaUrl, tenantPath } from '../utils/tenant'
 import { API_BASE_URL, bindBackButton, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
@@ -472,6 +473,7 @@ export default function VenueList() {
   const goBackRef = useRef(goBack)
   goBackRef.current = goBack
   const hasDetail = Boolean(ktvVideo || deliveryViewer || photoViewerIndex !== null || selectedTechnicianCode)
+  useAnalyticsScreen(ktvVideo ? 'ktv_player' : deliveryViewer || photoViewerIndex !== null ? 'media_viewer' : selectedTechnicianCode ? 'technician_detail' : null)
   useEffect(() => bindBackButton(hasDetail ? () => goBackRef.current() : null), [hasDetail])
   useEffect(() => {
     if (!selectedTechnicianCode) return undefined

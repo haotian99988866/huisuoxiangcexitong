@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from telethon import types, errors
 
-from channel_sync import JobStore, deliver, enqueue_new_messages, reconcile_messages, single_instance, split_telegram_text, worker
+from channel_sync import JobStore, complete_album, deliver, enqueue_new_messages, reconcile_messages, single_instance, split_telegram_text, worker
 from channel_sync_clean import clean_text, is_advertisement
 
 
@@ -81,11 +81,35 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
                                date=datetime.now(timezone.utc) - timedelta(seconds=0 if recent else 60))
 
     def history(self, messages):
+        async def get_messages(*args, **kwargs):
+            return [message for message in messages if message.id in kwargs["ids"]]
+        self.user.get_messages.side_effect = get_messages
         async def iterate(*args, **kwargs):
             for message in messages:
                 if message.id > kwargs["min_id"]:
                     yield message
         self.user.iter_messages = iterate
+
+    async def test_partial_album_recovers_caption_bearing_first_member(self):
+        album = [self.historical(i, 500) for i in range(21, 25)]
+        album[0].message = "新闻正文"
+        self.history(album)
+        completed = await complete_album(self.user, self.source, album[1:])
+        self.assertEqual([message.id for message in completed], [21, 22, 23, 24])
+        self.assertEqual(completed[0].message, "新闻正文")
+
+    async def test_incomplete_album_job_is_not_published_without_caption(self):
+        photo = types.MessageMediaPhoto()
+        album = [self.message("新闻正文" if i == 10 else "", photo) for i in range(10, 14)]
+        for ident, message in zip(range(10, 14), album):
+            message.id = ident
+            message.grouped_id = 500
+        self.user.get_messages.side_effect = [album[1:], album]
+        with self.assertRaisesRegex(ValueError, "Incomplete album job"):
+            await deliver(self.user, self.bot, self.source, self.target, self.store,
+                          self.job((11, 12, 13)), self.directory)
+        self.bot.send_file.assert_not_awaited()
+        self.user.download_media.assert_not_awaited()
 
     async def test_reconciliation_recovers_missing_album_without_repeating_sent_jobs(self):
         self.store.progress(1, "2", 20)

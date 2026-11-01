@@ -1,4 +1,6 @@
 from urllib.parse import quote
+import logging
+import pymysql
 
 from telebot import types
 
@@ -56,8 +58,8 @@ HELP_TEXT = (
     "点主菜单【🔔 出勤提醒】订阅会所，名单一发布就通知你。\n\n"
     "<b>6️⃣ 预约 / 咨询</b>\n"
     "点【💬 联系昊天】，或直接在这里发文字、图片、语音留言，我会回复你。\n\n"
-    "<b>7️⃣ 大事件新闻订阅</b>\n"
-    "点【📰 大事件新闻订阅】或发送 /news，确认后接收新资讯提醒；发送 /news_off 随时取消。\n\n"
+    "<b>7️⃣ 东南亚大事件订阅</b>\n"
+    "点【📰 东南亚大事件订阅】或发送 /news，确认后接收新资讯提醒；发送 /news_off 随时取消。\n\n"
     "<b>8️⃣ 影视观影</b>\n"
     "点【🎬 观影】进入影视模块，按分类或搜索查找内容，查看剧集后选择播放入口。\n\n"
     "<b>9️⃣ 在线音乐</b>\n"
@@ -72,7 +74,7 @@ HELP_TEXT = (
 )
 
 
-def home_keyboard():
+def home_keyboard(user_id=None):
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.row(
         types.InlineKeyboardButton("🌴 实时出勤", url=MINIAPP_URL),
@@ -80,14 +82,9 @@ def home_keyboard():
     )
     keyboard.row(
         types.InlineKeyboardButton("🎵 音乐", url=MUSIC_URL),
-        types.InlineKeyboardButton("💳 余额充值", url=RECHARGE_URL),
-    )
-    keyboard.row(
-        types.InlineKeyboardButton("⭐ 服务中心", url=SERVICES_URL),
         types.InlineKeyboardButton("👤 我的账户", url=PERSONAL_URL),
     )
     keyboard.row(
-        types.InlineKeyboardButton("🎉 最新活动", callback_data="menu:promo"),
         types.InlineKeyboardButton("📖 使用指南", callback_data="menu:help"),
     )
     keyboard.row(
@@ -96,11 +93,19 @@ def home_keyboard():
     )
     keyboard.row(
         types.InlineKeyboardButton("🔔 出勤提醒", callback_data="sub:menu"),
-        types.InlineKeyboardButton("🔗 分享给朋友", url=SHARE_URL),
+        types.InlineKeyboardButton("🔗 分享给朋友", url=personal_share_url(user_id)),
     )
-    keyboard.row(types.InlineKeyboardButton("📰 大事件新闻订阅", callback_data="news:menu"))
-    keyboard.row(types.InlineKeyboardButton("⭐ 会员网站登录", callback_data="member:login"))
+    keyboard.row(types.InlineKeyboardButton("📰 东南亚大事件订阅", callback_data="news:menu"))
     return keyboard
+
+
+def personal_share_url(user_id):
+    if user_id is None:
+        return SHARE_URL
+    from customer_analytics import invite_link
+    link = invite_link(user_id)
+    return "https://t.me/share/url?url=" + quote(link, safe="") + "&text=" + quote(
+        "昊天生活通 · 西港生活服务与东南亚资讯，一站查看", safe="")
 
 
 def sub_keyboard():
@@ -128,11 +133,17 @@ def screen_text(name):
 
 
 def send_welcome(bot, chat_id):
+    try:
+        keyboard = home_keyboard(chat_id)
+    except (ValueError, pymysql.MySQLError):
+        logging.getLogger(__name__).exception("Could not create personal invitation menu")
+        bot.send_message(chat_id, "专属邀请入口暂不可用，本次菜单分享无法记录归属，请稍后重试 /start。")
+        keyboard = home_keyboard()
     bot.send_message(
         chat_id,
         HOME_TEXT,
         parse_mode="HTML",
-        reply_markup=home_keyboard(),
+        reply_markup=keyboard,
         disable_web_page_preview=True,
     )
 
@@ -156,6 +167,15 @@ def show_screen(bot, call):
     if not screen:
         return
     _, keyboard = screen
+    if name == "home":
+        try:
+            markup = home_keyboard(call.from_user.id)
+        except (ValueError, pymysql.MySQLError):
+            logging.getLogger(__name__).exception("Could not refresh personal invitation menu")
+            bot.send_message(call.message.chat.id, "专属邀请入口暂不可用，请稍后重试 /start。")
+            return
+    else:
+        markup = keyboard()
     text = screen_text(name)
     try:
         bot.edit_message_text(
@@ -163,7 +183,7 @@ def show_screen(bot, call):
             call.message.chat.id,
             call.message.message_id,
             parse_mode="HTML",
-            reply_markup=keyboard(),
+            reply_markup=markup,
             disable_web_page_preview=True,
         )
     except Exception:
