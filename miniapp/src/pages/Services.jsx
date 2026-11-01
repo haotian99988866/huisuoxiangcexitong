@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import ModuleIcon from '../components/ModuleIcon'
 import BrandArtwork from '../components/BrandArtwork'
+import AccountHeader from '../components/AccountHeader'
 import { bindBackButton } from '../utils/twa'
 import { useModuleScroll } from '../utils/moduleState'
 import './Membership.css'
@@ -10,10 +11,10 @@ export default function Services() {
   useModuleScroll('services', true)
   useEffect(() => bindBackButton(null), [])
   return <main className="account-page membership-page services-page">
-    <header className="membership-header">
+    <AccountHeader><header className="membership-header">
       <h1>服务中心</h1>
-      <p>精选服务，轻松开通</p>
-    </header>
+    </header></AccountHeader>
+    <p className="consumption-intro">精选服务，轻松开通</p>
     <section className="membership-panel service-hero" aria-labelledby="service-membership">
       <BrandArtwork />
       <span className="membership-tag" id="service-membership">TELEGRAM PREMIUM</span>

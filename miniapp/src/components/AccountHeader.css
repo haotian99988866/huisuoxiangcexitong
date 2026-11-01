@@ -1,0 +1,18 @@
+.account-module-header { position: sticky; top: var(--account-header-top, 0px); z-index: 100; flex-shrink: 0; margin: 0 -16px 12px; padding: 8px 16px 4px; background: var(--ink-header); border-bottom: 1px solid var(--ink-line); backdrop-filter: blur(16px); }
+.account-module-header-fullscreen { top: 0; }
+.membership-page:has(> .account-module-header) { padding-top: var(--account-header-top, 0px); padding-inline: 16px; }
+.membership-page:has(> .account-module-header-fullscreen) { padding-top: 0; }
+.app-shell-fullscreen .membership-page:has(> .account-module-header-fullscreen) { padding-top: 0; }
+.account-module-header > .account-compact-header, .account-module-header > .membership-header { position: static; margin: 0; padding: 4px 0; min-height: 52px; display: flex; align-items: center; gap: 10px; border: 0; background: transparent; }
+.account-module-header > .membership-header h1 { flex: 1; margin: 0; font-size: 20px; letter-spacing: 0; }
+.account-module-header > .membership-header > a { flex-shrink: 0; font-size: 12px; }
+.account-module-header > h1 { font-size: 20px; margin: 0; padding: 12px 0; }
+.personal-page .account-module-header > .account-profile { padding: 10px 0 8px; }
+.admin-console:has(> .account-module-header) { padding-top: var(--account-header-top, 0px); }
+.admin-console > .account-module-header { margin-inline: -20px; padding-inline: 20px; }
+.admin-console:has(> .account-module-header-fullscreen), .app-shell-fullscreen .admin-console:has(> .account-module-header-fullscreen) { padding-top: 0; }
+.account-module-header .admin-sections { margin: 0; border: 0; }
+.admin-console .account-module-header .admin-masthead { padding: 4px 0; min-height: 52px; }
+.admin-console .account-module-header .admin-title h1 { margin: 0; font-size: 20px; }
+.admin-console .account-module-header .admin-sections > button { padding-block: 8px; }
+@media (max-width:480px) { .admin-console > .account-module-header { margin-inline: -14px; padding-inline: 14px; } }

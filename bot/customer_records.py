@@ -53,6 +53,12 @@ def ensure_tables():
                 INDEX idx_crm_contact_pending (status,next_attempt),
                 INDEX idx_crm_contact_user (user_id,created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("SHOW COLUMNS FROM crm_customers LIKE 'telegram_user_id'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE crm_customers ADD COLUMN telegram_user_id BIGINT NULL, "
+                            "ADD UNIQUE KEY crm_telegram_identity (telegram_user_id)")
+            cur.execute("UPDATE crm_customers SET telegram_user_id=user_id "
+                        "WHERE user_id>0 AND telegram_user_id IS NULL")
         conn.commit()
     finally:
         conn.close()
@@ -65,6 +71,12 @@ def _utcnow():
 def _positive_id(value, label):
     if type(value) is not int or not 0 < value <= 9007199254740991:
         raise ValueError(f"{label}必须为有效数字编号")
+    return value
+
+
+def _customer_id(value):
+    if type(value) is not int or value == 0 or abs(value) > 9007199254740991:
+        raise ValueError("客户档案编号无效")
     return value
 
 
@@ -117,14 +129,22 @@ def _public(row):
 
 
 def _identity(cur, user_id):
+    cur.execute("SELECT user_id,telegram_user_id,alias FROM crm_customers "
+                "WHERE user_id=%s OR telegram_user_id=%s", (user_id, user_id))
+    profile = cur.fetchone()
+    if profile:
+        user_id = profile["user_id"]
+    if profile and profile["telegram_user_id"] is None:
+        return {"user_id": user_id, "telegram_user_id": None, "username": "", "display_name": profile["alias"]}
+    telegram_id = profile["telegram_user_id"] if profile else user_id
     cur.execute("""SELECT user_id,username,display_name FROM (
         SELECT tg_user_id AS user_id,username,display_name,1 AS priority FROM bot_users
         UNION ALL SELECT user_id,username,display_name,2 AS priority FROM analytics_customers
-        ) identities WHERE user_id=%s ORDER BY priority LIMIT 1""", (user_id,))
+        ) identities WHERE user_id=%s ORDER BY priority LIMIT 1""", (telegram_id,))
     row = cur.fetchone()
     if row is None:
         raise ValueError("未找到已验证的 Telegram 客户，请让客户先打开 App 或启动机器人，再用数字 ID 建档")
-    return row
+    return {**row, "user_id": user_id, "telegram_user_id": telegram_id}
 
 
 def _summary(cur, user_id):
@@ -175,20 +195,24 @@ def directory(data):
             search = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             base = """FROM (
                 SELECT tg_user_id AS user_id FROM bot_users UNION SELECT user_id FROM analytics_customers
+                UNION SELECT user_id FROM crm_customers WHERE telegram_user_id IS NULL
                 ) ids LEFT JOIN bot_users b ON b.tg_user_id=ids.user_id
                 LEFT JOIN analytics_customers a ON a.user_id=ids.user_id
-                LEFT JOIN crm_customers c ON c.user_id=ids.user_id
+                LEFT JOIN crm_customers c ON c.telegram_user_id=ids.user_id
+                    OR (c.telegram_user_id IS NULL AND c.user_id=ids.user_id)
                 WHERE CAST(ids.user_id AS CHAR)=%s OR COALESCE(b.username,a.username,'') LIKE %s
                 OR COALESCE(b.display_name,a.display_name,'') LIKE %s OR COALESCE(c.alias,'') LIKE %s"""
             args = (query, search, search, search)
             cur.execute("SELECT COUNT(*) AS total " + base, args)
             total = cur.fetchone()["total"]
-            cur.execute("""SELECT ids.user_id,COALESCE(b.username,a.username,'') AS username,
+            cur.execute("""SELECT COALESCE(c.user_id,ids.user_id) AS user_id,
+                CASE WHEN ids.user_id>0 THEN ids.user_id ELSE NULL END AS telegram_user_id,
+                COALESCE(b.username,a.username,'') AS username,
                 COALESCE(b.display_name,a.display_name,'') AS display_name,COALESCE(c.alias,'') AS alias,
                 c.user_id IS NOT NULL AS registered,
-                (SELECT COUNT(*) FROM crm_consumptions r WHERE r.user_id=ids.user_id AND r.status='valid') AS visits,
+                (SELECT COUNT(*) FROM crm_consumptions r WHERE r.user_id=COALESCE(c.user_id,ids.user_id) AND r.status='valid') AS visits,
                 (SELECT COALESCE(SUM(r.amount-r.refunded),0) FROM crm_consumptions r
-                 WHERE r.user_id=ids.user_id AND r.status='valid') AS net """ + base +
+                 WHERE r.user_id=COALESCE(c.user_id,ids.user_id) AND r.status='valid') AS net """ + base +
                         " ORDER BY c.updated_at DESC,ids.user_id DESC LIMIT 20 OFFSET %s",
                         (*args, (page - 1) * 20))
             rows = _public(cur.fetchall())
@@ -198,13 +222,14 @@ def directory(data):
 
 
 def detail(data):
-    user_id = _positive_id(data.get("user_id"), "客户 ID")
+    user_id = _customer_id(data.get("user_id"))
     page = _page(data.get("page", 1))
     staff_page = _page(data.get("staff_page", 1))
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             identity = _identity(cur, user_id)
+            user_id = identity["user_id"]
             cur.execute("SELECT * FROM crm_customers WHERE user_id=%s", (user_id,))
             profile = cur.fetchone() or {"user_id": user_id, "alias": "", "preferences": "",
                                          "avoidances": "", "notes": "", "revision": 0}
@@ -237,6 +262,9 @@ def mine(user_id, data):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            cur.execute("SELECT user_id FROM crm_customers WHERE telegram_user_id=%s", (user_id,))
+            profile = cur.fetchone()
+            user_id = profile["user_id"] if profile else user_id
             summary = _summary(cur, user_id)
             records, total = _records(cur, user_id, page)
         keys = ("id", "venue_name", "staff_code", "service", "occurred_at", "amount", "refunded", "status")
@@ -248,47 +276,76 @@ def mine(user_id, data):
 
 def save(data, actor_id):
     action = data.get("action")
-    if action not in {"admin_customer_save", "admin_consumption_save", "admin_consumption_void"}:
+    if action not in {"admin_customer_save", "admin_customer_create", "admin_customer_bind",
+                      "admin_consumption_save", "admin_consumption_void"}:
         raise ValueError("客户操作无效")
-    user_id = _positive_id(data.get("user_id"), "客户 ID")
     request_id = data.get("request_id")
     if not isinstance(request_id, str) or not HEX_ID.fullmatch(request_id):
         raise ValueError("缺少有效操作编号，请重新打开表单")
+    # Negative keys are internal offline customer IDs, never Telegram identities.
+    user_id = -(int(request_id[:13], 16) + 1) if action == "admin_customer_create" else _customer_id(data.get("user_id"))
     revision = data.get("revision")
     if type(revision) is not int or revision < 0:
         raise ValueError("记录版本无效，请刷新")
     if data.get("confirmed") is not True:
         raise ValueError("请核对并明确确认登记")
-    digest = hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    business_data = {key: value for key, value in data.items() if key != "init_data"}
+    digest = hashlib.sha256(json.dumps(business_data, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    legacy_digest = hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
     reason = _text(data.get("reason", ""), "修改原因", 500, revision > 0)
     now = _utcnow()
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            _identity(cur, user_id)
+            if action != "admin_customer_create":
+                user_id = _identity(cur, user_id)["user_id"]
             # Serialize all edits for a customer, including initial profile creation.
             cur.execute("SELECT user_id FROM analytics_customers WHERE user_id=%s FOR UPDATE", (user_id,))
             cur.execute("SELECT tg_user_id FROM bot_users WHERE tg_user_id=%s FOR UPDATE", (user_id,))
             cur.execute("SELECT * FROM crm_audit WHERE request_id=%s", (request_id,))
             prior = cur.fetchone()
             if prior:
-                if prior["request_hash"] != digest or prior["actor_id"] != actor_id:
+                if prior["request_hash"] not in {digest, legacy_digest} or prior["actor_id"] != actor_id:
                     raise RecordConflict("操作编号已用于不同内容，请先刷新核对")
-                return {"ok": True, "record_id": prior["record_id"], "replayed": True}
+                return {"ok": True, "record_id": prior["record_id"], "user_id": prior["user_id"], "replayed": True}
             cur.execute("SELECT * FROM crm_customers WHERE user_id=%s FOR UPDATE", (user_id,))
             customer = cur.fetchone()
-            if action == "admin_customer_save":
+            if action == "admin_customer_bind":
+                if not customer or revision != customer["revision"]:
+                    raise RecordConflict("客户档案已变更，请刷新后绑定")
+                if customer["telegram_user_id"] is not None:
+                    raise ValueError("该客户已绑定 Telegram，不允许直接更换账号")
+                telegram_id = _positive_id(data.get("telegram_user_id"), "Telegram ID")
+                _identity(cur, telegram_id)
+                cur.execute("SELECT user_id FROM crm_customers WHERE telegram_user_id=%s FOR UPDATE", (telegram_id,))
+                if cur.fetchone():
+                    raise RecordConflict("此 Telegram 账号已有客户档案，请人工核对，不能覆盖或自动合并")
+                before, record_id = customer, None
+                cur.execute("UPDATE crm_customers SET telegram_user_id=%s,revision=revision+1,updated_at=%s WHERE user_id=%s",
+                            (telegram_id, now, user_id))
+                cur.execute("SELECT * FROM crm_customers WHERE user_id=%s", (user_id,))
+                after = cur.fetchone()
+            elif action in {"admin_customer_save", "admin_customer_create"}:
                 before = customer
+                if user_id > 0 and customer is None:
+                    cur.execute("SELECT user_id FROM crm_customers WHERE telegram_user_id=%s FOR UPDATE", (user_id,))
+                    linked = cur.fetchone()
+                    if linked:
+                        raise RecordConflict("该账号已绑定现有客户，请刷新列表并打开对应档案")
                 if revision != (customer["revision"] if customer else 0):
                     raise RecordConflict("客户档案已变更，请刷新后重新编辑")
                 values = [_text(data.get(key, ""), label, maximum) for key, label, maximum in (
                     ("alias", "客户称呼", 128), ("preferences", "服务偏好", 2000),
                     ("avoidances", "避免安排", 2000), ("notes", "内部备注", 2000))]
-                cur.execute("""INSERT INTO crm_customers(user_id,alias,preferences,avoidances,notes,
-                    revision,created_at,updated_at) VALUES(%s,%s,%s,%s,%s,1,%s,%s)
-                    ON DUPLICATE KEY UPDATE alias=VALUES(alias),preferences=VALUES(preferences),
-                    avoidances=VALUES(avoidances),notes=VALUES(notes),revision=revision+1,updated_at=VALUES(updated_at)""",
-                            (user_id, *values, now, now))
+                if user_id < 0 and not values[0]:
+                    raise ValueError("请填写客户称呼")
+                if customer:
+                    cur.execute("""UPDATE crm_customers SET alias=%s,preferences=%s,avoidances=%s,notes=%s,
+                        revision=revision+1,updated_at=%s WHERE user_id=%s""", (*values, now, user_id))
+                else:
+                    cur.execute("""INSERT INTO crm_customers(user_id,telegram_user_id,alias,preferences,avoidances,notes,
+                        revision,created_at,updated_at) VALUES(%s,%s,%s,%s,%s,%s,1,%s,%s)""",
+                                (user_id, user_id if user_id > 0 else None, *values, now, now))
                 cur.execute("SELECT * FROM crm_customers WHERE user_id=%s", (user_id,))
                 after, record_id = cur.fetchone(), None
             else:
@@ -346,7 +403,12 @@ def save(data, actor_id):
                         (request_id, digest, actor_id, user_id, action, record_id, reason,
                          json.dumps(before, default=_json) if before else None, json.dumps(after, default=_json), now))
         conn.commit()
-        return {"ok": True, "record_id": record_id}
+        return {"ok": True, "record_id": record_id, "user_id": user_id}
+    except pymysql.err.IntegrityError as exc:
+        conn.rollback()
+        if exc.args[0] == 1062:
+            raise RecordConflict("操作编号或账号档案已存在，请用原操作编号重试或刷新列表核对") from exc
+        raise
     except Exception:
         conn.rollback()
         raise
@@ -362,9 +424,11 @@ def contact(user_id):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT user_id FROM crm_customers WHERE user_id=%s FOR UPDATE", (user_id,))
-            if cur.fetchone() is None:
+            cur.execute("SELECT user_id FROM crm_customers WHERE telegram_user_id=%s FOR UPDATE", (user_id,))
+            profile = cur.fetchone()
+            if profile is None:
                 return {"queued": False, "reason": "no_customer_profile"}
+            user_id = profile["user_id"]
             cur.execute("SELECT MAX(created_at) AS last_at FROM crm_contact_deliveries WHERE user_id=%s", (user_id,))
             last = cur.fetchone()["last_at"]
             if last and last > now - timedelta(minutes=5):
@@ -393,7 +457,7 @@ def _contact_card(cur, user_id):
     staff_history, staff_total = _staff_history(cur, user_id, limit=5)
     escape = lambda value: str(value)
     lines = ["客户从 App 打开联系入口", "仅表示点击联系，不代表已发送消息或发生消费。",
-             f"客户 ID：{user_id}",
+             f"客户档案：{abs(user_id)} · Telegram ID：{identity['telegram_user_id'] or '未绑定'}",
              f"账号：{escape('@' + identity['username'] if identity['username'] else '无用户名记录')}",
              f"名称：{escape(identity['display_name'] or '无名称记录')}",
              f"称呼：{escape(profile['alias'] or '未设置')}",

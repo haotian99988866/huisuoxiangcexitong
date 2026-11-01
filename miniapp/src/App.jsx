@@ -32,7 +32,7 @@ function StartParamRedirect() {
     if (applied.current) return
     applied.current = true
     const param = window.Telegram?.WebApp?.initDataUnsafe?.start_param
-    if (/^customer_[1-9]\d{0,15}$/.test(param || '') && Number.isSafeInteger(Number(param.slice(9)))) {
+    if (/^customer_-?[1-9]\d{0,15}$/.test(param || '') && Number.isSafeInteger(Number(param.slice(9)))) {
       navigate(`/admin?customer=${param.slice(9)}`, { replace: true })
       return
     }

@@ -43,6 +43,50 @@
 .account-profile { display: flex; align-items: center; gap: 14px; padding: 10px 2px 24px; }
 .account-profile h1 { font-size: 23px; margin: 0 0 4px; overflow-wrap: anywhere; }
 .account-profile p { font-size: 12px; color: var(--ink-muted); overflow-wrap: anywhere; }
+.personal-page .account-profile { padding: 12px 0 16px; gap: 10px; }
+.personal-page .account-profile > div { min-width: 0; flex: 1; }
+.personal-page .account-profile h1 { font-size: 16px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.personal-page .account-profile p { margin: 4px 0 0; font-size: 11px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.personal-page .account-avatar { width: 36px; height: 36px; border-radius: 11px; font-size: 17px; }
+.account-compact-header { position: sticky; top: var(--account-header-top, 0px); z-index: 50; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 4px 16px; margin: 0 -16px 12px; background: var(--ink-reading); border-bottom: 1px solid var(--ink-line); }
+.membership-page.personal-page, .membership-page.orders-page { padding-top: var(--account-header-top, 0px); }
+.account-compact-header h1 { flex: 1; min-width: 0; font-size: 20px; margin: 0; }
+.account-compact-header > a { font-size: 12px; color: var(--ink-accent); }
+.account-compact-header > button { width: 44px; height: 44px; display: grid; place-items: center; flex-shrink: 0; border: 0; padding: 0; background: transparent; color: var(--ink-muted); cursor: pointer; }
+.account-compact-header > button:disabled { opacity: .5; cursor: default; }
+.account-compact-header > button:focus-visible { outline: 2px solid var(--ink-accent); border-radius: 8px; }
+.membership-page.personal-page { padding-inline: 16px; }
+.membership-page.consumption-page { padding-top: var(--account-header-top, 0px); padding-inline: 16px; }
+.consumption-intro { margin: 14px 0; font-size: 12px; line-height: 1.7; color: var(--ink-muted); }
+.consumption-totals .crm-summary { margin: 0; }
+.consumption-totals .crm-summary > div { background: var(--ink-reading); border: 1px solid var(--ink-line); padding: 14px; }
+.consumption-totals .crm-summary > div:last-child { background: var(--ink-wash); }
+.consumption-totals .crm-summary strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.consumption-totals .crm-summary small { font-size: 11px; }
+.consumption-empty { padding: 26px 8px; text-align: center; color: var(--ink-muted); }
+.consumption-empty svg { color: var(--ink-accent); opacity: .7; }
+.consumption-empty p { margin: 10px 0 4px; }
+.consumption-empty small { font-size: 11px; }
+.consumption-records .crm-pager { padding-top: 14px; border-top: 1px solid var(--ink-line); margin-bottom: 0; }
+.consumption-records .crm-pager button { background: transparent; min-height: 44px; font-size: 12px; }
+.consumption-support { padding: 4px 0 12px; }
+.consumption-support p { margin: 0 0 10px; font-size: 11px; line-height: 1.7; color: var(--ink-muted); text-align: center; }
+.consumption-support button { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 46px; padding: 12px 16px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-accent); font-size: 13px; cursor: pointer; }
+.consumption-support button:focus-visible, .consumption-retry:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 2px; }
+.consumption-retry { display: block; margin-top: 8px; min-height: 44px; padding: 8px 12px; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.personal-page .wallet-card { padding: 16px; }
+.personal-page .wallet-card .membership-balance { font-size: 36px; margin: 12px 0; }
+.personal-page .wallet-card .account-primary-link { margin: 10px 0; padding: 11px; }
+.personal-page .wallet-card .account-link-grid { margin: 8px 0 0; }
+.orders-list-hint { font-size: 12px; color: var(--ink-muted); line-height: 1.7; margin: 12px 0; }
+.orders-filter-tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 4px; padding: 4px; border-radius: 12px; background: var(--ink-surface); }
+.orders-filter-tabs button { min-height: 44px; border: 0; border-radius: 9px; background: transparent; color: var(--ink-muted); font-size: 13px; cursor: pointer; }
+.orders-filter-tabs button[aria-pressed="true"] { color: var(--ink-accent); background: var(--ink-reading); font-weight: 600; }
+.orders-filter-tabs button:focus-visible { outline: 2px solid var(--ink-accent); }
+.orders-empty { padding: 48px 12px; text-align: center; color: var(--ink-muted); }
+.orders-empty svg { color: var(--ink-accent); opacity: .65; }
+.orders-empty p { font-size: 13px; margin: 12px 0 0; }
+.orders-list .membership-order { border-top: 0; padding: 0; }
 .personal-page { display: flex; flex-direction: column; min-height: calc(100dvh - 100px - var(--tg-safe-area-inset-bottom, 0px)); }
 .personal-footer { margin-top: auto; padding-top: 28px; text-align: center; color: var(--ink-muted); font-size: 12px; }
 .personal-footer button, .personal-footer a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 12px; border: 0; background: none; color: var(--ink-muted); text-decoration: none; }

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
+import AccountHeader from '../components/AccountHeader'
+import MusicIcon from '../components/MusicIcon'
 import { ConsumptionSummary, ConsumptionRows, ConsumptionPager } from '../components/CustomerRecords'
 import { requestMember } from '../utils/membership'
 import useMemberAccount from '../utils/useMemberAccount'
 import { bindBackButton, openTelegramLink } from '../utils/twa'
-import { useNavigate } from 'react-router-dom'
 import './Membership.css'
 
 export default function Consumption() {
@@ -29,20 +30,32 @@ export default function Consumption() {
       .finally(() => { if (active) setBusy(false) })
     return () => { active = false }
   }, [account?.user_id, page, reload])
-  return <main className="account-page membership-page">
-    <header className="membership-header"><Link to="/personal">← 返回</Link><h1>我的消费</h1>
-      <button type="button" disabled={busy || !account} onClick={() => setReload(value => value + 1)}>刷新</button></header>
-    {(error || accountError) && <p role="alert" className="membership-error">{error || accountError}</p>}
-    {!account ? <AccountAccess loading={loading} /> : <section className="membership-panel">
-      <p>仅展示人工核实登记的会所消费，与钱包订单及资金明细分别记录。</p>
+  return <main className="account-page membership-page consumption-page">
+    <AccountHeader>
+      <h1>我的消费</h1>
+    </AccountHeader>
+    {(error || accountError) && <p role="alert" className="membership-error">{error || accountError}
+      {error && account && <button className="consumption-retry" type="button" disabled={busy}
+        onClick={() => setReload(value => value + 1)}>重新读取</button>}</p>}
+    {!account ? <AccountAccess loading={loading} /> : <>
+      <p className="consumption-intro">人工核实登记的会所消费，与钱包及订单分别记录。</p>
       {busy && <p role="status">正在读取消费记录…</p>}
       {data && <>
-        <ConsumptionSummary summary={data.summary} />
-        <ConsumptionRows records={data.records} />
-        <ConsumptionPager page={page} total={data.total} onChange={setPage} busy={busy} />
+        <section className="membership-panel consumption-totals" aria-label="消费汇总">
+          <ConsumptionSummary summary={data.summary} />
+        </section>
+        <section className="membership-panel consumption-records">
+          <h2>消费记录</h2>
+          {data.records.length ? <ConsumptionRows records={data.records} /> :
+            <div className="consumption-empty"><MusicIcon name="list" size={28} />
+              <p>暂无消费记录</p><small>浏览和预约不会计为消费。</small></div>}
+          {(data.total > 20 || page > 1) && <ConsumptionPager page={page} total={data.total} onChange={setPage} busy={busy} />}
+        </section>
       </>}
-      <p>记录有误请联系昊天核对；已作废记录不计入累计，已退款金额从累计中扣除。</p>
-      <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系昊天核对</button>
-    </section>}
+      <footer className="consumption-support">
+        <p>作废记录不计入累计，已退款金额从累计中扣除。</p>
+        <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>记录有疑问？联系昊天核对 <span aria-hidden="true">›</span></button>
+      </footer>
+    </>}
   </main>
 }

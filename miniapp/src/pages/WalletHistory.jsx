@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
 import DepositRecords from '../components/DepositRecords'
+import AccountHeader from '../components/AccountHeader'
 import { bindBackButton, hasTelegramBackButton } from '../utils/twa'
 import { requestMember } from '../utils/membership'
 import { money } from '../utils/commerce'
@@ -35,10 +36,10 @@ export default function WalletHistory() {
   }, [account?.user_id, ledgerView, attempt, reportFailure])
 
   return <main className="account-page membership-page">
-    <header className="membership-header">
+    <AccountHeader><header className="membership-header">
       {!hasTelegramBackButton && <Link to="/personal">← 我的钱包</Link>}
       <h1>{ledgerView ? '资金明细' : '充值记录'}</h1>
-    </header>
+    </header></AccountHeader>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <section className="membership-panel">
       <nav className="account-segment" aria-label="钱包记录类型">

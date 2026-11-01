@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
+import AccountHeader from '../components/AccountHeader'
 import MusicDialog from '../components/MusicDialog'
 import { bindBackButton, hasTelegramBackButton } from '../utils/twa'
 import { newMemberOrderId, requestMember } from '../utils/membership'
@@ -146,11 +147,11 @@ export default function PhoneTopup() {
   }
 
   return <main className="account-page membership-page">
-    <header className="membership-header">
+    <AccountHeader><header className="membership-header">
       {!hasTelegramBackButton && <Link to="/services">← 服务中心</Link>}
       <h1>柬埔寨话费代充</h1>
-      <p>余额付款 · 昊天人工代充</p>
-    </header>
+    </header></AccountHeader>
+    <p className="consumption-intro">余额付款 · 昊天人工代充</p>
     {(error || localError) && <p className="membership-error" role="alert">{localError || error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
       {attention && <p className="membership-notice">你有一笔代充结果待核实订单，请勿重复下单。

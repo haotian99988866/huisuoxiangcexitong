@@ -824,7 +824,8 @@ def webhook():
     if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
                   "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer",
                   "admin_staff", "admin_staff_replace", "admin_customers", "admin_customer_detail",
-                  "admin_customer_save", "admin_consumption_save", "admin_consumption_void"}:
+                  "admin_customer_save", "admin_customer_create", "admin_customer_bind",
+                  "admin_consumption_save", "admin_consumption_void"}:
         from admin_console import authenticate, allowed_admin, dashboard, is_tenant_session, save_from_request
         from tenants import TenantConflict
         init_data = data.get("init_data")
@@ -834,7 +835,7 @@ def webhook():
         if not allowed_admin(user) or is_tenant_session(init_data):
             return jsonify({"error": "仅平台管理员可从主入口访问管理台"}), 403
         try:
-            if action in {"admin_customers", "admin_customer_detail", "admin_customer_save",
+            if action in {"admin_customers", "admin_customer_detail", "admin_customer_save", "admin_customer_create", "admin_customer_bind",
                           "admin_consumption_save", "admin_consumption_void"}:
                 from customer_records import directory, detail as customer_record_detail, save as save_customer_record, RecordConflict
                 try:

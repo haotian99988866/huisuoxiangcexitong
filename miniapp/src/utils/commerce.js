@@ -18,7 +18,7 @@ export function navigationSection(pathname) {
   if (/^\/music(?:\/|$)/.test(pathname)) return 'music'
   if (/^\/announcements(?:\/|$)/.test(pathname)) return 'news'
   if (/^\/(?:services|membership|phone-topup)(?:\/|$)/.test(pathname)) return 'services'
-  if (/^\/(?:personal|recharge|orders|wallet-history|admin)(?:\/|$)/.test(pathname)) return 'personal'
+  if (/^\/(?:personal|recharge|orders|wallet-history|consumption|admin)(?:\/|$)/.test(pathname)) return 'personal'
   return 'home'
 }
 

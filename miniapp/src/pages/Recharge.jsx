@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
 import BalanceDeposit from '../components/BalanceDeposit'
+import AccountHeader from '../components/AccountHeader'
 import { bindBackButton, hasTelegramBackButton } from '../utils/twa'
 import { money } from '../utils/commerce'
 import useMemberAccount from '../utils/useMemberAccount'
@@ -18,11 +19,11 @@ export default function Recharge() {
   useModuleScroll('recharge', !loading)
   useEffect(() => bindBackButton(() => navigate('/personal', { replace: true })), [navigate])
   return <main className="account-page membership-page">
-    <header className="membership-header">
+    <AccountHeader><header className="membership-header">
       {!hasTelegramBackButton && <Link to="/personal">← 我的钱包</Link>}
       <h1>{progressOnly ? '充值复核进度' : '充值余额'}</h1>
-      {!progressOnly && <p>充值的是账户 USD 余额，不是直接开通会员或充值手机话费。</p>}
-    </header>
+    </header></AccountHeader>
+    {!progressOnly && <p className="consumption-intro">充值的是账户 USD 余额，不是直接开通会员或充值手机话费。</p>}
     {error && <p className="membership-error" role="alert">{error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
       {!progressOnly && <section className="membership-panel">

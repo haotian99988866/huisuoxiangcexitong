@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
-import { FullscreenAnnouncementBar } from '../components/Announcement'
+import { bindBackButton } from '../utils/twa'
+import AccountHeader from '../components/AccountHeader'
 import { localDateInput, requestAdmin, tenantLink, utcExpiry } from '../utils/admin'
-import MemberSimulation from '../components/MemberSimulation'
 import DepositReview from '../components/DepositReview'
-import AdminStars from '../components/AdminStars'
 import CustomerAnalytics from '../components/CustomerAnalytics'
 import StaffAdmin from '../components/StaffAdmin'
 import CustomerRecords from '../components/CustomerRecords'
@@ -23,7 +21,7 @@ export default function Admin() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const customerParam = searchParams.get('customer')
-  const initialCustomerId = /^\d{1,16}$/.test(customerParam || '') && Number.isSafeInteger(Number(customerParam)) && Number(customerParam) > 0
+  const initialCustomerId = /^-?[1-9]\d{0,15}$/.test(customerParam || '') && Number.isSafeInteger(Number(customerParam))
     ? Number(customerParam) : null
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -33,9 +31,8 @@ export default function Admin() {
   const [editor, setEditor] = useState(null)
   const [confirmation, setConfirmation] = useState(null)
   const [copyFallback, setCopyFallback] = useState('')
-  const [section, setSection] = useState('analytics')
+  const [section, setSection] = useState('customers')
   useEffect(() => { if (initialCustomerId) setSection('customers') }, [initialCustomerId])
-  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const inFlight = useRef(false)
   const mounted = useRef(true)
   const formRef = useRef(null)
@@ -63,7 +60,6 @@ export default function Admin() {
     refresh()
     return () => { mounted.current = false }
   }, [])
-  useEffect(() => subscribeFullscreen(setIsFullscreen), [])
   useEffect(() => bindBackButton(() => {
     if (saving) return
     if (confirmation) setConfirmation(null)
@@ -155,38 +151,39 @@ export default function Admin() {
   }
 
   return (
-    <main className="admin-console">
-      {isFullscreen && <FullscreenAnnouncementBar />}
-      <header className="admin-header">
-        {!hasTelegramBackButton && <button type="button" disabled={saving} onClick={() => navigate('/personal', { replace: true })}>← 返回</button>}
-        <h1>运营管理台</h1>
-        <button type="button" disabled={loading || saving} onClick={refresh}>{loading ? '读取中…' : '刷新'}</button>
-      </header>
-      <p className="admin-hint">平台管理员</p>
-      {error && <p role="alert" className="admin-error">{error}</p>}
+    <main className="admin-console" aria-label="运营管理台">
+      <AccountHeader>
+      {data && <nav className="admin-sections" aria-label="管理功能">
+        {[['customers', '客户'], ['staff', '人员'], ['analytics', '分析']].map(([key, label]) =>
+          <button key={key} type="button" aria-pressed={section === key} disabled={saving}
+            onClick={() => setSection(key)}>{label}</button>)}
+        <label className="admin-more"><span className="music-sr-only">其他管理功能</span>
+          <select aria-label="其他管理功能" disabled={saving} value={['deposits', 'tenants'].includes(section) ? section : ''}
+            onChange={event => { if (event.target.value) setSection(event.target.value) }}>
+            <option value="">更多管理</option>
+            <option value="deposits">充值复核（{data.counts.pending_deposits}待核）</option>
+            <option value="tenants">租户管理</option>
+          </select>
+        </label>
+      </nav>}
+      </AccountHeader>
+      {error && <p role="alert" className="admin-error">{error}
+        <button type="button" disabled={loading || saving} onClick={refresh}>重新读取</button></p>}
       {notice && <p role="status" className="admin-notice">{notice}</p>}
       {copyFallback && <input aria-label="专属入口链接" readOnly value={copyFallback} onFocus={event => event.target.select()} />}
       {!data && !loading && !error && <p>暂无管理数据</p>}
       {data && <>
-        <section aria-label="运营概览" className="admin-stats">
-          {[
-            ['租户总数', data.counts.total], ['已启用', data.counts.active],
-            ['7天内到期', data.counts.expiring], ['已到期', data.counts.expired],
-            ['草稿 / 暂停', `${data.counts.draft} / ${data.counts.suspended}`],
-            ['待核充值', data.counts.pending_deposits],
-          ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
-        </section>
-        <nav className="admin-sections" aria-label="管理功能">
-          {[['customers', '客户档案'], ['analytics', '客户分析'], ['staff', '人员档案'], ['deposits', '充值复核'], ['stars', 'Stars'], ['tenants', '租户'], ['tools', '工具']].map(([key, label]) =>
-            <button key={key} type="button" aria-pressed={section === key} disabled={saving}
-              onClick={() => setSection(key)}>{label}</button>)}
-        </nav>
         {section === 'analytics' && <CustomerAnalytics />}
         {section === 'customers' && <CustomerRecords key={initialCustomerId || 'directory'} initialUserId={initialCustomerId} />}
         {section === 'staff' && <StaffAdmin venues={data.venues} />}
         <div hidden={section !== 'deposits'}><DepositReview onReviewed={refresh} /></div>
-        <div hidden={section !== 'stars'}><AdminStars userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} /></div>
         <div hidden={section !== 'tenants'}>
+        <section aria-label="租户概览" className="admin-stats">
+          {[['租户总数', data.counts.total], ['已启用', data.counts.active],
+            ['7天内到期', data.counts.expiring], ['已到期', data.counts.expired],
+            ['草稿 / 暂停', `${data.counts.draft} / ${data.counts.suspended}`]].map(([label, value]) =>
+            <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+        </section>
         <section className="admin-card">
           <div className="admin-header"><h2>租户管理</h2><button type="button" disabled={saving || loading} onClick={() => edit(null)}>新建租户</button></div>
           <details className="account-details"><summary>租户权限说明</summary><p>共享机器人及公共观影频道，客户与频道成员并非完全隔离。</p></details>
@@ -250,11 +247,6 @@ export default function Admin() {
             </div>}
           </section>
         )}
-        </div>
-        <div hidden={section !== 'tools'}>
-        <details className="admin-card"><summary>隔离模拟工具</summary>
-          <MemberSimulation userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} />
-        </details>
         <section className="admin-card"><h2>最近操作</h2>
           <p className="admin-hint">最近30条 · {formatDate(data.server_time)}</p>
           {data.audit.length === 0 && <p>暂无操作记录</p>}

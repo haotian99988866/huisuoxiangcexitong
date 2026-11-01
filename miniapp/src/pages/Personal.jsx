@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
 import OrderSummary from '../components/OrderSummary'
 import BrandArtwork from '../components/BrandArtwork'
+import AccountHeader from '../components/AccountHeader'
 import { bindBackButton, openTelegramLink } from '../utils/twa'
 import { isTelegramMemberEntry } from '../utils/membership'
 import { money, orderMatches } from '../utils/commerce'
@@ -28,6 +29,7 @@ export default function Personal() {
   }
 
   return <main className="account-page membership-page personal-page">
+    <AccountHeader>
     <header className="account-profile">
       <span className="account-avatar" aria-hidden="true">
         {verifiedUser?.first_name?.slice(0, 1) || '我'}
@@ -38,6 +40,7 @@ export default function Personal() {
         {!account && <p>你的专属账户</p>}
       </div>
     </header>
+    </AccountHeader>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
       <section className="membership-panel wallet-card" aria-labelledby="my-wallet">

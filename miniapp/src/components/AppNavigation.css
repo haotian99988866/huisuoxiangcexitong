@@ -1,10 +1,12 @@
 .ink-app {
+  --account-header-top: max(env(safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px));
   --app-bottom-safe: calc(max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)) + var(--tg-content-safe-area-inset-bottom, 0px));
 }
 .app-shell {
   --app-dock-height: calc(64px + var(--app-bottom-safe));
   padding-bottom: var(--app-dock-height);
 }
+.app-shell-fullscreen { --account-header-top: calc(var(--tg-safe-area-inset-top, 0px) + max(44px, var(--tg-content-safe-area-inset-top, 0px))); }
 .app-shell-fullscreen .account-page { padding-top: calc(var(--tg-safe-area-inset-top, 0px) + max(44px, var(--tg-content-safe-area-inset-top, 0px))); }
 .app-bottom-nav {
   position: fixed; inset: auto 0 0; z-index: 800;

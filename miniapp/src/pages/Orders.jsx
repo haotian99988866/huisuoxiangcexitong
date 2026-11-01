@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
 import OrderSummary from '../components/OrderSummary'
+import MusicIcon from '../components/MusicIcon'
+import AccountHeader from '../components/AccountHeader'
 import { bindBackButton, hasTelegramBackButton, openTelegramLink } from '../utils/twa'
 import { memberStatuses, requestMember } from '../utils/membership'
 import { money, orderFilters, orderGuidance, orderMatches, orderTitle, orderRecipient, orderStatus } from '../utils/commerce'
@@ -47,12 +49,23 @@ export default function Orders() {
     return () => { active = false; window.clearInterval(timer) }
   }, [account?.user_id, orderId, attempt, reportFailure])
   const shown = orders.filter(item => orderMatches(item, filter))
+  const refreshOrders = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      if (orderId) setAttempt(value => value + 1)
+      else await refresh()
+    } catch (failure) { reportFailure(failure) }
+    finally { setBusy(false) }
+  }
 
-  return <main className="account-page membership-page">
-    <header className="membership-header">
+  return <main className="account-page membership-page orders-page">
+    <AccountHeader><header className="account-compact-header">
       {!hasTelegramBackButton && <Link to={orderId ? '/orders' : '/personal'}>← {orderId ? '全部订单' : '我的'}</Link>}
       <h1>{orderId ? '订单详情' : '我的订单'}</h1>
-    </header>
+      <button type="button" aria-label="刷新订单" title="刷新订单" disabled={busy || loading} onClick={refreshOrders}>
+        <MusicIcon name="refresh" size={18} /></button>
+    </header></AccountHeader>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {!account ? <AccountAccess loading={loading} /> : orderId ? <>
       {detailError && <p className="membership-error" role="alert">{detailError}</p>}
@@ -72,18 +85,14 @@ export default function Orders() {
         <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系客服</button>
         <Link to="/personal">查看账户余额</Link>
       </section>
-    </> : <section className="membership-panel">
-      <nav className="account-link-grid account-filter-tabs" aria-label="订单状态">
+    </> : <section className="orders-list">
+      <nav className="orders-filter-tabs" aria-label="订单状态">
         {orderFilters.map(([key, label]) => <button key={key} type="button" aria-pressed={filter === key}
-          onClick={() => setParams(key === 'all' ? {} : { filter: key }, { replace: true })}>{label}</button>)}
+          title={label} onClick={() => setParams(key === 'all' ? {} : { filter: key }, { replace: true })}>{key === 'attention' ? '售后' : label}</button>)}
       </nav>
-      <p>最近30笔 · 更早记录请联系客服</p>
-      {shown.length ? shown.map(item => <OrderSummary key={item.order_id} order={item} />) : <p>暂无此类订单。</p>}
-      <button type="button" disabled={busy} onClick={async () => {
-        setBusy(true)
-        try { await refresh() } catch (failure) { reportFailure(failure) }
-        finally { setBusy(false) }
-      }}>{busy ? '读取中…' : '刷新订单'}</button>
+      <p className="orders-list-hint">最近30笔 · 更早记录请联系客服{filter === 'attention' ? ' · 售后包含退款与待核实订单' : ''}</p>
+      {shown.length ? shown.map(item => <section className="membership-panel" key={item.order_id}><OrderSummary order={item} /></section>) :
+        <div className="orders-empty"><MusicIcon name="list" size={32} /><p>{loading || busy ? '正在读取订单…' : '暂无此类订单'}</p></div>}
     </section>}
   </main>
 }

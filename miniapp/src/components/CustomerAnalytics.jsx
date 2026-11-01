@@ -157,11 +157,13 @@ export default function CustomerAnalytics() {
     {selected ? <CustomerDetail key={selected} userId={selected} onSelect={select} onClose={() => setSelected(null)} /> : <>
       <div className="admin-header analytics-heading"><h2>客户行为分析</h2>
         <button type="button" disabled={busy} onClick={() => setRevision(value => value + 1)}>{busy ? '读取中…' : '刷新数据'}</button></div>
-      <button type="button" onClick={() => select(window.Telegram.WebApp.initDataUnsafe.user.id)}>查看我邀请的客户</button>
+      <div className="analytics-toolbar">
       <nav className="analytics-periods" aria-label="统计时间范围">
         {[[1, '今日'], [7, '7天'], [30, '30天'], [90, '90天']].map(([value, label]) => <button key={value}
           type="button" aria-pressed={days === value} onClick={() => { setDays(value); setPage(1) }}>{label}</button>)}
       </nav>
+      <button type="button" className="analytics-invitations" onClick={() => select(window.Telegram.WebApp.initDataUnsafe.user.id)}>我的邀请</button>
+      </div>
       <p className="admin-hint">柬埔寨时间 UTC+7 · 不含管理员 · 前台可见停留时间</p>
       {error && <p role="alert" className="admin-error">{error}</p>}
       {data && <>
@@ -169,11 +171,18 @@ export default function CustomerAnalytics() {
           {[
             ['访问客户', count(data.overview.customers)], ['访问次数', count(data.overview.visits)],
             ['页面浏览', count(data.overview.page_views)], ['总停留', duration(data.overview.active_ms)],
+          ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+        </div>
+        <details className="analytics-secondary">
+          <summary>活跃与邀请数据</summary>
+          <div className="analytics-metrics">
+          {[
             ['平均每次访问', duration(data.overview.visits ? data.overview.active_ms / data.overview.visits : 0)],
             ['近45秒活跃', count(data.overview.online)], ['确认邀请', count(data.overview.referrals)],
             ['邀请新客户', count(data.overview.new_referrals)],
           ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
-        </div>
+          </div>
+        </details>
         <Trend daily={data.daily} />
         <section className="admin-card"><h2>页面停留排行</h2><PageTable rows={data.pages} /></section>
         <section className="admin-card">
@@ -182,18 +191,24 @@ export default function CustomerAnalytics() {
             <input aria-label="搜索客户用户名、名称或ID" placeholder="用户名 / 名称 / ID" maxLength={64} value={input} onChange={event => setInput(event.target.value)} />
             <button type="submit" disabled={busy}>搜索</button>
           </form>
-          <select aria-label="客户排序" value={sort} onChange={event => { setSort(event.target.value); setPage(1) }}>
+          <label className="analytics-sort">排列方式<select aria-label="客户排序" value={sort} onChange={event => { setSort(event.target.value); setPage(1) }}>
             <option value="last_seen">最近访问 / 互动</option><option value="duration">停留时长最多</option>
             <option value="visits">访问次数最多</option><option value="invites">邀请人数最多</option>
-          </select>
-          <div className="analytics-table-scroll"><table><thead><tr>
-            <th>客户</th><th>访问</th><th>浏览</th><th>总停留</th><th>最久页面</th><th>邀请</th><th>机器人状态</th><th>最近访问 / 互动</th>
-          </tr></thead><tbody>{data.customers.map(row => <tr key={row.user_id}>
-            <td><button type="button" onClick={() => select(row.user_id)}>{who(row)}</button><small>ID {row.user_id}</small></td>
-            <td>{count(row.sessions)}</td><td>{count(row.views)}</td><td>{duration(row.active_ms)}</td>
-            <td>{pageLabels[row.top_page] || '暂无'}</td><td>{count(row.invites)}</td>
-            <td>{stateLabels[row.bot_state]}</td><td>{dateTime(row.last_seen)}</td>
-          </tr>)}</tbody></table></div>
+          </select></label>
+          <div className="analytics-customers">{data.customers.map(row => <button type="button"
+            className="analytics-customer-card" key={row.user_id} onClick={() => select(row.user_id)}>
+            <span className="analytics-customer-title"><strong>{who(row)}</strong><span>{stateLabels[row.bot_state]}</span></span>
+            <small>ID {row.user_id}</small>
+            <span className="analytics-customer-numbers">
+              <span><small>访问</small><strong>{count(row.sessions)}</strong></span>
+              <span><small>浏览</small><strong>{count(row.views)}</strong></span>
+              <span><small>总停留</small><strong>{duration(row.active_ms)}</strong></span>
+              <span><small>邀请</small><strong>{count(row.invites)}</strong></span>
+            </span>
+            <span className="analytics-customer-footer">最久页面 · {pageLabels[row.top_page] || '暂无'}<br />
+              最近访问 / 互动 · {dateTime(row.last_seen)}</span>
+            <span className="analytics-customer-open">查看详细分析 ›</span>
+          </button>)}</div>
           {!data.customers.length && <p className="admin-hint">没有匹配的客户</p>}
           <Pager page={data.page} total={data.total} onChange={setPage} busy={busy} />
         </section>
