@@ -1,87 +1,88 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import ModuleTabs from '../components/ModuleTabs'
-import DepositRecords from '../components/DepositRecords'
-import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
-import { bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
-import { requestWallet } from '../utils/wallet'
-
-const cardStyle = {
-  padding: '20px', marginBottom: '16px', borderRadius: '16px',
-  background: 'var(--ink-reading)', border: '1px solid var(--ink-line)',
-}
-const detailStyle = { color: 'var(--ink-muted)', fontSize: '14px', lineHeight: 1.8 }
-const actionStyle = {
-  display: 'block', padding: '12px', borderRadius: '10px', textAlign: 'center',
-  background: 'var(--ink-accent)', color: '#fffef5', fontWeight: 700, marginTop: '12px',
-}
+import { Link } from 'react-router-dom'
+import AccountAccess from '../components/AccountAccess'
+import OrderSummary from '../components/OrderSummary'
+import { bindBackButton, closeMiniApp, openTelegramLink } from '../utils/twa'
+import { isTelegramMemberEntry } from '../utils/membership'
+import { money, orderMatches } from '../utils/commerce'
+import { useModuleScroll } from '../utils/moduleState'
+import useMemberAccount from '../utils/useMemberAccount'
+import './Membership.css'
 
 export default function Personal() {
-  const navigate = useNavigate()
-  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
-  const [wallet, setWallet] = useState(null)
-  const [busy, setBusy] = useState(true)
-  const [error, setError] = useState('')
+  const { account, orders, loading, error, refresh, reportFailure, logout } = useMemberAccount({ withOrders: true })
+  const [busy, setBusy] = useState(false)
   const user = window.Telegram?.WebApp?.initDataUnsafe?.user
+  const verifiedUser = account && user?.id === account.user_id ? user : null
+  const pendingDeposits = account?.deposits.filter(item => item.status === 'pending') || []
+  const attention = orders.find(item => ['delivery_unknown', 'refund_pending', 'paid', 'delivering'].includes(item.status))
+  useModuleScroll('personal', !loading)
+  useEffect(() => bindBackButton(closeMiniApp), [])
 
-  const refresh = async () => {
+  async function accountAction(action) {
     setBusy(true)
-    setError('')
-    setWallet(null)
-    try { setWallet(await requestWallet('wallet_account')) }
-    catch (failure) { setError(failure.message) }
+    try { await action() }
+    catch (failure) { reportFailure(failure) }
     finally { setBusy(false) }
   }
-  useEffect(() => { refresh() }, [])
-  useEffect(() => subscribeFullscreen(setIsFullscreen), [])
-  useEffect(() => bindBackButton(() => navigate('/', { replace: true })), [navigate])
 
-  return (
-    <main className="account-page" style={{ maxWidth: '480px', margin: '0 auto', padding: '12px 12px 32px' }}>
-      {isFullscreen && <FullscreenAnnouncementBar />}
-      <ModuleTabs active="personal" />
-      {!isFullscreen && <AnnouncementCard />}
-      {!hasTelegramBackButton && (
-        <button type="button" onClick={() => navigate('/', { replace: true })}
-          style={{ border: 0, background: 'transparent', color: 'var(--ink-accent)', padding: '8px 0' }}>
-          ← 返回首页
-        </button>
-      )}
-      <h1 style={{ fontSize: '24px', color: 'var(--ink-text)', margin: '16px 4px' }}>个人中心</h1>
-      <section aria-label="我的账户" style={cardStyle}>
-        <h2 style={{ fontSize: '19px', overflowWrap: 'anywhere' }}>
-          {wallet && user ? [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Telegram 用户' : '我的账户'}
-        </h2>
-        {wallet && user && (
-          <div style={{ ...detailStyle, overflowWrap: 'anywhere' }}>
-            {user.username && <p>@{user.username}</p>}
-            <p>Telegram ID：{user.id}</p>
-          </div>
-        )}
-        <p style={{ ...detailStyle, marginTop: '12px' }}>账户余额</p>
-        <p style={{ fontSize: '30px', color: 'var(--ink-accent)' }}>
-          {busy ? '加载中…' : wallet ? `${wallet.balance} USD` : '—'}
-        </p>
-        {error && <p role="alert" style={{ color: '#b42318' }}>{error}</p>}
-        <button type="button" disabled={busy} onClick={refresh} style={{ padding: '8px 14px', marginTop: '10px' }}>
-          {busy ? '正在读取账户…' : '刷新账户'}
-        </button>
-        <Link to="/recharge" style={actionStyle}>余额充值</Link>
-        <Link to="/membership" style={actionStyle}>会员充值与订单</Link>
-        {wallet?.can_manage && <Link to="/admin" style={actionStyle}>运营管理台</Link>}
+  return <main className="account-page membership-page personal-page">
+    <header className="account-profile">
+      <span className="account-avatar" aria-hidden="true">
+        {verifiedUser?.first_name?.slice(0, 1) || '我'}
+      </span>
+      <div>
+        <h1>{verifiedUser ? [verifiedUser.first_name, verifiedUser.last_name].filter(Boolean).join(' ') : '我的'}</h1>
+        {account && <p>{verifiedUser?.username ? `@${verifiedUser.username} · ` : ''}账户已验证 · ID {account.user_id}</p>}
+        {!account && <p>余额、订单与专属内容，都在这里</p>}
+      </div>
+    </header>
+    {error && <p className="membership-error" role="alert">{error}</p>}
+    {!account ? <AccountAccess loading={loading} /> : <>
+      <section className="membership-panel" aria-labelledby="my-wallet">
+        <div className="membership-row"><h2 id="my-wallet">我的钱包</h2><span>USD</span></div>
+        <p>可用余额</p>
+        <p className="membership-balance">${money(account.balance)}</p>
+        <Link className="account-primary-link" to="/recharge">充值余额</Link>
+        <div className="account-link-grid">
+          <Link to="/wallet-history?view=ledger">资金明细</Link>
+          <Link to="/wallet-history?view=deposits">充值记录</Link>
+        </div>
+        {pendingDeposits.length > 0 && <Link className="account-reminder" to="/wallet-history?view=deposits">
+          最近充值申请中有 {pendingDeposits.length} 笔待核款，申报金额不计入可用余额 →
+        </Link>}
       </section>
-      <section aria-labelledby="personal-records" style={cardStyle}>
-        <h2 id="personal-records" style={{ fontSize: '19px' }}>最近充值记录</h2>
-        <p style={detailStyle}>展示最近 30 条充值申请及核款结果。</p>
-        {wallet && <DepositRecords deposits={wallet.deposits} />}
-        {!wallet && !busy && <p style={detailStyle}>验证账户身份后才能查看记录。</p>}
+      <section className="membership-panel" aria-labelledby="my-orders">
+        <div className="membership-row"><h2 id="my-orders">我的订单</h2><Link to="/orders">全部订单 →</Link></div>
+        <div className="account-link-grid account-order-filters">
+          {[['processing', '处理中'], ['completed', '已完成'], ['attention', '退款 / 待核实']].map(([filter, label]) =>
+            <Link key={filter} to={`/orders?filter=${filter}`}>
+              <strong>{orders.filter(item => orderMatches(item, filter)).length}</strong><span>{label}</span>
+            </Link>)}
+        </div>
+        <p>以上数量为最近 30 笔会员订单。</p>
+        {attention ? <OrderSummary order={attention} /> : orders[0] ? <OrderSummary order={orders[0]} /> : <p>还没有购买订单，去服务中心看看。</p>}
+        <Link to="/services">选购服务 →</Link>
       </section>
-      <section aria-labelledby="personal-help" style={cardStyle}>
-        <h2 id="personal-help" style={{ fontSize: '19px' }}>帮助与规则</h2>
-        <p style={detailStyle}>实际到账 1 USDT = 1 USD，充值申请需人工核款。暂不支持自助提现，退回链上请联系管理员人工处理。</p>
-        <p style={detailStyle}>会员功能与订单查询请进入独立会员页，小程序自动识别账户；正式会员销售和话费购买暂未开放。</p>
-        <a href="https://t.me/haotian99988866" target="_blank" rel="noreferrer" style={actionStyle}>联系昊天</a>
-      </section>
-    </main>
-  )
+    </>}
+    <section className="membership-panel" aria-labelledby="my-content">
+      <h2 id="my-content">我的内容</h2>
+      <div className="account-link-grid">
+        <Link to="/music?view=favorites">音乐收藏</Link>
+        <Link to="/music?view=playlists">我的歌单</Link>
+        <Link to="/?module=venue">出勤与提醒</Link>
+        <button type="button" onClick={() => openTelegramLink('https://t.me/haotianzhaopian_bot?start=news')}>资讯订阅管理</button>
+      </div>
+    </section>
+    <section className="membership-panel" aria-labelledby="my-help">
+      <h2 id="my-help">帮助与账户</h2>
+      <p>充值需人工核款；会员失败退款返回站内余额，结果不明先核实。暂不支持自助提现或自动退回付款渠道。</p>
+      <div className="account-link-grid">
+        <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系客服</button>
+        {account && <button type="button" disabled={busy} onClick={() => accountAction(refresh)}>{busy ? '处理中…' : '刷新账户'}</button>}
+        {account?.can_test && isTelegramMemberEntry() && <Link to="/admin">运营管理与模拟测试</Link>}
+        {account && !isTelegramMemberEntry() && <button type="button" disabled={busy} onClick={() => accountAction(logout)}>退出网站账户</button>}
+      </div>
+    </section>
+  </main>
 }

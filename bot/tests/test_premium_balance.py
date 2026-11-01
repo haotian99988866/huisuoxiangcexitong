@@ -30,6 +30,38 @@ class PremiumBalanceTests(unittest.TestCase):
             {months: plan["gift_stars"] for months, plan in premium_balance.PLANS.items()},
             {3: 1000, 6: 1500, 12: 2500})
 
+    @patch("premium_balance.get_conn")
+    def test_recent_ledger_combines_only_real_balance_movements_for_the_user(self, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchall.return_value = [
+            {"id": 1, "reference": ORDER_ID, "event": "purchase",
+             "amount": Decimal("-15.990000"), "created_at": "2026-11-01 12:00:00"},
+            {"id": 2, "reference": 7, "event": "deposit",
+             "amount": Decimal("20.000000"), "created_at": "2026-11-01 11:00:00"},
+        ]
+        result = premium_balance.recent_ledger(123)
+        query, values = cur.execute.call_args.args
+        self.assertEqual(values, (123, 123))
+        self.assertEqual(query.count("WHERE user_id=%s"), 2)
+        self.assertIn("UNION ALL", query)
+        self.assertIn("event IN ('purchase','refund')", query)
+        self.assertIn("LIMIT 30", query)
+        self.assertNotIn("member_test", query)
+        self.assertNotIn("wallet_deposits", query)
+        self.assertEqual(result[0]["amount"], "-15.990000")
+        self.assertEqual(result[1]["reference"], "7")
+        conn.commit.assert_not_called()
+        conn.close.assert_called_once()
+
+    @patch("premium_balance.get_conn")
+    def test_recent_ledger_failure_is_not_reported_as_an_empty_history(self, get_conn):
+        conn = get_conn.return_value
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = RuntimeError("offline")
+        with self.assertRaisesRegex(RuntimeError, "offline"):
+            premium_balance.recent_ledger(123)
+        conn.close.assert_called_once()
+
     def test_normalize_username_accepts_optional_at_and_rejects_invalid_input(self):
         self.assertEqual(premium_balance.normalize_username("  @Some_User  "), "some_user")
         for username in (None, "user", "@", "bad name", "name!"):

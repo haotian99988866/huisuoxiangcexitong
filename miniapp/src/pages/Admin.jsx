@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
 import { FullscreenAnnouncementBar } from '../components/Announcement'
 import { localDateInput, requestAdmin, tenantLink, utcExpiry } from '../utils/admin'
+import MemberSimulation from '../components/MemberSimulation'
+import './Membership.css'
 import './Admin.css'
 
 const labels = { draft: '草稿', active: '已启用', suspended: '已暂停', expired: '已到期' }
@@ -155,6 +157,7 @@ export default function Admin() {
       {copyFallback && <input aria-label="专属入口链接" readOnly value={copyFallback} onFocus={event => event.target.select()} />}
       {!data && !loading && !error && <p>暂无管理数据</p>}
       {data && <>
+        <MemberSimulation userId={window.Telegram?.WebApp?.initDataUnsafe?.user?.id} />
         <section aria-label="运营概览" className="admin-stats">
           {[
             ['租户总数', data.counts.total], ['已启用', data.counts.active],

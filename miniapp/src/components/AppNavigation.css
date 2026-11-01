@@ -1,0 +1,33 @@
+.ink-app {
+  --app-bottom-safe: calc(max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)) + var(--tg-content-safe-area-inset-bottom, 0px));
+}
+.app-shell {
+  --app-dock-height: calc(64px + var(--app-bottom-safe));
+  padding-bottom: var(--app-dock-height);
+}
+.app-shell-checkout { --app-dock-height: calc(92px + var(--app-bottom-safe)); }
+.app-shell-fullscreen .account-page { padding-top: calc(var(--tg-safe-area-inset-top, 0px) + max(44px, var(--tg-content-safe-area-inset-top, 0px))); }
+.app-bottom-nav {
+  position: fixed; inset: auto 0 0; z-index: 800;
+  display: flex; justify-content: center; min-height: 64px;
+  padding-bottom: var(--app-bottom-safe);
+  border-top: 1px solid var(--ink-line);
+  background: var(--ink-header); backdrop-filter: blur(16px);
+}
+.app-bottom-nav a {
+  flex: 1; min-width: 0; max-width: 120px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 5px;
+  min-height: 64px; color: var(--ink-muted); text-decoration: none; font-size: 12px; white-space: nowrap;
+}
+.app-bottom-nav svg { width: 23px; height: 23px; }
+.app-bottom-nav a[aria-current="page"] { color: var(--ink-accent); font-weight: 700; }
+.app-bottom-nav a:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: -4px; }
+.ink-app:has(.app-shell) .music-mini {
+  bottom: calc(76px + var(--app-bottom-safe));
+  padding-bottom: 9px;
+}
+.ink-app:has(.app-shell-checkout) .music-mini { bottom: calc(104px + var(--app-bottom-safe)); }
+.ink-app:has(.app-shell) .music-toast { bottom: calc(190px + var(--app-bottom-safe)); }
+body:has(dialog[open], [role="dialog"][aria-modal="true"], .module-backdrop) .app-bottom-nav,
+body:has(dialog[open], [role="dialog"][aria-modal="true"], .module-backdrop) .membership-checkout-bar,
+body:has(dialog[open], [role="dialog"][aria-modal="true"], .module-backdrop) .music-mini { visibility: hidden; }

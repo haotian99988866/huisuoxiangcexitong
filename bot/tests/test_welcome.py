@@ -11,6 +11,7 @@ class WelcomeTests(unittest.TestCase):
         self.assertEqual(sum(button.url == welcome.MUSIC_URL for button in buttons), 1)
         self.assertTrue(welcome.MUSIC_URL.endswith("?startapp=music"))
         self.assertTrue({welcome.MINIAPP_URL, welcome.MOVIES_URL, welcome.RECHARGE_URL,
+                         welcome.SERVICES_URL, welcome.PERSONAL_URL,
                          welcome.CONTACT_URL, welcome.CHANNEL_URL, welcome.SHARE_URL}
                         .issubset({button.url for button in buttons}))
         self.assertTrue({"menu:promo", "menu:help", "sub:menu", "news:menu"}
@@ -25,6 +26,8 @@ class WelcomeTests(unittest.TestCase):
                 self.assertIn(feature, text)
         self.assertIn("/news_off", welcome.HELP_TEXT)
         self.assertIn("筹备中", welcome.HELP_TEXT)
+        self.assertIn("【我的】", welcome.HELP_TEXT)
+        self.assertNotIn("【全部】→【会员充值】", welcome.HELP_TEXT)
 
     def test_command_menu_only_advertises_current_member_scheme(self):
         commands = {command.command for command in bot_profile.COMMANDS}

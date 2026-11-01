@@ -48,3 +48,52 @@
 .membership-error, .membership-notice { padding: 14px; border-radius: 12px; overflow-wrap: anywhere; }
 .membership-error { background: #fff0ed; color: #b42318; }
 .membership-notice { background: #e9f4ed; color: #28734d; }
+.account-page { padding-top: max(12px, var(--tg-content-safe-area-inset-top, 0px)); }
+.account-profile { display: flex; align-items: center; gap: 14px; padding: 24px 4px; }
+.account-profile h1 { font-size: 24px; margin: 0 0 8px; overflow-wrap: anywhere; }
+.account-profile p { font-size: 13px; color: var(--ink-muted); overflow-wrap: anywhere; }
+.account-avatar {
+  display: grid; place-items: center; flex-shrink: 0; width: 56px; height: 56px;
+  border-radius: 50%; color: var(--ink-accent); background: var(--ink-surface);
+  border: 1px solid var(--ink-line); font-size: 24px;
+}
+.account-primary-link {
+  display: block; text-align: center; padding: 13px; border-radius: 10px; margin: 14px 0;
+  background: var(--ink-accent); font-weight: 700; text-decoration: none;
+}
+.membership-panel a.account-primary-link { color: #fffef5; }
+.account-link-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+.account-link-grid a, .account-link-grid button {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  min-height: 44px; padding: 10px; border: 1px solid var(--ink-line);
+  border-radius: 10px; text-decoration: none; font-size: 14px;
+}
+.account-order-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.account-order-filters a { flex-direction: column; gap: 6px; font-size: 12px; }
+.account-order-filters strong { font-size: 22px; }
+.account-reminder { display: block; padding: 12px; background: var(--ink-surface); border-radius: 10px; font-size: 13px; line-height: 1.7; }
+.account-order-link { display: block; color: var(--ink-text); text-decoration: none; }
+.account-order-more { display: block; text-align: right; font-size: 13px; }
+.service-product { display: flex; align-items: center; gap: 14px; text-decoration: none; padding: 10px 0; }
+.service-product > div { flex: 1; }
+.service-product h3 { margin-top: 0; }
+.service-product-icon { display: grid; place-items: center; width: 54px; height: 54px; background: var(--ink-surface); border-radius: 16px; }
+.service-product-icon svg { width: 30px; height: 30px; }
+.membership-checkout-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 800;
+  display: flex; align-items: center; justify-content: center; gap: 20px;
+  min-height: 92px; box-sizing: content-box; padding: 0 16px var(--app-bottom-safe, 0px);
+  border-top: 1px solid var(--ink-line); background: var(--ink-header); backdrop-filter: blur(16px);
+}
+.membership-checkout-bar > div { display: grid; gap: 4px; min-width: 100px; }
+.membership-checkout-bar small { color: var(--ink-muted); font-size: 12px; }
+.membership-checkout-bar strong { color: var(--ink-accent); font-size: 23px; }
+.membership-checkout-bar button {
+  min-height: 46px; max-width: 280px; flex: 1; border: 0; border-radius: 12px;
+  background: var(--ink-accent); color: white; padding: 12px; font-weight: 700; cursor: pointer;
+}
+.membership-checkout-bar button:disabled { opacity: .55; cursor: not-allowed; }
+.account-deposit-dialog { margin-bottom: 0; }
+.membership-page a:focus-visible, .membership-page button:focus-visible {
+  outline: 2px solid var(--ink-accent); outline-offset: 3px;
+}

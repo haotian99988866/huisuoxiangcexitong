@@ -13,21 +13,29 @@ export async function requestMember(action, fields = {}) {
   if (isTenantEntry()) throw new Error('会所入口不开放账户或会员购买。')
   const initData = window.Telegram?.WebApp?.initData
   const session = sessionStorage.getItem(SESSION_KEY)
-  const response = await fetch(`${API_BASE_URL}/webhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(session ? { Authorization: `Bearer ${session}` } : {}) },
-    body: JSON.stringify({ ...fields, action, ...(initData ? { init_data: initData } : {}) }),
-    cache: 'no-store',
-    referrerPolicy: 'no-referrer',
-  })
-  const result = await response.json()
-  if (!response.ok) {
-    if (response.status === 401) sessionStorage.removeItem(SESSION_KEY)
-    const error = new Error(result.error || '会员请求失败，请先核实订单状态。')
-    error.status = response.status
-    throw error
-  }
-  return result
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 20000)
+  try {
+    const response = await fetch(`${API_BASE_URL}/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(session ? { Authorization: `Bearer ${session}` } : {}) },
+      body: JSON.stringify({ ...fields, action, ...(initData ? { init_data: initData } : {}) }),
+      cache: 'no-store',
+      referrerPolicy: 'no-referrer',
+      signal: controller.signal,
+    })
+    const result = await response.json()
+    if (!response.ok) {
+      if (response.status === 401) sessionStorage.removeItem(SESSION_KEY)
+      const error = new Error(result.error || '会员请求失败，请先核实订单状态。')
+      error.status = response.status
+      throw error
+    }
+    return result
+  } catch (failure) {
+    if (failure.name === 'AbortError') throw new Error('账户请求超时；交易结果未确认时请先查询记录，勿重复付款或重新下单。')
+    throw failure
+  } finally { clearTimeout(timer) }
 }
 
 export function initializeMemberSession() {

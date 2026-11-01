@@ -13,15 +13,16 @@ import { filterMusicTracks, musicCategories } from '../utils/musicCategories'
 export default function Music() {
   const player = useMusic()
   const navigate = useNavigate()
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const sharedToken = params.get('playlist')
-  const [query, setQuery] = useState(() => sharedToken ? '' : player.browseState.current.query)
+  const requestedView = ['favorites', 'playlists'].includes(params.get('view')) ? params.get('view') : null
+  const [query, setQuery] = useState(() => sharedToken || requestedView ? '' : player.browseState.current.query)
   const [searchInput, setSearchInput] = useState(query)
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const [shared, setShared] = useState(null)
   const [sharedError, setSharedError] = useState('')
   const [sharedAttempt, setSharedAttempt] = useState(0)
-  const [view, setView] = useState(() => sharedToken ? 'shared' : player.browseState.current.view)
+  const [view, setView] = useState(() => sharedToken ? 'shared' : requestedView || player.browseState.current.view)
   const [category, setCategory] = useState(() => sharedToken ? 'all' : player.browseState.current.category || 'all')
   const [sheet, setSheet] = useState(null)
   const [actionTrack, setActionTrack] = useState(null)
@@ -50,6 +51,19 @@ export default function Music() {
   const selected = player.playlists.find(item => `playlist:${item.id}` === view)
   const closeSheet = () => { setSheet(null); setDeleteConfirm(false) }
   const changeView = value => { setView(value); setQuery(''); setSearchInput(''); setNotice('') }
+
+  useEffect(() => {
+    if (requestedView && !sharedToken) {
+      changeView(requestedView)
+      setPageNumber(1)
+      window.scrollTo(0, 0)
+      setParams(current => {
+        const next = new URLSearchParams(current)
+        next.delete('view')
+        return next
+      }, { replace: true })
+    }
+  }, [requestedView, sharedToken, setParams])
 
   useEffect(() => {
     if (player.status === 'idle') player.load()

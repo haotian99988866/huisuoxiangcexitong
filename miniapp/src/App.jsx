@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import VenueList from './pages/VenueList'
 import VenueDetail from './pages/VenueDetail'
 import TechnicianList from './pages/TechnicianList'
@@ -10,6 +10,10 @@ import Personal from './pages/Personal'
 import Admin from './pages/Admin'
 import Music from './pages/Music'
 import Announcements from './pages/Announcements'
+import Services from './pages/Services'
+import Orders from './pages/Orders'
+import WalletHistory from './pages/WalletHistory'
+import AppNavigation from './components/AppNavigation'
 import MusicPlayer from './components/MusicPlayer'
 import { isTenantEntry } from './utils/tenant'
 import { modules } from './utils/modules'
@@ -48,9 +52,14 @@ function Content() {
       <Routes>
         <Route path="/" element={<VenueList />} />
         <Route path="/movies" element={<MovieList />} />
+        <Route path="/media" element={<Navigate to="/movies" replace />} />
         <Route path="/recharge" element={<Recharge />} />
         <Route path="/membership" element={<Membership />} />
         <Route path="/personal" element={<Personal />} />
+        <Route path="/services" element={<Services />} />
+        <Route path="/orders" element={<Orders />} />
+        <Route path="/orders/:orderId" element={<Orders />} />
+        <Route path="/wallet-history" element={<WalletHistory />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/music" element={<Music />} />
         <Route path="/announcements" element={<Announcements />} />
@@ -62,6 +71,6 @@ function Content() {
   )
   return <div className="ink-app">
     <SeasonalWelcome background />
-    {isTenantEntry() ? routes : <MusicPlayer>{routes}</MusicPlayer>}
+    {isTenantEntry() ? routes : <MusicPlayer><AppNavigation>{routes}</AppNavigation></MusicPlayer>}
   </div>
 }

@@ -151,6 +151,26 @@ class MemberApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         lookup.assert_called_once_with("b" * 32, 123)
 
+    def test_ledger_uses_authenticated_identity_and_is_not_cached(self):
+        with patch("member_accounts.authenticate", return_value=123), \
+                patch("premium_balance.recent_ledger", return_value=[]) as ledger:
+            response = self.post("member_ledger", user_id=999)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {"entries": []})
+        self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+        ledger.assert_called_once_with(123)
+
+    def test_ledger_rejects_invalid_and_tenant_identities_before_database_access(self):
+        from tests.test_admin_console import signed
+        with patch("premium_balance.recent_ledger") as ledger, \
+                patch("member_accounts.authenticate", side_effect=ValueError("expired")):
+            for fields in ({}, {"init_data": "invalid"},
+                           {"init_data": signed(start_param="tenant_test-shop")}):
+                with self.subTest(fields=fields):
+                    response = self.post("member_ledger", **fields)
+                    self.assertIn(response.status_code, (401, 403))
+        ledger.assert_not_called()
+
     def test_aba_request_is_forwarded_without_crediting(self):
         with patch("member_accounts.authenticate", return_value=123), \
                 patch("wallet.submit", return_value=7) as submit, patch("wallet.review") as review:

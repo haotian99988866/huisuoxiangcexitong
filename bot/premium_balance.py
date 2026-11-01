@@ -219,6 +219,26 @@ def recent_orders(payer_id=None):
         conn.close()
 
 
+def recent_ledger(user_id):
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id,reference,event,amount,created_at FROM ("
+                "SELECT id,CAST(deposit_id AS CHAR) AS reference,'deposit' AS event,amount,created_at "
+                "FROM wallet_ledger WHERE user_id=%s "
+                "UNION ALL "
+                "SELECT id,order_id AS reference,event,amount,created_at "
+                "FROM member_wallet_ledger WHERE user_id=%s AND event IN ('purchase','refund')"
+                ") AS movements ORDER BY created_at DESC,event DESC,id DESC LIMIT 30",
+                (user_id, user_id))
+            rows = cur.fetchall()
+        return [{**row, "reference": str(row["reference"]), "amount": str(row["amount"]),
+                 "created_at": str(row["created_at"])} for row in rows]
+    finally:
+        conn.close()
+
+
 def begin_delivery(order_id):
     conn = get_conn()
     try:

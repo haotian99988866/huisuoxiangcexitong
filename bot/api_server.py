@@ -892,11 +892,11 @@ def webhook():
             return jsonify({"error": "音乐账户服务暂不可用，请稍后重试"}), 503
     if action in {
         "member_login", "member_logout", "member_account", "member_deposit",
-        "member_catalog", "member_purchase", "member_orders", "member_order",
+        "member_catalog", "member_purchase", "member_orders", "member_order", "member_ledger",
         "member_test_account", "member_test_purchase",
     }:
         from member_accounts import authenticate as browser_auth, exchange_link, logout, site_origin
-        from premium_balance import catalog, create_order, get_order, recent_orders
+        from premium_balance import catalog, create_order, get_order, recent_orders, recent_ledger
         from wallet import account, submit
         try:
             from admin_console import authenticate as telegram_auth, is_tenant_session
@@ -946,6 +946,8 @@ def webhook():
                 result = catalog()
             elif action == "member_orders":
                 result = {"orders": recent_orders(user_id)}
+            elif action == "member_ledger":
+                result = {"entries": recent_ledger(user_id)}
             elif action == "member_order":
                 order = get_order(data.get("order_id"), user_id)
                 if not order:

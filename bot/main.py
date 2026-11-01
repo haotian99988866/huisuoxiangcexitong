@@ -201,7 +201,7 @@ def handle_wallet(message):
     from wallet import account, pending, review, set_address, set_aba
     from telebot import types
     if message.from_user.id not in admin_ids():
-        bot.reply_to(message, "请通过主菜单的充值中心查看账户余额。")
+        bot.reply_to(message, "请在小程序底部【我的】查看账户余额和充值记录。")
         return
     parts = (message.text or "").split()
     try:

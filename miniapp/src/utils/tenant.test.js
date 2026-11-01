@@ -37,6 +37,9 @@ test('scoped routes, media, contacts and booking messages preserve tenant contex
     assert.equal(displayModules().some(item => item.key === 'announcements'), false)
     assert.equal(hasVenueAccess(), true)
     assert.equal(displayModules().some(item => item.key === 'music'), false)
+    for (const key of ['services', 'personal', 'recharge', 'membership', 'admin']) {
+      assert.equal(displayModules().some(item => item.key === key), false)
+    }
     assert.ok(announcementText().includes('测试品牌'))
     const booking = new URL(bookingUrl({ title: '预约', links: [media.href] }))
     assert.equal(booking.pathname, '/contact_one')

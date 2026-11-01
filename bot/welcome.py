@@ -7,6 +7,8 @@ MINIAPP_URL = "https://t.me/haotianzhaopian_bot?startapp"
 MOVIES_URL = "https://t.me/haotianzhaopian_bot?startapp=movies"
 MUSIC_URL = "https://t.me/haotianzhaopian_bot?startapp=music"
 RECHARGE_URL = "https://t.me/haotianzhaopian_bot?startapp=recharge"
+SERVICES_URL = "https://t.me/haotianzhaopian_bot?startapp=services"
+PERSONAL_URL = "https://t.me/haotianzhaopian_bot?startapp=personal"
 CONTACT_URL = "https://t.me/haotian99988866"
 CHANNEL_URL = "https://t.me/haotianyl99988866"
 BOT_URL = "https://t.me/haotianzhaopian_bot"
@@ -61,8 +63,9 @@ HELP_TEXT = (
     "<b>9️⃣ 在线音乐</b>\n"
     "点【🎵 音乐】进入播放器，可按语言分类、搜索歌曲，支持播放队列、收藏和歌单；收藏与歌单需在 Telegram 中登录使用。\n\n"
     "<b>🔟 水墨与今日时令</b>\n"
-    "七套水墨构图按北京时间周一至周日轮换，叠加节气与节日配色。小程序点【全部】→【今日时令】查看农历和当前节气。\n\n"
-    "💳 小程序【全部】→【会员充值】自动识别账户；正式销售暂未开放。"
+    "七套水墨构图按北京时间周一至周日轮换，叠加节气与节日配色。小程序点【更多内容】→【今日时令】查看农历和当前节气。\n\n"
+    "💳 底部【首页】查看内容，【服务】选择会员套餐，【我的】管理余额、充值记录和购买订单。"
+    "小程序自动识别账户；正式会员销售暂未开放。"
     "普通浏览器可发送 /member 获取网站登录链接；话费商品仍在筹备中。\n"
     "付款或赠送问题可发送 /paysupport 联系管理员。\n\n"
     "💡 小提示：名单会随频道实时更新，下单前建议再刷新一次。"
@@ -77,7 +80,11 @@ def home_keyboard():
     )
     keyboard.row(
         types.InlineKeyboardButton("🎵 音乐", url=MUSIC_URL),
-        types.InlineKeyboardButton("💳 充值中心", url=RECHARGE_URL),
+        types.InlineKeyboardButton("💳 余额充值", url=RECHARGE_URL),
+    )
+    keyboard.row(
+        types.InlineKeyboardButton("⭐ 服务中心", url=SERVICES_URL),
+        types.InlineKeyboardButton("👤 我的账户", url=PERSONAL_URL),
     )
     keyboard.row(
         types.InlineKeyboardButton("🎉 最新活动", callback_data="menu:promo"),

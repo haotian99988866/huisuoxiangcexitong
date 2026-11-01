@@ -5,12 +5,16 @@ import { moduleGroups, displayModules } from '../utils/modules'
 import { getTenant, tenantPath } from '../utils/tenant'
 import { registerBackOverlay } from '../utils/twa'
 import { rememberModuleScroll } from '../utils/moduleState'
+import { navigationSection } from '../utils/commerce'
 import ModuleIcon from './ModuleIcon'
 import SeasonalWelcome from './SeasonalWelcome'
 import './ModuleTabs.css'
 
 export default function ModuleTabs({ active }) {
-  const modules = displayModules()
+  const tenant = getTenant()
+  const section = navigationSection(displayModules().find(item => item.key === active)?.path.split('?')[0] || '/')
+  const keys = section === 'media' ? ['movies', 'music'] : section === 'news' ? ['announcements'] : ['venue', 'delivery']
+  const modules = displayModules().filter(item => tenant || keys.includes(item.key))
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [showSeasonal, setShowSeasonal] = useState(false)
@@ -56,6 +60,8 @@ export default function ModuleTabs({ active }) {
     if (item.key !== active) navigate(tenantPath(item.path), { replace: true })
   }
 
+  if (!tenant && section !== 'media') return null
+
   return (
     <nav aria-label="模块导航" className="module-navigation">
       {getTenant() && <div className="module-current">{getTenant().brand_name}</div>}
@@ -71,10 +77,10 @@ export default function ModuleTabs({ active }) {
             <ModuleIcon name={item.key} /> {item.label}
           </button>
         ))}
-        <button ref={trigger} type="button" className={`module-shortcut module-all${current && !current.common ? ' selected' : ''}`}
+        {tenant && <button ref={trigger} type="button" className={`module-shortcut module-all${current && !current.common ? ' selected' : ''}`}
           aria-haspopup="dialog" aria-expanded={expanded} onClick={() => setExpanded(true)}>
-          全部 ▾
-        </button>
+          {tenant ? '全部' : '时令与分类'} ▾
+        </button>}
       </div>
       {current && !current.common && <div className="module-current">当前位置：{current.label}</div>}
       {expanded && createPortal(
@@ -83,7 +89,7 @@ export default function ModuleTabs({ active }) {
         }}>
           <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="module-panel-title" className="module-panel">
             <header className="module-panel-header">
-              <h2 id="module-panel-title">全部功能</h2>
+              <h2 id="module-panel-title">{tenant ? '全部功能' : '内容与时令'}</h2>
               <button type="button" aria-label="关闭全部功能" onClick={() => setExpanded(false)}>✕</button>
             </header>
             <button className="module-seasonal-entry" type="button" aria-expanded={showSeasonal}
