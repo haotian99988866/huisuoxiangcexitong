@@ -1,0 +1,50 @@
+.membership-page {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 12px 12px 36px;
+  color: var(--ink-text);
+}
+.membership-header { padding: 24px 4px; }
+.membership-header h1 { margin: 8px 0; font-size: 28px; }
+.membership-tag { color: var(--ink-accent); font-size: 12px; letter-spacing: 2px; }
+.membership-panel {
+  padding: 20px;
+  margin-bottom: 16px;
+  border: 1px solid var(--ink-line);
+  border-radius: 16px;
+  background: var(--ink-reading);
+}
+.membership-panel h2 { font-size: 19px; margin: 0 0 12px; }
+.membership-panel h3 { font-size: 16px; margin-top: 18px; }
+.membership-panel p, .membership-panel li, .membership-header p {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--ink-muted);
+}
+.membership-panel ol { padding-left: 20px; }
+.membership-row, .membership-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.membership-row { justify-content: space-between; }
+.membership-panel .membership-balance { font-size: 32px; color: var(--ink-accent); margin: 8px 0; }
+.membership-panel form { display: grid; gap: 12px; margin-top: 16px; }
+.membership-panel label { display: grid; gap: 6px; font-size: 14px; }
+.membership-panel input {
+  width: 100%; box-sizing: border-box; padding: 12px; font-size: 16px;
+  border: 1px solid var(--ink-line); border-radius: 10px;
+  background: var(--ink-reading); color: var(--ink-text);
+}
+.membership-panel button {
+  padding: 10px 12px; border: 1px solid var(--ink-line); border-radius: 10px;
+  background: var(--ink-reading); color: var(--ink-text); cursor: pointer;
+}
+.membership-panel button[aria-pressed="true"] { border-color: var(--ink-accent); color: var(--ink-accent); }
+.membership-panel button.membership-primary { background: var(--ink-accent); color: white; font-weight: 700; padding: 14px; }
+.membership-panel button:disabled { opacity: .55; cursor: not-allowed; }
+.membership-panel a, .membership-page > a { color: var(--ink-accent); }
+.membership-plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.membership-plans button { display: grid; gap: 8px; padding: 16px 4px; }
+.membership-reference { overflow-wrap: anywhere; user-select: text; }
+.membership-order { padding: 12px 0; border-top: 1px solid var(--ink-line); }
+.membership-order p { margin: 4px 0; }
+.membership-error, .membership-notice { padding: 14px; border-radius: 12px; overflow-wrap: anywhere; }
+.membership-error { background: #fff0ed; color: #b42318; }
+.membership-notice { background: #e9f4ed; color: #28734d; }

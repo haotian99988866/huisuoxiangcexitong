@@ -33,6 +33,9 @@ COMMANDS = [
     types.BotCommand("remind", "出勤提醒"),
     types.BotCommand("news", "大事件新闻订阅"),
     types.BotCommand("news_off", "取消新闻订阅"),
+    types.BotCommand("paysupport", "Premium 付款帮助"),
+    types.BotCommand("member", "会员网站登录"),
+    types.BotCommand("member_sales", "会员余额订单管理"),
     types.BotCommand("help", "使用指南"),
 ]
 

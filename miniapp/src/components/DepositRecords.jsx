@@ -6,9 +6,9 @@ export default function DepositRecords({ deposits }) {
   return deposits.map(deposit => (
     <div key={deposit.id} style={{ padding: '12px 0', borderBottom: '1px solid #eee', overflowWrap: 'anywhere' }}>
       <p>#{deposit.id} · {statuses[deposit.status] || deposit.status}</p>
-      <p style={detailStyle}>申报 {deposit.claimed} U{deposit.credited && ` · 入账 ${deposit.credited} U`}</p>
+      <p style={detailStyle}>申报 {deposit.claimed} USD{deposit.credited && ` · 入账 ${deposit.credited} USD`}</p>
       <p style={detailStyle}>{deposit.created_at}</p>
-      <p style={detailStyle}>TXID：{deposit.txid}</p>
+      <p style={detailStyle}>{deposit.method === 'aba' ? 'ABA 交易编号' : 'USDT TXID'}：{deposit.txid.replace(/^aba:/, '')}</p>
     </div>
   ))
 }

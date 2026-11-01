@@ -9,6 +9,9 @@ $config = Join-Path $env:USERPROFILE '.cloudflared\config.yml'
 $log = Join-Path $env:LOCALAPPDATA 'Huisuo\logs'
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
+if (-not $env:MEMBER_SITE_URL) {
+    $env:MEMBER_SITE_URL = 'https://app.haotianzhushou.com/membership'
+}
 
 New-Item -ItemType Directory -Path $log -Force | Out-Null
 Start-Transcript -Path (Join-Path $log 'startup.log') -Append | Out-Null

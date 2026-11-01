@@ -56,12 +56,25 @@ def ensure_tables():
             admin_id BIGINT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_ledger_user(user_id, id)
         ) ENGINE=InnoDB""",
+        """CREATE TABLE IF NOT EXISTS wallet_aba_config (
+            id INT PRIMARY KEY, account_number VARCHAR(64) NOT NULL,
+            account_name VARCHAR(128) NOT NULL
+        ) ENGINE=InnoDB""",
     )
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             for statement in statements:
                 cur.execute(statement)
+            cur.execute("SHOW COLUMNS FROM wallet_deposits LIKE 'method'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE wallet_deposits ADD COLUMN method VARCHAR(8) NOT NULL DEFAULT 'usdt'")
+            cur.execute("SHOW COLUMNS FROM wallet_deposits LIKE 'txid'")
+            if cur.fetchone()["Type"].lower() != "varchar(128)":
+                cur.execute("ALTER TABLE wallet_deposits MODIFY txid VARCHAR(128) NOT NULL")
+            cur.execute("SHOW COLUMNS FROM wallet_deposits LIKE 'address'")
+            if cur.fetchone()["Type"].lower() != "varchar(256)":
+                cur.execute("ALTER TABLE wallet_deposits MODIFY address VARCHAR(256) NOT NULL")
         conn.commit()
     finally:
         conn.close()
@@ -79,16 +92,34 @@ def set_address(address):
         conn.close()
 
 
+def set_aba(account_number, account_name):
+    if (not isinstance(account_number, str) or not re.fullmatch(r"[0-9]{6,32}", account_number)
+            or not isinstance(account_name, str) or not 1 <= len(account_name.strip()) <= 128
+            or any(ord(char) < 32 for char in account_name)):
+        raise ValueError("请提供有效 ABA 账号和收款人名称；只配置美元收款账户")
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "REPLACE INTO wallet_aba_config(id,account_number,account_name) VALUES(1,%s,%s)",
+                (account_number, account_name.strip()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def account(user_id):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT address FROM wallet_config WHERE id=1")
             config = cur.fetchone()
+            cur.execute("SELECT account_number,account_name FROM wallet_aba_config WHERE id=1")
+            aba = cur.fetchone()
             cur.execute("SELECT balance FROM wallet_accounts WHERE user_id=%s", (user_id,))
             balance = cur.fetchone()
             cur.execute(
-                "SELECT id,txid,claimed,status,credited,created_at FROM wallet_deposits "
+                "SELECT id,txid,method,claimed,status,credited,created_at FROM wallet_deposits "
                 "WHERE user_id=%s ORDER BY id DESC LIMIT 30", (user_id,),
             )
             deposits = cur.fetchall()
@@ -98,6 +129,8 @@ def account(user_id):
                         row[key] = str(row[key])
         return {
             "address": config["address"] if config else None,
+            "aba": aba,
+            "currency": "USD",
             "balance": str(balance["balance"]) if balance else "0.000000",
             "deposits": deposits,
         }
@@ -105,20 +138,36 @@ def account(user_id):
         conn.close()
 
 
-def submit(user_id, txid, amount):
-    if not isinstance(txid, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", txid):
-        raise ValueError("TXID 应为 64 位十六进制交易哈希")
+def submit(user_id, txid, amount, method="usdt"):
+    if not isinstance(method, str) or method not in {"usdt", "aba"}:
+        raise ValueError("请选择 USDT 或 ABA")
+    if method == "usdt":
+        if not isinstance(txid, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", txid):
+            raise ValueError("TXID 应为 64 位十六进制交易哈希")
+        reference = txid.lower()
+    else:
+        if not isinstance(txid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{6,100}", txid):
+            raise ValueError("ABA 交易编号须为 6–100 位字母、数字、下划线或连字符")
+        reference = f"aba:{txid.lower()}"
     amount = amount_value(amount)
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT address FROM wallet_config WHERE id=1")
-            config = cur.fetchone()
-            if not config or not valid_address(config["address"]):
-                raise ValueError("充值尚未开放，请等待管理员配置收款地址")
+            if method == "usdt":
+                cur.execute("SELECT address FROM wallet_config WHERE id=1")
+                config = cur.fetchone()
+                if not config or not valid_address(config["address"]):
+                    raise ValueError("充值尚未开放，请等待管理员配置收款地址")
+                address = config["address"]
+            else:
+                cur.execute("SELECT account_number,account_name FROM wallet_aba_config WHERE id=1")
+                config = cur.fetchone()
+                if not config:
+                    raise ValueError("ABA 充值尚未开放，请等待管理员配置美元收款账户")
+                address = f"{config['account_number']} / {config['account_name']}"
             cur.execute(
-                "INSERT INTO wallet_deposits(user_id,txid,claimed,address) VALUES(%s,%s,%s,%s)",
-                (user_id, txid.lower(), amount, config["address"]),
+                "INSERT INTO wallet_deposits(user_id,txid,claimed,address,method) VALUES(%s,%s,%s,%s,%s)",
+                (user_id, reference, amount, address, method),
             )
             deposit_id = cur.lastrowid
         conn.commit()
@@ -126,7 +175,7 @@ def submit(user_id, txid, amount):
     except pymysql.IntegrityError as exc:
         conn.rollback()
         if exc.args[0] == 1062:
-            raise ValueError("该 TXID 已提交，请查看充值记录或联系管理员") from exc
+            raise ValueError("该交易编号已提交，请查看充值记录或联系管理员") from exc
         raise
     finally:
         conn.close()

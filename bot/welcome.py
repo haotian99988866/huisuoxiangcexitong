@@ -62,7 +62,9 @@ HELP_TEXT = (
     "点【🎵 音乐】进入播放器，可按语言分类、搜索歌曲，支持播放队列、收藏和歌单；收藏与歌单需在 Telegram 中登录使用。\n\n"
     "<b>🔟 水墨与今日时令</b>\n"
     "七套水墨构图按北京时间周一至周日轮换，叠加节气与节日配色。小程序点【全部】→【今日时令】查看农历和当前节气。\n\n"
-    "💳 充值中心可查看余额与充值记录，商品购买仍在筹备中。\n\n"
+    "💳 小程序【全部】→【会员充值】自动识别账户；正式销售暂未开放。"
+    "普通浏览器可发送 /member 获取网站登录链接；话费商品仍在筹备中。\n"
+    "付款或赠送问题可发送 /paysupport 联系管理员。\n\n"
     "💡 小提示：名单会随频道实时更新，下单前建议再刷新一次。"
 )
 
@@ -75,7 +77,7 @@ def home_keyboard():
     )
     keyboard.row(
         types.InlineKeyboardButton("🎵 音乐", url=MUSIC_URL),
-        types.InlineKeyboardButton("💳 充值中心（筹备中）", url=RECHARGE_URL),
+        types.InlineKeyboardButton("💳 充值中心", url=RECHARGE_URL),
     )
     keyboard.row(
         types.InlineKeyboardButton("🎉 最新活动", callback_data="menu:promo"),
@@ -90,6 +92,7 @@ def home_keyboard():
         types.InlineKeyboardButton("🔗 分享给朋友", url=SHARE_URL),
     )
     keyboard.row(types.InlineKeyboardButton("📰 大事件新闻订阅", callback_data="news:menu"))
+    keyboard.row(types.InlineKeyboardButton("⭐ 会员网站登录", callback_data="member:login"))
     return keyboard
 
 

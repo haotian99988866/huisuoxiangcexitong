@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
 import ModuleTabs from '../components/ModuleTabs'
 import { bindBackButton, hasTelegramBackButton, subscribeFullscreen } from '../utils/twa'
@@ -79,18 +79,19 @@ export default function Recharge() {
       )}
       <header style={{ padding: '12px 4px 20px' }}>
         <h1 style={{ fontSize: '24px', color: 'var(--ink-text)' }}>充值中心</h1>
-        <p style={mutedStyle}>Telegram Premium · 柬埔寨手机话费</p>
+        <p style={mutedStyle}>账户余额 · 会员充值入口 · 柬埔寨手机话费</p>
       </header>
       <div role="status" style={{
         padding: '12px 16px', marginBottom: '16px', borderRadius: '12px',
         background: '#fff3d6', color: '#855c17', fontSize: '14px',
       }}>
-        商品暂未开放购买。余额充值仅在下方显示有效收款地址后开放，入账须管理员核实。
+        余额充值需经管理员核实真实到账；会员功能已移至独立会员页，正式销售暂未开放。
       </div>
       <section aria-labelledby="wallet-heading" style={panelStyle}>
         <h2 id="wallet-heading" style={{ fontSize: '19px' }}>我的余额</h2>
-        <p style={{ fontSize: '28px', color: 'var(--ink-accent)' }}>{wallet ? `${wallet.balance} U` : '—'}</p>
-        <p style={mutedStyle}>实际到账 1 USDT = 1 U，不另收充值手续费。不支持自助提现；退回链上须联系管理员人工处理。余额不用于购买 Premium。</p>
+        <p style={{ fontSize: '28px', color: 'var(--ink-accent)' }}>{wallet ? `${wallet.balance} USD` : '—'}</p>
+        <p style={mutedStyle}>实际到账 1 USDT = 1 USD，不另收充值手续费。不支持自助提现；退回链上须联系管理员人工处理。会员功能请进入独立会员页。</p>
+        <Link to="/membership" style={{ color: 'var(--ink-accent)' }}>进入会员充值页</Link>
         <button type="button" disabled={busy} onClick={refresh} style={{ padding: '8px 14px', marginTop: '10px' }}>
           {busy ? '处理中…' : '刷新余额与记录'}
         </button>
@@ -118,14 +119,6 @@ export default function Recharge() {
         ) : <p style={mutedStyle}>收款地址尚未配置，充值关闭，请勿转账。</p>}
         <h3 style={{ marginTop: '18px' }}>最近充值记录</h3>
         {wallet && <DepositRecords deposits={wallet.deposits} />}
-      </section>
-      <section aria-labelledby="premium-heading" style={panelStyle}>
-        <h2 id="premium-heading" style={{ fontSize: '19px', marginBottom: '10px' }}>
-          Telegram Premium
-        </h2>
-        <p style={mutedStyle}>自动开通渠道尚未接入，目前仅展示服务介绍。</p>
-        <p style={mutedStyle}>可购时长、售价和到账时间待公布。支付开放后使用 Telegram Stars，不接受虚拟货币转账购买 Premium。</p>
-        <button type="button" disabled style={buttonStyle}>暂未开放购买</button>
       </section>
       <section aria-labelledby="phone-heading" style={panelStyle}>
         <h2 id="phone-heading" style={{ fontSize: '19px', marginBottom: '10px' }}>

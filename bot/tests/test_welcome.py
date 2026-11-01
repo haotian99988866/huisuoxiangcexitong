@@ -15,6 +15,7 @@ class WelcomeTests(unittest.TestCase):
                         .issubset({button.url for button in buttons}))
         self.assertTrue({"menu:promo", "menu:help", "sub:menu", "news:menu"}
                         .issubset({button.callback_data for button in buttons}))
+        self.assertEqual(sum(button.callback_data == "member:login" for button in buttons), 1)
 
     def test_descriptions_fit_telegram_limits_and_cover_current_modules(self):
         self.assertLessEqual(len(bot_profile.DESCRIPTION.encode("utf-16-le")) // 2, 512)
@@ -24,6 +25,11 @@ class WelcomeTests(unittest.TestCase):
                 self.assertIn(feature, text)
         self.assertIn("/news_off", welcome.HELP_TEXT)
         self.assertIn("筹备中", welcome.HELP_TEXT)
+
+    def test_command_menu_only_advertises_current_member_scheme(self):
+        commands = {command.command for command in bot_profile.COMMANDS}
+        self.assertTrue({"member", "member_sales", "paysupport"}.issubset(commands))
+        self.assertFalse({"premium_sales", "stars_sales"} & commands)
 
     def test_start_sends_current_text_and_keyboard_without_preview(self):
         bot = Mock()

@@ -166,7 +166,8 @@ def tenant_cache_policy(response):
     body = request.get_json(silent=True) if request.endpoint == "webhook" else None
     admin_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"] in {"admin_dashboard", "admin_tenant_save"}
     music_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("music_")
-    if admin_request or music_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
+    payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_"))
+    if admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
     return response
@@ -889,6 +890,90 @@ def webhook():
         except pymysql.MySQLError:
             logger.exception("Music account database operation failed")
             return jsonify({"error": "音乐账户服务暂不可用，请稍后重试"}), 503
+    if action in {
+        "member_login", "member_logout", "member_account", "member_deposit",
+        "member_catalog", "member_purchase", "member_orders", "member_order",
+        "member_test_account", "member_test_purchase",
+    }:
+        from member_accounts import authenticate as browser_auth, exchange_link, logout, site_origin
+        from premium_balance import catalog, create_order, get_order, recent_orders
+        from wallet import account, submit
+        try:
+            from admin_console import authenticate as telegram_auth, is_tenant_session
+            init_data = data.get("init_data")
+            telegram_user = None
+            if init_data is not None:
+                telegram_user = telegram_auth(init_data, os.getenv("TELEGRAM_BOT_TOKEN"))
+                if telegram_user is None:
+                    return jsonify({"error": "未能验证 Telegram 账户，请重新打开小程序登录"}), 401
+                if is_tenant_session(init_data):
+                    return jsonify({"error": "会所入口不开放账户或会员购买"}), 403
+                if action in {"member_login", "member_logout"}:
+                    return jsonify({"error": "小程序账户由 Telegram 管理，请在客户端切换账户"}), 400
+            elif request.headers.get("Origin") != site_origin():
+                return jsonify({"error": "网站入口来源无效"}), 403
+            if action == "member_login":
+                try:
+                    session = exchange_link(data.get("token"))
+                except ValueError as exc:
+                    return jsonify({"error": str(exc)}), 401
+                return jsonify({"session": session})
+            authorization = request.headers.get("Authorization", "")
+            session = authorization[7:] if authorization.startswith("Bearer ") else ""
+            try:
+                user_id = telegram_user["id"] if telegram_user else browser_auth(session)
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 401
+            if action == "member_logout":
+                logout(session)
+                return jsonify({"logged_out": True})
+            from visit_stats import admin_ids
+            if action.startswith("member_test_"):
+                if user_id not in admin_ids():
+                    return jsonify({"error": "模拟测试仅允许管理员使用"}), 403
+                from member_simulation import account as test_account, purchase as test_purchase
+                if action == "member_test_account":
+                    result = test_account(user_id)
+                else:
+                    result = test_purchase(
+                        user_id, data.get("order_id"), data.get("recipient_username"),
+                        data.get("months"), data.get("scenario"))
+            elif action == "member_account":
+                result = {**account(user_id), "user_id": user_id, "can_test": user_id in admin_ids()}
+            elif action == "member_deposit":
+                result = {"id": submit(user_id, data.get("reference"), data.get("amount"), data.get("method"))}
+            elif action == "member_catalog":
+                result = catalog()
+            elif action == "member_orders":
+                result = {"orders": recent_orders(user_id)}
+            elif action == "member_order":
+                order = get_order(data.get("order_id"), user_id)
+                if not order:
+                    return jsonify({"error": "订单不存在"}), 404
+                result = {
+                    "order_id": order["order_id"], "months": order["months"],
+                    "recipient_username": order["recipient_username"],
+                    "price_usd": str(order["price_usd"]), "status": order["status"],
+                }
+            else:
+                import telebot
+                bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+                if not bot_token:
+                    raise RuntimeError("Telegram bot token is not configured")
+                order = create_order(
+                    telebot.TeleBot(bot_token), user_id, data.get("recipient_username"),
+                    data.get("months"), data.get("order_id"))
+                result = {
+                    "order_id": order["order_id"], "months": order["months"],
+                    "recipient_username": order["recipient_username"],
+                    "price_usd": str(order["price_usd"]), "status": order["status"],
+                }
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            logger.exception("Browser member operation failed action=%s", action)
+            return jsonify({"error": "会员服务暂不可用；购买请求异常时请先查询订单，勿重新扣款"}), 503
     if action in {"wallet_account", "wallet_submit"}:
         from wallet import account, submit
         init_data = data.get("init_data")
@@ -1335,6 +1420,12 @@ if __name__ == "__main__":
     ensure_tenant_tables()
     from wallet import ensure_tables as ensure_wallet_tables
     ensure_wallet_tables()
+    from member_accounts import ensure_tables as ensure_member_account_tables
+    from premium_balance import ensure_tables as ensure_member_sales_tables
+    ensure_member_account_tables()
+    ensure_member_sales_tables()
+    from member_simulation import ensure_tables as ensure_member_simulation_tables
+    ensure_member_simulation_tables()
     ensure_table()
     ensure_movie_tables()
     ensure_music_tables()

@@ -60,13 +60,14 @@ export default function Personal() {
         )}
         <p style={{ ...detailStyle, marginTop: '12px' }}>账户余额</p>
         <p style={{ fontSize: '30px', color: 'var(--ink-accent)' }}>
-          {busy ? '加载中…' : wallet ? `${wallet.balance} U` : '—'}
+          {busy ? '加载中…' : wallet ? `${wallet.balance} USD` : '—'}
         </p>
         {error && <p role="alert" style={{ color: '#b42318' }}>{error}</p>}
         <button type="button" disabled={busy} onClick={refresh} style={{ padding: '8px 14px', marginTop: '10px' }}>
           {busy ? '正在读取账户…' : '刷新账户'}
         </button>
         <Link to="/recharge" style={actionStyle}>余额充值</Link>
+        <Link to="/membership" style={actionStyle}>会员充值与订单</Link>
         {wallet?.can_manage && <Link to="/admin" style={actionStyle}>运营管理台</Link>}
       </section>
       <section aria-labelledby="personal-records" style={cardStyle}>
@@ -77,8 +78,8 @@ export default function Personal() {
       </section>
       <section aria-labelledby="personal-help" style={cardStyle}>
         <h2 id="personal-help" style={{ fontSize: '19px' }}>帮助与规则</h2>
-        <p style={detailStyle}>实际到账 1 USDT = 1 U，充值申请需人工核款。暂不支持自助提现，退回链上请联系管理员人工处理。</p>
-        <p style={detailStyle}>Premium 与话费购买尚未开放，目前没有消费订单。余额不用于购买 Premium。</p>
+        <p style={detailStyle}>实际到账 1 USDT = 1 USD，充值申请需人工核款。暂不支持自助提现，退回链上请联系管理员人工处理。</p>
+        <p style={detailStyle}>会员功能与订单查询请进入独立会员页，小程序自动识别账户；正式会员销售和话费购买暂未开放。</p>
         <a href="https://t.me/haotian99988866" target="_blank" rel="noreferrer" style={actionStyle}>联系昊天</a>
       </section>
     </main>

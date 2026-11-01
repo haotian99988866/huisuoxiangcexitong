@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pymysql
 import requests
 import telebot
-from telebot import util
+from telebot import apihelper, util
 from dotenv import load_dotenv
 from db import get_conn
 from image_hash import compute_hash, ensure_columns as ensure_image_hash_columns
@@ -198,7 +198,7 @@ def handle_help(message):
 
 @bot.message_handler(commands=['wallet'], chat_types=['private'])
 def handle_wallet(message):
-    from wallet import account, pending, review, set_address
+    from wallet import account, pending, review, set_address, set_aba
     from telebot import types
     if message.from_user.id not in admin_ids():
         bot.reply_to(message, "请通过主菜单的充值中心查看账户余额。")
@@ -208,6 +208,9 @@ def handle_wallet(message):
         if len(parts) == 3 and parts[1] == "address":
             set_address(parts[2])
             bot.reply_to(message, "收款地址已配置，TRC20 余额充值申请已开放。请确认该地址由你控制。")
+        elif len(parts) >= 4 and parts[1] == "aba":
+            set_aba(parts[2], " ".join(parts[3:]))
+            bot.reply_to(message, "ABA 美元收款账户已配置，请核对账号和收款人。")
         elif len(parts) == 4 and parts[1] == "approve":
             from wallet import amount_value
             amount = amount_value(parts[3])
@@ -216,14 +219,15 @@ def handle_wallet(message):
                 raise ValueError("申请编号必须为正整数")
             keyboard = types.InlineKeyboardMarkup()
             keyboard.add(types.InlineKeyboardButton(
-                "已核实链上到账，确认入账",
+                "已核实真实到账，确认 USD 入账",
                 callback_data=f"wallet:approve:{deposit_id}:{amount:f}",
             ))
             bot.reply_to(
                 message,
-                f"申请 #{deposit_id} 将入账 {amount:f} U。\n"
-                "请在链上独立核对：TRON 主网、官方 USDT 合约、收款地址、"
-                "实际到账金额、交易成功及确认情况，不能仅凭截图。\n确认后余额不可通过此命令撤销。",
+                f"申请 #{deposit_id} 将入账 {amount:f} USD。\n"
+                "USDT：独立核对 TRON 主网、官方 USDT 合约、收款地址及真实到账和确认情况。\n"
+                "ABA：独立核对银行交易编号、美元币种、收款账户及真实到账金额。\n"
+                "不能仅凭截图；请确认金额与交易一致。确认后余额不可通过此命令撤销。",
                 reply_markup=keyboard,
             )
         elif len(parts) == 3 and parts[1] == "reject":
@@ -231,17 +235,21 @@ def handle_wallet(message):
             bot.reply_to(message, "申请已拒绝，余额未变动。")
         elif len(parts) == 1:
             rows = pending()
-            address = account(message.from_user.id)["address"] or "未配置，充值关闭"
+            wallet = account(message.from_user.id)
+            address = wallet["address"] or "未配置，USDT 充值关闭"
+            aba = wallet["aba"]
             text = (
                 f"TRC20 收款地址：{address}\n\n"
+                f"ABA：{aba['account_number'] + ' / ' + aba['account_name'] if aba else '未配置'}\n"
                 "配置：/wallet address 收款地址\n"
+                "ABA：/wallet aba 账号 收款人名称（仅美元）\n"
                 "核款：/wallet approve 申请编号 实际到账金额\n"
                 "拒绝：/wallet reject 申请编号\n\n待审核（最多8条，处理后查看下一批）：\n"
             )
             for row in rows:
                 text += (
-                    f"\n#{row['id']} 用户 {row['user_id']} 申报 {row['claimed']} U\n"
-                    f"地址：{row['address']}\nTXID：{row['txid']}\n"
+                    f"\n#{row['id']} 用户 {row['user_id']} 申报 {row['claimed']} USD · {row['method']}\n"
+                    f"收款：{row['address']}\n交易编号：{row['txid']}\n"
                 )
             bot.send_message(message.chat.id, text, disable_web_page_preview=True)
         else:
@@ -263,7 +271,7 @@ def handle_wallet_confirmation(call):
         _, action, deposit_id, amount = call.data.split(":")
         if action != "approve":
             raise ValueError("无效操作")
-        review(int(deposit_id), call.from_user.id, amount)
+        customer_id = review(int(deposit_id), call.from_user.id, amount)
     except ValueError as exc:
         bot.answer_callback_query(call.id, str(exc), show_alert=True)
         return
@@ -272,7 +280,91 @@ def handle_wallet_confirmation(call):
         bot.answer_callback_query(call.id, "数据库操作失败，请先检查记录", show_alert=True)
         return
     bot.answer_callback_query(call.id, "入账成功")
-    bot.send_message(call.message.chat.id, f"申请 #{deposit_id} 已入账 {amount} U。")
+    bot.send_message(call.message.chat.id, f"申请 #{deposit_id} 已入账 {amount} USD。")
+    try:
+        bot.send_message(customer_id, f"充值申请 #{deposit_id} 已核实到账，账户增加 {amount} USD，请刷新网站余额。")
+    except apihelper.ApiException:
+        logger.exception("Could not notify customer of approved deposit user=%s", customer_id)
+
+
+def send_member_login(chat_id, user):
+    from member_accounts import create_login_link
+    from telebot import types
+    try:
+        touch_user(user)
+        link = create_login_link(user.id)
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("打开会员网站", url=link))
+        bot.send_message(
+            chat_id, "请使用外部浏览器打开会员网站。登录链接 10 分钟内有效且只能使用一次，"
+            "不要转发给他人；网站登录有效期为 24 小时。", reply_markup=keyboard)
+    except ValueError as exc:
+        bot.send_message(chat_id, str(exc))
+    except Exception:
+        logger.exception("Could not issue member browser login")
+        bot.send_message(chat_id, "网站登录暂不可用，请稍后重试 /member。")
+
+
+@bot.message_handler(commands=["member"], chat_types=["private"])
+def handle_member_login(message):
+    send_member_login(message.chat.id, message.from_user)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "member:login")
+def handle_member_login_button(call):
+    if call.message.chat.type != "private":
+        bot.answer_callback_query(call.id, "请私聊机器人发送 /member", show_alert=True)
+        return
+    bot.answer_callback_query(call.id, "正在生成登录链接")
+    send_member_login(call.message.chat.id, call.from_user)
+
+
+@bot.message_handler(commands=["member_sales"], chat_types=["private"])
+def handle_member_sales(message):
+    if message.from_user.id not in admin_ids():
+        bot.reply_to(message, "仅管理员可使用此命令。")
+        return
+    from premium_balance import catalog, confirm_delivery, recent_orders, refund_order, set_enabled
+    parts = (message.text or "").split()
+    try:
+        if len(parts) == 2 and parts[1] in {"enable", "disable"}:
+            set_enabled(bot, parts[1] == "enable")
+            bot.reply_to(message, "会员余额购买已开放。" if parts[1] == "enable" else "会员余额购买已关闭。")
+        elif len(parts) == 3 and parts[1] == "delivered":
+            confirm_delivery(parts[2], message.from_user.id)
+            bot.reply_to(message, "已确认赠送完成；此操作必须以官方赠送记录为依据。")
+        elif len(parts) == 4 and parts[1] == "refund" and parts[3] == "NOT_GIFTED":
+            refund_order(parts[2], message.from_user.id, confirmed_not_delivered=True)
+            bot.reply_to(message, "购买金额已退回站内 USD 余额（不是链上退款）。")
+        elif len(parts) == 1 or (len(parts) == 2 and parts[1] == "status"):
+            balance = bot.get_my_star_balance()
+            lines = [
+                f"网站会员购买：{'开放' if catalog()['enabled'] else '关闭'}",
+                f"机器人 Stars：{balance.amount if balance else 0}",
+                "售价：3个月 $15.99 / 6个月 $19.99 / 12个月 $33.99",
+                "/member_sales enable|disable",
+                "/member_sales delivered 订单号（核实已赠送）",
+                "/member_sales refund 订单号 NOT_GIFTED（核实未赠送）",
+            ]
+            for order in recent_orders():
+                lines.append(f"{order['order_id']} | {order['status']} | ${order['price_usd']} | "
+                             f"{order['months']}个月 → @{order['recipient_username']}")
+            bot.reply_to(message, "\n".join(lines))
+        else:
+            raise ValueError("命令格式错误，请发送 /member_sales 查看用法")
+    except ValueError as exc:
+        bot.reply_to(message, str(exc))
+    except Exception:
+        logger.exception("Member sales administration failed")
+        bot.reply_to(message, "操作异常，请先核实订单和官方交易，勿重复赠送或退款。")
+
+
+@bot.message_handler(commands=["paysupport"], chat_types=["private"])
+def handle_pay_support(message):
+    bot.reply_to(
+        message,
+        "Premium 付款或赠送遇到问题，请联系管理员并提供订单编号。"
+        "请勿发送密码、验证码或两步验证密码。")
 
 
 @bot.callback_query_handler(func=lambda call: (call.data or "").startswith("menu:"))
@@ -794,6 +886,11 @@ def save_ktv_video(message):
 if __name__ == "__main__":
     from wallet import ensure_tables as ensure_wallet_tables
     ensure_wallet_tables()
+    from member_accounts import ensure_tables as ensure_member_account_tables
+    from premium_balance import ensure_tables as ensure_member_sales_tables, start_worker as start_member_worker
+    ensure_member_account_tables()
+    ensure_member_sales_tables()
+    start_member_worker(bot)
     print("🤖 机器人启动 — 监听会所频道模式")
     print(f"📋 已监听 {len(LISTEN_CHANNELS)} 个频道")
     ensure_table()
