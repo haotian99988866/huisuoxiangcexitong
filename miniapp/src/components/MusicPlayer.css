@@ -135,8 +135,6 @@
 .music-full-player .music-section-heading h2 { font-size: 13px; letter-spacing: 2px; font-weight: 400; color: #586c5d; }
 .music-full-player button:focus-visible { outline-color: #365544; }
 .music-full-art { position: relative; isolation: isolate; display: flex; flex: 1; min-height: 0; align-items: center; justify-content: center; flex-direction: column; gap: 12px; border: 1px solid var(--ink-line); border-radius: 26px; container-type: size; overflow: hidden; background: linear-gradient(145deg, var(--ink-surface), var(--ink-wash)); }
-.music-full-art > .seasonal-ornament { top: var(--ink-ornament-top, 0px); left: var(--ink-ornament-left, auto); right: var(--ink-ornament-right, 0px); width: min(40%, 150px); }
-.music-full-art > .music-ink-scenery { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; }
 .music-full-art .music-vinyl { position: relative; flex-shrink: 0; inset: auto; width: min(70cqw, calc(100cqh - 40px), 260px); height: auto; aspect-ratio: 1; border: 7px solid var(--ink-line); box-shadow: 0 12px 35px #30463926; }
 .music-full-art .music-vinyl span { background: var(--ink-paper); border-color: var(--ink-wash); color: var(--ink-accent); }
 .music-art-caption { color: var(--ink-muted); font-family: inherit; font-size: 11px; letter-spacing: 3px; }

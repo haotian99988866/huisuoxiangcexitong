@@ -20,6 +20,8 @@ SOURCE_ID = 1345733873
 SOURCE_USERNAME = "luolimeimei"
 TARGET_ID = 3920194464
 HISTORY_START_ID = 2377
+RECENT_RECHECK_LIMIT = 50
+RECENT_RECHECK_INTERVAL = 300
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,17 @@ class MovieStore:
         with self.connection:
             self.connection.execute("INSERT OR IGNORE INTO jobs(message,historical) VALUES (?,?)",
                                     (message, int(historical)))
+
+    def reconcile(self, message):
+        if message < int(self.setting("start_message", str(self.source.start))):
+            return False
+        with self.connection:
+            added = self.connection.execute(
+                "INSERT OR IGNORE INTO jobs(message,historical) VALUES (?,0)", (message,)).rowcount
+            retried = self.connection.execute(
+                "UPDATE jobs SET status='queued',error=NULL,historical=0 WHERE message=? "
+                "AND status='skipped' AND result_id IS NULL AND document_id IS NULL", (message,)).rowcount
+        return bool(added or retried)
 
     def advance(self, message, historical):
         column = "history" if historical else "live"
@@ -246,6 +259,25 @@ async def scan_owned(user, target, store):
     return count < 100
 
 
+async def reconcile_recent(user, source, store):
+    now = time.time()
+    if now < float(store.setting("recent_checked_at")) + RECENT_RECHECK_INTERVAL:
+        return
+    start = int(store.setting("start_message", str(store.source.start)))
+    queued = 0
+    async for message in user.iter_messages(source, min_id=start - 1, limit=RECENT_RECHECK_LIMIT):
+        job = store.connection.execute("SELECT status FROM jobs WHERE message=?", (message.id,)).fetchone()
+        if job and job["status"] != "skipped":
+            continue
+        message = await resolve_album_caption(user, source, message, store.source)
+        if video_metadata(message, store.source) and store.reconcile(message.id):
+            queued += 1
+            logger.info("Movie recovered recent source=%s message=%s", store.source.id, message.id)
+    store.set("recent_checked_at", now)
+    logger.info("Movie recent recheck source=%s queued=%s limit=%s",
+                store.source.id, queued, RECENT_RECHECK_LIMIT)
+
+
 async def process_job(user, bot, source, target, store, job, other_stores=()):
     if job["status"] == "forwarded":
         messages = await bot.get_messages(types.PeerChannel(target.id), ids=[job["result_id"]])
@@ -378,6 +410,7 @@ async def movie_worker(user, bot, directory):
                     continue
                 await scan_source(user, source, store, historical=False)
                 await scan_source(user, source, store, historical=True)
+                await reconcile_recent(user, source, store)
                 job = store.pending()
                 if job:
                     try:

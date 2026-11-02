@@ -26,7 +26,6 @@ export function useAnalyticsScreen(page) {
 }
 
 export const analyticsId = () => crypto.randomUUID().replaceAll('-', '')
-export const analyticsPreferences = () => preferences
 export function subscribeAnalytics(listener) {
   listeners.add(listener)
   return () => listeners.delete(listener)

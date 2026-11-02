@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import ModuleTabs from '../components/ModuleTabs'
 import { FullscreenAnnouncementBar } from '../components/Announcement'
 import { useMusic } from '../components/MusicPlayer'
@@ -14,7 +14,6 @@ import './Music.css'
 
 export default function Music() {
   const player = useMusic()
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const sharedToken = params.get('playlist')
   const requestedView = ['favorites', 'playlists'].includes(params.get('view')) ? params.get('view') : null

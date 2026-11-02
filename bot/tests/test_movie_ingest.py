@@ -10,7 +10,7 @@ from telethon import errors, types
 
 from movie_ingest import (MovieStore, SOURCES, SOURCE_ID, TARGET_ID, movie_worker, store_path,
                           clean_movie_caption, process_job, resolve_album_caption,
-                          scan_source, scan_owned, video_metadata)
+                          scan_source, scan_owned, video_metadata, reconcile_recent)
 
 
 def message(ident=10, caption="《测试剧》第1集 #电视剧", document_id=100):
@@ -405,6 +405,40 @@ class MovieIngestTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.row()["result_id"], 88)
         self.assertEqual(self.row()["status"], "forwarded")
         self.user.send_file.assert_not_awaited()
+
+    async def test_recent_recheck_recovers_edited_caption_without_rewinding_progress(self):
+        self.store.advance(30, False)
+        self.store.enqueue(12, False)
+        self.store.update(self.row(12), "sent", result_id=88, document_id=112)
+        self.store.enqueue(13, False)
+        self.store.update(self.row(13), "skipped", error="Missing title")
+        self.store.enqueue(14, False)
+        self.store.update(self.row(14), "uncertain", document_id=114)
+        self.store.enqueue(15, False)
+        self.store.update(self.row(15), "failed", error="Requires inspection")
+        async def iterate(source, **options):
+            self.assertEqual(options, {"min_id": 0, "limit": 50})
+            for ident in (15, 14, 13, 12, 11, 10):
+                yield message(ident, caption="" if ident == 10 else "《已补标题》 #电影")
+        self.user.iter_messages = iterate
+        with patch("movie_ingest.time.time", return_value=1000):
+            await reconcile_recent(self.user, self.source, self.store)
+        self.assertEqual(self.row(11)["status"], "queued")
+        self.assertEqual(self.row(13)["status"], "queued")
+        self.assertEqual(self.row(12)["status"], "sent")
+        self.assertEqual(self.row(14)["status"], "uncertain")
+        self.assertEqual(self.row(15)["status"], "failed")
+        self.assertIsNone(self.row(10))
+        self.assertEqual(self.store.progress()["live"], 30)
+        self.user.send_file.assert_not_awaited()
+        self.assertEqual(self.store.setting("recent_checked_at"), "1000")
+
+    async def test_recent_recheck_interval_does_not_repeat_network_scan(self):
+        self.store.set("recent_checked_at", 1000)
+        self.user.iter_messages = unittest.mock.Mock()
+        with patch("movie_ingest.time.time", return_value=1299):
+            await reconcile_recent(self.user, self.source, self.store)
+        self.user.iter_messages.assert_not_called()
 
     async def run_worker_failure(self, error):
         self.store.set("enabled", 1)

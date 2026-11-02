@@ -13,7 +13,6 @@
 │   ├── technician_photo_ocr.py # 本地 OCR、自动匹配及人工确认
 │   ├── review_technician_photos.py # 待核对照片 CLI
 │   ├── db.py                  # MySQL 连接
-│   ├── database.py            # 旧 PostgreSQL 初始化脚本，当前流程未使用
 │   ├── requirements.txt       # Python 依赖
 │   ├── migrations/            # MySQL 表结构迁移
 │   └── config/
@@ -214,7 +213,7 @@ npm run build
 - 查看待核对项目：`cd .\bot; .\venv\Scripts\python.exe .\review_technician_photos.py list`。人工确认：`.\venv\Scripts\python.exe .\review_technician_photos.py approve <照片ID> <工号>`。只能确认该日期出勤名单中的工号。
 - 首次运行 OCR 时需要联网下载识别模型；模型保存在 Python 环境中，不会上传照片。
 - 请先确认机器人账号已加入需要监听的频道，并具备读取消息及发送回复的权限。
-- `bot/database.py` 是旧 PostgreSQL 脚本；当前 `bot/db.py` 和 `bot/api_server.py` 使用 MySQL。
+- 数据库统一使用 MySQL，通过 `bot/db.py` 和 `bot/api_server.py` 连接；旧 PostgreSQL 初始化脚本已移除。
 - 数据库备份、迁移和恢复应在服务器上线前另行配置。
 
 ## 配置与秘密管理

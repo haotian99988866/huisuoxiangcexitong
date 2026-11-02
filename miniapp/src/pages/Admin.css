@@ -28,8 +28,6 @@
 .admin-console .admin-sections > button { position: relative; border: 0; border-radius: 0; background: transparent; padding: 16px 6px; font-size: 14px; font-weight: 600; color: var(--ink-muted); }
 .admin-console .admin-sections > button[aria-pressed="true"] { color: var(--ink-accent); }
 .admin-sections > button[aria-pressed="true"]::after { content: ''; position: absolute; bottom: -1px; left: 20%; right: 20%; height: 3px; background: var(--ink-accent); border-radius: 3px 3px 0 0; }
-.admin-star-balance { color: var(--ink-accent); font-size: 14px; margin: 14px 0; }
-.admin-star-balance strong { font-size: 36px; font-variant-numeric: tabular-nums; }
 .ink-app .admin-check { display: flex; align-items: flex-start; gap: 10px; }
 .admin-stats { margin-top: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .admin-console .admin-more { align-self: center; margin: 0; min-width: 0; }

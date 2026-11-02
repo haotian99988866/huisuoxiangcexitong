@@ -19,7 +19,4 @@
 .module-tile strong { font-size: 15px; }
 .module-tile small { color: #677a6c; font-size: 12px; }
 .module-tile.selected { background: var(--ink-wash); border-color: var(--ink-accent); }
-.module-seasonal-entry { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; min-height: 52px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid var(--ink-line); border-radius: 14px; background: var(--ink-wash); color: var(--ink-accent); text-align: left; font: inherit; font-size: 14px; cursor: pointer; }
-.module-seasonal-entry small { display: block; margin-top: 3px; color: #677a6c; font-size: 11px; }
-.module-seasonal-entry > span:last-child { font-size: 18px; }
 @media (max-width: 350px) { .module-shortcut { gap: 3px; } .module-shortcut svg { width: 15px; height: 15px; } }

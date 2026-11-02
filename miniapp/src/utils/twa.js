@@ -1,10 +1,8 @@
-import { contactUrl, isTenantEntry, tenantHeaders } from './tenant'
+import { contactUrl, tenantHeaders } from './tenant'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
 
 export { bindBackButton, registerBackOverlay } from './backButton'
-
-let visitTracked = false
 
 // t.me 链接交给 Telegram 内部打开(频道原帖);浏览器里退回新窗口
 export function openTelegramLink(url) {
@@ -41,19 +39,6 @@ export function subscribeFullscreen(callback) {
     tg.offEvent('fullscreenChanged', update)
     tg.offEvent('fullscreenFailed', update)
   }
-}
-
-export function trackVisit() {
-  if (isTenantEntry() || visitTracked) return
-  const initData = window.Telegram?.WebApp?.initData
-  if (!initData) return
-  visitTracked = true
-  fetch(`${API_BASE_URL}/webhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
-    body: JSON.stringify({ action: 'track_visit', init_data: initData }),
-    keepalive: true
-  }).catch(() => {})
 }
 
 export function sendData(data) {
