@@ -9,6 +9,7 @@ import subprocess
 import time
 
 from telethon import errors
+from music_mtproto import AudioSourceUnavailable
 from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,22 @@ PLAYBACK_COPY_RESERVE = 16 * 1024 * 1024
 
 
 class PlaybackBudgetReached(ValueError):
+    pass
+
+
+class PlaybackInvalidAudio(ValueError):
+    pass
+
+
+class PlaybackOutputInvalid(PlaybackInvalidAudio):
+    pass
+
+
+class PlaybackCopyTooLarge(ValueError):
+    pass
+
+
+class PlaybackPartialInvalid(ValueError):
     pass
 
 
@@ -44,10 +61,15 @@ class PlaybackStore:
             CREATE TABLE IF NOT EXISTS jobs (
                 name TEXT PRIMARY KEY, message INTEGER NOT NULL, size INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'queued', priority INTEGER NOT NULL DEFAULT 0,
-                retry_at REAL NOT NULL DEFAULT 0, error TEXT
+                retry_at REAL NOT NULL DEFAULT 0, error TEXT,
+                retryable INTEGER NOT NULL DEFAULT 1
             );
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value REAL NOT NULL);
         """)
+        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
+        if "retryable" not in columns:
+            self.connection.execute("ALTER TABLE jobs ADD COLUMN retryable INTEGER NOT NULL DEFAULT 1")
+            self.connection.commit()
         ensure_health_table(self.connection)
 
     def enqueue(self, name, message, size, priority=False):
@@ -63,22 +85,23 @@ class PlaybackStore:
 
     def pending(self):
         # Finish an existing partial before opening another original-file download.
-        partial = next(playback_directory().glob("*.download"), None)
-        if partial:
+        for partial in sorted(playback_directory().glob("*.download")):
+            if partial.stat().st_size == 0:
+                continue
             row = self.connection.execute(
-                "SELECT * FROM jobs WHERE name=? AND status IN ('queued','preparing','failed')",
+                "SELECT * FROM jobs WHERE name=? AND retryable=1 AND status IN ('queued','preparing','failed')",
                 (partial.name.removesuffix(".download"),)).fetchone()
             if row:
                 return row if row["retry_at"] <= time.time() else None
         return self.connection.execute(
-            "SELECT * FROM jobs WHERE status IN ('queued','preparing','failed') AND retry_at<=?"
+            "SELECT * FROM jobs WHERE retryable=1 AND status IN ('queued','preparing','failed') AND retry_at<=?"
             " ORDER BY CASE WHEN status='queued' THEN 0 ELSE 1 END,priority DESC,retry_at,name"
             " LIMIT 1", (time.time(),)).fetchone()
 
-    def update(self, name, status, error=None, delay=0):
+    def update(self, name, status, error=None, delay=0, *, retryable=True):
         with self.connection:
-            self.connection.execute("UPDATE jobs SET status=?,error=?,retry_at=? WHERE name=?",
-                                    (status, error, time.time() + delay, name))
+            self.connection.execute("UPDATE jobs SET status=?,error=?,retry_at=?,retryable=? WHERE name=?",
+                                    (status, error, time.time() + delay, int(retryable), name))
 
     def wait_until(self, deadline=None):
         with self.connection:
@@ -119,14 +142,28 @@ def transcode(source, destination):
          "-threads", "1", str(destination)],
         capture_output=True, timeout=300)
     if result.returncode:
-        raise ValueError("Audio conversion failed; invalid or unsupported source")
+        detail = result.stderr.decode("utf-8", errors="replace").lower()
+        if any(marker in detail for marker in (
+            "invalid data found when processing input", "invalid sync code",
+            "invalid frame header", "decoding error", "decode_frame() failed",
+        )):
+            raise PlaybackInvalidAudio("Audio conversion failed; invalid or unsupported source")
+        raise RuntimeError("Audio conversion failed; retryable conversion or resource error")
     # Decode the entire result, not just its first bytes, before publishing it.
     check = subprocess.run(
         [executable, "-nostdin", "-hide_banner", "-loglevel", "error", "-xerror",
          "-i", str(destination), "-map", "0:a:0", "-f", "null", "-"],
         capture_output=True, timeout=120)
-    if check.returncode or destination.stat().st_size < 12:
-        raise ValueError("Prepared MP3 failed decoding validation")
+    if check.returncode:
+        detail = check.stderr.decode("utf-8", errors="replace").lower()
+        if any(marker in detail for marker in (
+            "invalid data found when processing input", "invalid frame",
+            "decoding error", "header missing",
+        )):
+            raise PlaybackOutputInvalid("Prepared MP3 failed decoding validation")
+        raise RuntimeError("Prepared MP3 validation unavailable; retry required")
+    if destination.stat().st_size < 12:
+        raise PlaybackOutputInvalid("Prepared MP3 failed decoding validation")
 
 
 async def prepare(job):
@@ -146,7 +183,7 @@ async def prepare(job):
         if not original.is_file():
             offset = partial.stat().st_size if partial.is_file() else 0
             if offset > job["size"]:
-                raise ValueError("Partial audio exceeds source size; inspect local preparation state")
+                raise PlaybackPartialInvalid("Partial audio exceeds source size; inspect local preparation state")
             if offset < job["size"]:
                 chunks = _audio_chunks(job["message"], job["size"], offset, job["size"] - 1,
                                        block_size=512 * 1024)
@@ -165,11 +202,14 @@ async def prepare(job):
                 raise ValueError("Incomplete playback source")
             source = partial
         else:
-            validate_audio(original, strict_suffix=False)
+            try:
+                validate_audio(original, strict_suffix=False)
+            except ValueError as error:
+                raise PlaybackInvalidAudio("Original audio header invalid; original retained") from error
         try:
             await asyncio.to_thread(transcode, source, encoded)
             if encoded.stat().st_size > 16 * 1024 * 1024:
-                raise ValueError("Prepared playback copy exceeds 16 MB budget; original retained")
+                raise PlaybackCopyTooLarge("Prepared playback copy exceeds 16 MB budget; original retained")
         except ValueError:
             if source == partial:
                 partial.unlink(missing_ok=True)
@@ -178,8 +218,25 @@ async def prepare(job):
         partial.unlink(missing_ok=True)
         logger.info("Playback MP3 prepared message=%s original=%s output=%s",
                     job["message"], job["size"], output.stat().st_size)
+    except (AudioSourceUnavailable, PlaybackPartialInvalid):
+        partial.unlink(missing_ok=True)
+        raise
     finally:
         encoded.unlink(missing_ok=True)
+        if partial.is_file() and partial.stat().st_size == 0:
+            partial.unlink()
+
+
+def record_preparation_failure(store, job, error):
+    retryable = not isinstance(error, (
+        PlaybackInvalidAudio, PlaybackCopyTooLarge, PlaybackPartialInvalid, AudioSourceUnavailable,
+    ))
+    record_worker_failure(store.connection, "music_playback", error)
+    store.update(job["name"], "failed", type(error).__name__, 60 if retryable else 0,
+                 retryable=retryable)
+    logger.error("Playback preparation message=%s failed: %s; %s",
+                 job["message"], type(error).__name__,
+                 "retry in 60s" if retryable else "manual review required; automatic retry disabled")
 
 
 def discover(store):
@@ -255,10 +312,7 @@ async def _playback_worker():
                         await asyncio.sleep(30)
                         continue
                     except Exception as error:
-                        record_worker_failure(store.connection, "music_playback", error)
-                        store.update(job["name"], "failed", type(error).__name__, 60)
-                        logger.error("Playback preparation message=%s failed: %s; retry in 60s",
-                                     job["message"], type(error).__name__)
+                        record_preparation_failure(store, job, error)
                     else:
                         store.update(job["name"], "ready")
                 await asyncio.sleep(3 if job else 10)
@@ -317,8 +371,11 @@ def main():
                 store.wait_until(time.time() + error.seconds + 1)
                 store.update(job["name"], "failed", "Telegram flood wait", error.seconds + 1)
                 raise
+            except PlaybackBudgetReached:
+                store.update(job["name"], "queued")
+                raise
             except Exception as error:
-                store.update(job["name"], "failed", type(error).__name__, 60)
+                record_preparation_failure(store, job, error)
                 raise
             store.update(job["name"], "ready")
         else:

@@ -319,6 +319,15 @@ async def deliver(user, bot, source, target, store, job, directory):
         not isinstance(message.media, (types.MessageMediaPhoto, types.MessageMediaDocument))
         for message in media_messages
     ):
+        if not any(captions) and all(
+            not isinstance(message.media, (types.MessageMediaPhoto, types.MessageMediaDocument))
+            for message in media_messages
+        ):
+            media_types = ",".join(sorted({type(message.media).__name__ for message in media_messages}))
+            store.update(job, "skipped", error=f"Unsupported media without news text; not reposted: {media_types}")
+            logger.info("Skipped unsupported textless news source=%s job=%s media=%s",
+                        job["source"], job["job_key"], media_types)
+            return
         raise ValueError("Unsupported media type; not reposted.")
     if media_messages and len(media_messages) != len(messages):
         raise ValueError("Mixed text and media job cannot be published as one album.")

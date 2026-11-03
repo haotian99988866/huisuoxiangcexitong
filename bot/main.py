@@ -216,6 +216,18 @@ def handle_help(message):
     send_help(bot, message.chat.id)
 
 
+@bot.message_handler(commands=['ops_review'], chat_types=['private'])
+def handle_operations_review(message):
+    from operations_review import handle_command
+    handle_command(bot, message)
+
+
+@bot.callback_query_handler(func=lambda call: (call.data or "").startswith("opsr:"))
+def handle_operations_review_callback(call):
+    from operations_review import handle_callback
+    handle_callback(bot, call)
+
+
 @bot.message_handler(commands=['wallet'], chat_types=['private'])
 def handle_wallet(message):
     from wallet import account, pending, proof_image, review, set_address, set_aba
@@ -1102,6 +1114,8 @@ if __name__ == "__main__":
     logger.warning("News subscription worker ready")
     from operations_alerts import start_worker as start_operations_alerts
     start_operations_alerts(bot)
+    from operations_review import start_worker as start_operations_review
+    start_operations_review(bot)
     from review_notifications import start_worker as start_review_notifications
     start_review_notifications(bot)
     start_cleanup_thread()

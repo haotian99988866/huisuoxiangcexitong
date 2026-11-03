@@ -1,6 +1,8 @@
 import asyncio
+from contextlib import closing
 from pathlib import Path
 import tempfile
+import sqlite3
 import unittest
 from unittest.mock import MagicMock, patch
 import wave
@@ -29,6 +31,111 @@ class PlaybackTests(unittest.IsolatedAsyncioTestCase):
         self.store = playback.PlaybackStore()
         self.addCleanup(self.store.close)
         self.store.enqueue(self.name, 1020, 100)
+
+    def test_legacy_jobs_migration_preserves_queue_and_enables_retry(self):
+        legacy_root = self.root / "legacy"
+        legacy_root.mkdir()
+        with closing(sqlite3.connect(legacy_root / "music-playback.sqlite3")) as connection, connection:
+            connection.execute("""CREATE TABLE jobs (
+                name TEXT PRIMARY KEY, message INTEGER NOT NULL, size INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued', priority INTEGER NOT NULL DEFAULT 0,
+                retry_at REAL NOT NULL DEFAULT 0, error TEXT)""")
+            connection.execute("INSERT INTO jobs(name,message,size,status,error) VALUES(?,?,?,'failed','ValueError')",
+                               (self.name, 1020, 100))
+        with patch("channel_sync.state_directory", return_value=legacy_root):
+            observer = playback.PlaybackStore()
+            try:
+                row = observer.pending()
+                self.assertEqual((row["name"], row["status"], row["error"], row["retryable"]),
+                                 (self.name, "failed", "ValueError", 1))
+            finally:
+                observer.close()
+
+    def test_terminal_failure_remains_visible_and_does_not_block_queue_or_restart(self):
+        folder = playback.playback_directory()
+        folder.mkdir()
+        (folder / (self.name + ".download")).write_bytes(b"invalid")
+        job = self.store.pending()
+        with patch.object(playback.logger, "error") as log:
+            playback.record_preparation_failure(self.store, job, playback.PlaybackInvalidAudio("corrupt"))
+        row = self.store.connection.execute("SELECT * FROM jobs WHERE name=?", (self.name,)).fetchone()
+        self.assertEqual((row["status"], row["error"], row["retryable"]),
+                         ("failed", "PlaybackInvalidAudio", 0))
+        self.assertIn("manual review", log.call_args.args[-1])
+        self.store.enqueue(self.name, 1020, 100, True)
+        self.store.enqueue("b" * 32 + ".flac", 1021, 200)
+        observer = playback.PlaybackStore()
+        try:
+            self.assertEqual(observer.pending()["message"], 1021)
+        finally:
+            observer.close()
+
+    def test_retryable_network_failure_keeps_backoff(self):
+        with patch.object(playback.logger, "error"):
+            playback.record_preparation_failure(self.store, self.store.pending(), TimeoutError("offline"))
+        row = self.store.connection.execute("SELECT * FROM jobs WHERE name=?", (self.name,)).fetchone()
+        self.assertEqual((row["status"], row["error"], row["retryable"]), ("failed", "TimeoutError", 1))
+        self.assertIsNone(self.store.pending())
+        self.store.enqueue("b" * 32 + ".flac", 1021, 200)
+        self.assertEqual(self.store.pending()["message"], 1021)
+
+    def test_known_terminal_errors_are_not_automatically_retried(self):
+        for error in (playback.PlaybackOutputInvalid(), playback.PlaybackCopyTooLarge(),
+                      playback.PlaybackPartialInvalid(), playback.AudioSourceUnavailable()):
+            with self.subTest(error=type(error).__name__), patch.object(playback.logger, "error"):
+                self.store.update(self.name, "queued")
+                playback.record_preparation_failure(self.store, self.store.pending(), error)
+                self.assertIsNone(self.store.pending())
+
+    async def test_download_timeout_removes_empty_partial_and_unblocks_other_jobs(self):
+        async def chunks(*args, **kwargs):
+            raise TimeoutError("offline")
+            yield
+        with patch("music_mtproto._audio_chunks", side_effect=chunks):
+            with self.assertRaises(TimeoutError):
+                await playback.prepare(self.store.pending())
+        folder = playback.playback_directory()
+        self.assertEqual(list(folder.glob("*.download")), [])
+        with patch.object(playback.logger, "error"):
+            playback.record_preparation_failure(self.store, self.store.pending(), TimeoutError("offline"))
+        self.store.enqueue("b" * 32 + ".flac", 1021, 200)
+        self.assertEqual(self.store.pending()["message"], 1021)
+
+    def test_empty_legacy_partial_does_not_hold_queue_during_backoff(self):
+        folder = playback.playback_directory()
+        folder.mkdir()
+        (folder / (self.name + ".download")).touch()
+        self.store.update(self.name, "failed", "TimeoutError", 60)
+        self.store.enqueue("b" * 32 + ".flac", 1021, 200)
+        self.assertEqual(self.store.pending()["message"], 1021)
+
+    def test_real_corrupt_audio_is_classified_without_relaxing_decoder(self):
+        source = self.library / self.name
+        source.write_bytes(b"fLaC" + b"x" * 96)
+        before = source.read_bytes()
+        with self.assertRaises(playback.PlaybackInvalidAudio):
+            playback.transcode(source, self.library / "invalid.mp3")
+        self.assertEqual(source.read_bytes(), before)
+
+    def test_conversion_resource_error_is_not_misclassified_as_corrupt_audio(self):
+        with patch("subprocess.run", return_value=MagicMock(
+            returncode=1, stderr=b"Error opening output file: No space left on device",
+        )):
+            with self.assertRaisesRegex(RuntimeError, "resource"):
+                playback.transcode(self.library / self.name, self.library / "output.mp3")
+
+    async def test_unavailable_source_discards_only_download_partial(self):
+        folder = playback.playback_directory()
+        folder.mkdir()
+        partial = folder / (self.name + ".download")
+        partial.write_bytes(b"x" * 40)
+        async def chunks(*args, **kwargs):
+            raise playback.AudioSourceUnavailable("source missing")
+            yield
+        with patch("music_mtproto._audio_chunks", side_effect=chunks):
+            with self.assertRaises(playback.AudioSourceUnavailable):
+                await playback.prepare(self.store.pending())
+        self.assertFalse(partial.exists())
 
     def test_persistent_priority_retry_wait_and_ready_files(self):
         self.store.enqueue("b" * 32 + ".flac", 1021, 200, True)

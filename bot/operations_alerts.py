@@ -150,6 +150,8 @@ def send_due(bot, owner_id, store, now):
             text += ("\n\n异常持续至少5分钟，未恢复每30分钟提醒。"
                      if kind == "alert" else "\n\n此项状态已恢复，其他异常请分别核查。")
             text += "\n请打开小程序「更多管理 → 运营健康」查看。不会自动重试发布或修改业务记录。"
+            if kind == "alert":
+                text += "\n需人工核查的任务会另发操作卡片，负责人可私聊发送 /ops_review 查看。"
             delivery_id = store.claim(kind, batch, now)
             try:
                 bot.send_message(owner_id, text)

@@ -64,7 +64,8 @@ class NewsDeduper:
         rows = self.connection.execute(
             "SELECT f.* FROM news_fingerprints f JOIN jobs j"
             " ON j.source=f.source AND j.target=f.target AND j.job_key=f.job_key"
-            " WHERE f.target=? AND f.seen_at>=? AND j.status IN ('sent','sending','uncertain')"
+            " WHERE f.target=? AND f.seen_at>=? AND (j.status IN ('sent','sending','uncertain')"
+            " OR (j.status='skipped' AND j.error='Owner reviewed: retain existing content; skip isolated task'))"
             " AND NOT (f.source=? AND f.job_key=?) ORDER BY f.seen_at,f.source,f.job_key",
             (job["target"], time.time() - WINDOW_SECONDS, job["source"], job["job_key"]),
         )

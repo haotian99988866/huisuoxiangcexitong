@@ -358,6 +358,21 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.bot.send_message.assert_not_awaited()
         self.assertEqual(self.status(), "skipped")
 
+    async def test_textless_location_is_skipped_with_reason_without_sending(self):
+        await self.publish([self.message(None, types.MessageMediaGeo(types.GeoPointEmpty()))])
+        self.assertEqual(self.status(), "skipped")
+        row = self.store.connection.execute("SELECT error FROM jobs").fetchone()
+        self.assertIn("MessageMediaGeo", row["error"])
+        self.user.download_media.assert_not_awaited()
+        self.bot.send_message.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+
+    async def test_unsupported_media_with_news_text_is_not_silently_discarded(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported media"):
+            await self.publish([self.message("新闻正文", types.MessageMediaGeo(types.GeoPointEmpty()))])
+        self.bot.send_message.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+
     async def test_paid_ad_text_is_skipped_before_cleaning(self):
         await self.publish([self.message(
             "**#付费广告**\n首存5000 赠送彩金588\n"

@@ -7,6 +7,10 @@ from telethon.crypto import AuthKey
 from telethon.sessions import MemorySession
 
 
+class AudioSourceUnavailable(ValueError):
+    pass
+
+
 async def _audio_chunks(message_id, expected_size, start=0, end=None, *, block_size=64 * 1024):
     from channel_sync import credentials, state_directory
     from music import MUSIC_CHANNEL_USERNAME
@@ -33,7 +37,7 @@ async def _audio_chunks(message_id, expected_size, start=0, end=None, *, block_s
         messages = await client.get_messages(target, ids=[message_id])
         message = messages[0] if messages else None
         if not message or not message.document or message.file.size != expected_size:
-            raise ValueError("自有频道音乐不存在或大小不匹配")
+            raise AudioSourceUnavailable("自有频道音乐不存在或大小不匹配")
         end = expected_size - 1 if end is None else end
         block = block_size
         offset = start - start % block
