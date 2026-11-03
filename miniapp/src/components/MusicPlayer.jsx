@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { API_BASE_URL } from '../utils/twa'
 import { requestMusic } from '../utils/music'
 import { musicArtist, musicPlaybackError, nextTrack, prioritizeTrack, trackTapAction } from '../utils/musicPlayback'
+import { bindMusicMediaSession, updateMusicMediaPosition } from '../utils/musicMediaSession'
 import './MusicPlayer.css'
 import MusicIcon from './MusicIcon'
 import MusicNowPlaying from './MusicNowPlaying'
@@ -15,6 +16,7 @@ export const musicTime = seconds => {
 
 export default function MusicPlayer({ children }) {
   const audioRef = useRef(null)
+  const mediaControls = useRef(null)
   const requestId = useRef(0)
   const loadingTrack = useRef(null)
   const currentRef = useRef(null)
@@ -274,6 +276,64 @@ export default function MusicPlayer({ children }) {
     audioRef.current.volume = Number(value)
     setVolume(Number(value))
   }
+  useLayoutEffect(() => {
+    mediaControls.current = {
+      play: () => { if (currentRef.current) start(currentRef.current) },
+      pause, stop, seek, step,
+    }
+  })
+  useEffect(() => {
+    if (!current) return undefined
+    return bindMusicMediaSession(navigator.mediaSession, {
+      play: () => mediaControls.current.play(),
+      pause: () => mediaControls.current.pause(),
+      stop: () => mediaControls.current.stop(),
+      previoustrack: () => mediaControls.current.step(-1),
+      nexttrack: () => mediaControls.current.step(1),
+      seekto: details => {
+        if (Number.isFinite(details.seekTime)) mediaControls.current.seek(details.seekTime)
+      },
+      seekbackward: details => mediaControls.current.seek(audioRef.current.currentTime - (details.seekOffset || 10)),
+      seekforward: details => mediaControls.current.seek(audioRef.current.currentTime + (details.seekOffset || 10)),
+    })
+  }, [current?.id])
+  useEffect(() => {
+    const session = navigator.mediaSession
+    if (!session) return
+    try {
+      if (typeof window.MediaMetadata === 'function') {
+        session.metadata = current ? new window.MediaMetadata({
+          title: current.title, artist: musicArtist(current.artist), album: current.album || '',
+        }) : null
+      }
+    } catch (failure) {
+      console.warn('[Music media session metadata]', failure)
+    }
+  }, [current])
+  useEffect(() => {
+    const session = navigator.mediaSession
+    if (!session) return
+    try {
+      session.playbackState = current ? playing ? 'playing' : 'paused' : 'none'
+    } catch (failure) {
+      console.warn('[Music media session state]', failure)
+    }
+  }, [current, playing])
+  useEffect(() => {
+    updateMusicMediaPosition(navigator.mediaSession, current ? duration : 0, position,
+      audioRef.current?.playbackRate)
+  }, [current, duration, position])
+  useEffect(() => () => {
+    const session = navigator.mediaSession
+    if (!session) return
+    try {
+      session.metadata = null
+      session.playbackState = 'none'
+    } catch (failure) {
+      console.warn('[Music media session reset]', failure)
+    }
+    updateMusicMediaPosition(session, 0, 0)
+  }, [])
   const failed = async () => {
     if (!currentRef.current) return
     const id = requestId.current

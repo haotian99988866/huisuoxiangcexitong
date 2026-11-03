@@ -62,7 +62,7 @@ export default function MusicNowPlaying({ initialPane = 'player' }) {
         {!player.profile && <p className="music-hint">未登录也可切换本次播放模式；在 Telegram 中登录后，可收藏歌曲并同步播放模式。</p>}
           {isIos ? <p className="music-hint">音量请使用手机音量键调节。</p>
             : <label>音量<input type="range" aria-label="音量" min="0" max="1" step="0.05" value={player.volume} onChange={event => player.changeVolume(event.target.value)} /></label>}
-          <p className="music-hint">锁屏、切后台或关闭小程序后，播放可能中断。</p>
+          <p className="music-hint">切换小程序页面可继续听歌，播放视频时暂停音乐。支持的客户端可使用锁屏／通知栏音乐控制；切后台或锁屏能否继续播放由 Telegram 和手机系统决定，关闭小程序后无法继续播放。</p>
           <button type="button" className="music-stop-button" onClick={player.stop}>停止播放并清除进度</button>
       </div> : <div className="music-full-pane">
         <button type="button" className="music-sheet-option" onClick={() => setPane('player')}><MusicIcon name="previous" size={16} />返回播放界面</button>
