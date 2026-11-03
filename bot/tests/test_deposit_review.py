@@ -54,13 +54,21 @@ class DepositReviewTests(unittest.TestCase):
         response = self.post("admin_deposit_review", deposit_id=1, decision="approve",
                              confirmed=True, amount="15.99", reference="a" * 64, actor_id=999)
         self.assertEqual(response.status_code, 200)
-        review.assert_called_once_with(1, 123, "15.99", reference="a" * 64)
+        review.assert_called_once_with(1, 123, "15.99", reference="a" * 64, reason=None)
+
+    @patch("wallet.review")
+    def test_reject_requires_reason_even_with_confirmation(self, review):
+        for reason in (None, "", " ", "x" * 301):
+            response = self.post("admin_deposit_review", deposit_id=1, decision="reject",
+                                 confirmed=True, reason=reason)
+            self.assertEqual(response.status_code, 400)
+        review.assert_not_called()
 
     @patch("wallet.review")
     def test_reject_ignores_client_amount_and_duplicate_reference_returns_conflict(self, review):
-        response = self.post("admin_deposit_review", deposit_id=1, decision="reject", confirmed=True, amount="100")
+        response = self.post("admin_deposit_review", deposit_id=1, decision="reject", confirmed=True, amount="100", reason="Payment not found")
         self.assertEqual(response.status_code, 200)
-        review.assert_called_once_with(1, 123, None, reference=None)
+        review.assert_called_once_with(1, 123, None, reference=None, reason="Payment not found")
         review.side_effect = pymysql.IntegrityError(1062, "duplicate")
         response = self.post("admin_deposit_review", deposit_id=1, decision="approve", confirmed=True, amount="1")
         self.assertEqual(response.status_code, 409)

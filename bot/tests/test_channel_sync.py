@@ -248,7 +248,8 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.store.progress(channels[0].id, "2", 20)
         self.store.advance(channels[0].id, "2", 25)
         sources, boundaries = await prepare_news_sources(self.user, self.target, self.store)
-        self.assertEqual(len(sources), 6)
+        self.assertEqual(len(sources), 7)
+        self.assertEqual((channels[-1].username, channels[-1].id), ("vhhhh", 2062055062))
         self.assertEqual(boundaries[channels[0].id], 20)
         self.assertEqual(self.store.progress(channels[0].id, "2", 999)["scanned_id"], 25)
         for index, channel in enumerate(channels[1:], 1):

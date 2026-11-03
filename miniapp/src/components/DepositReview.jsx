@@ -16,6 +16,7 @@ export default function DepositReview({ onReviewed }) {
   const [imageAttempt, setImageAttempt] = useState(0)
   const [amount, setAmount] = useState('')
   const [reference, setReference] = useState('')
+  const [reason, setReason] = useState('')
   const [decision, setDecision] = useState(null)
   const [verified, setVerified] = useState(false)
   const lock = useRef(false)
@@ -57,6 +58,7 @@ export default function DepositReview({ onReviewed }) {
     setSelected(row)
     setAmount('')
     setReference(row.reference || '')
+    setReason('')
     setDecision(null)
     setVerified(false)
     setError('')
@@ -68,12 +70,16 @@ export default function DepositReview({ onReviewed }) {
       setError('请复核实际到账金额与真实交易编号，并勾选确认')
       return
     }
+    if (decision === 'reject' && !reason.trim()) {
+      setError('请填写拒绝原因，客人将看到此说明')
+      return
+    }
     lock.current = true
     setBusy(true)
     setError('')
     try {
       await requestAdmin('admin_deposit_review', {
-        deposit_id: selected.id, decision, amount, reference: reference.trim(), confirmed: true,
+        deposit_id: selected.id, decision, amount, reference: reference.trim(), reason: reason.trim(), confirmed: true,
       })
       setNotice(`申请 #${selected.id} 已${decision === 'approve' ? '核实入账' : '拒绝，余额未变动'}。`)
       setSelected(null)
@@ -120,8 +126,13 @@ export default function DepositReview({ onReviewed }) {
           <p style={{ overflowWrap: 'anywhere' }}>真实交易：{reference}</p>
           <p>请确认币种、收款地址、交易确认和实际到账金额，入账后不能通过拒绝撤销。</p>
           <label className="admin-check"><input type="checkbox" checked={verified} disabled={busy} onChange={event => setVerified(event.target.checked)} />
-            我已复核该交易编号对应的真实到账金额，以此金额入账</label></> : <p>拒绝不会增加余额。请确认不是已到账但尚未核实的付款。</p>}
-        <div className="admin-actions"><button type="button" disabled={busy || (decision === 'approve' && !verified)} onClick={review}>{busy ? '处理中…' : decision === 'approve' ? '确认入账' : '确认拒绝'}</button>
+            我已复核该交易编号对应的真实到账金额，以此金额入账</label></> : <>
+              <p>拒绝不会增加余额。请确认不是已到账但尚未核实的付款。</p>
+              <label>拒绝原因（必填，客人可见）<textarea required maxLength={300} rows={3} value={reason} disabled={busy}
+                onChange={event => setReason(event.target.value)} /></label>
+              <p>原因将保存并通过机器人通知客人，有疑问可联系管理员昊天。</p>
+            </>}
+        <div className="admin-actions"><button type="button" disabled={busy || (decision === 'approve' ? !verified : !reason.trim())} onClick={review}>{busy ? '处理中…' : decision === 'approve' ? '确认入账' : '确认拒绝'}</button>
           <button type="button" disabled={busy} onClick={() => { setDecision(null); setVerified(false) }}>返回核对</button></div>
       </div> : <form onSubmit={event => { event.preventDefault(); setVerified(false); setDecision('approve') }}>
         <fieldset disabled={busy}>

@@ -49,6 +49,7 @@ def order_public(order):
         "phone": order.get("phone"),
         "topup_usd": str(order["topup_usd"]) if order.get("topup_usd") is not None else None,
         "fee_usd": str(order.get("fee_usd", 0)),
+        "rejection_reason": order.get("refund_reason") if order["status"] == "refunded" else None,
     }
 
 
@@ -97,6 +98,8 @@ def _notify_admins(bot, text):
 
 
 def ensure_tables():
+    from review_notifications import ensure_tables as ensure_notifications
+    ensure_notifications()
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -127,6 +130,7 @@ def ensure_tables():
                 ("phone", "VARCHAR(16) NULL"),
                 ("topup_usd", "DECIMAL(20,6) NULL"),
                 ("fee_usd", "DECIMAL(20,6) NOT NULL DEFAULT 0"),
+                ("refund_reason", "VARCHAR(300) NULL"),
             ):
                 cur.execute(f"SHOW COLUMNS FROM member_orders LIKE '{name}'")
                 if not cur.fetchone():
@@ -309,13 +313,13 @@ def recent_orders(payer_id=None):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            query = ("SELECT order_id,payer_id,recipient_username,months,price_usd,status,error,created_at,"
+            query = ("SELECT order_id,payer_id,recipient_username,months,price_usd,status,error,created_at,refund_reason,"
                      "product_kind,phone,topup_usd,fee_usd FROM member_orders")
             cur.execute(query + (" WHERE payer_id=%s" if payer_id is not None else "")
                         + " ORDER BY created_at DESC,order_id DESC LIMIT 30",
                         (payer_id,) if payer_id is not None else ())
             rows = cur.fetchall()
-        return [{**row, **order_public(row),
+        return [{**{key: value for key, value in row.items() if key != "refund_reason"}, **order_public(row),
                  "created_at": str(row["created_at"])} for row in rows]
     finally:
         conn.close()
@@ -344,7 +348,32 @@ def recent_ledger(user_id):
         conn.close()
 
 
-def refund_order(order_id, actor_id=None, confirmed_not_delivered=False):
+def set_refund_reason(order_id, actor_id, reason):
+    from review_notifications import rejection_reason
+    reason = rejection_reason(reason)
+    validate_order_id(order_id)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM member_orders WHERE order_id=%s FOR UPDATE", (order_id,))
+            order = cur.fetchone()
+            if not order:
+                raise ValueError("订单不存在")
+            require_order_owner(order, actor_id)
+            if order["status"] != "manual_pending":
+                raise ValueError("订单已处理，请刷新核对")
+            cur.execute("UPDATE member_orders SET refund_reason=%s WHERE order_id=%s", (reason, order_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return reason
+
+
+def refund_order(order_id, actor_id=None, confirmed_not_delivered=False, reason=None):
+    from review_notifications import enqueue, rejection_reason
     validate_order_id(order_id)
     conn = get_conn()
     try:
@@ -362,6 +391,8 @@ def refund_order(order_id, actor_id=None, confirmed_not_delivered=False):
                     order["status"] in {"delivery_unknown", "manual_pending"}
                     and actor_id is not None and confirmed_not_delivered):
                 raise ValueError("必须核实未完成服务，才能对待处理或结果不明的订单退款")
+            if actor_id is not None:
+                reason = rejection_reason(reason)
             cur.execute(
                 "INSERT INTO wallet_accounts(user_id,balance) VALUES(%s,%s) "
                 "ON DUPLICATE KEY UPDATE balance=balance+VALUES(balance)",
@@ -370,7 +401,11 @@ def refund_order(order_id, actor_id=None, confirmed_not_delivered=False):
                 "INSERT INTO member_wallet_ledger(order_id,user_id,event,amount,actor_id) "
                 "VALUES(%s,%s,'refund',%s,%s)",
                 (order_id, order["payer_id"], order["price_usd"], actor_id))
-            cur.execute("UPDATE member_orders SET status='refunded',finished_at=NOW() WHERE order_id=%s", (order_id,))
+            cur.execute("UPDATE member_orders SET status='refunded',refund_reason=%s,finished_at=NOW() WHERE order_id=%s", (reason, order_id))
+            if actor_id is not None:
+                product = "话费" if order.get("product_kind") == "phone" else "会员"
+                enqueue(cur, f"order:{order_id}", order["payer_id"],
+                        f"{product}订单 {order_id} 未通过人工处理。\n拒绝原因：{reason}\n已全额退回站内余额 ${order['price_usd']} USD（不是链上退款）。")
         conn.commit()
         return order
     except Exception:

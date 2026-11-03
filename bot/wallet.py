@@ -86,6 +86,8 @@ def amount_value(value):
 
 
 def ensure_tables():
+    from review_notifications import ensure_tables as ensure_notifications
+    ensure_notifications()
     statements = (
         """CREATE TABLE IF NOT EXISTS wallet_config (
             id INT PRIMARY KEY, address VARCHAR(34) NULL
@@ -125,6 +127,9 @@ def ensure_tables():
             cur.execute("SHOW COLUMNS FROM wallet_deposits LIKE 'method'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE wallet_deposits ADD COLUMN method VARCHAR(8) NOT NULL DEFAULT 'usdt'")
+            cur.execute("SHOW COLUMNS FROM wallet_deposits LIKE 'rejection_reason'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE wallet_deposits ADD COLUMN rejection_reason VARCHAR(300) NULL")
             cur.execute("SHOW COLUMNS FROM wallet_deposits LIKE 'txid'")
             if cur.fetchone()["Type"].lower() != "varchar(128)":
                 cur.execute("ALTER TABLE wallet_deposits MODIFY txid VARCHAR(128) NOT NULL")
@@ -166,7 +171,7 @@ def set_aba(account_number, account_name):
 
 def rejected_deposit_today(cur, user_id):
     cur.execute(
-        "SELECT id,UNIX_TIMESTAMP(reviewed_at) AS reviewed_epoch,UNIX_TIMESTAMP() AS now_epoch "
+        "SELECT id,rejection_reason,UNIX_TIMESTAMP(reviewed_at) AS reviewed_epoch,UNIX_TIMESTAMP() AS now_epoch "
         "FROM wallet_deposits WHERE user_id=%s AND status='rejected' "
         "ORDER BY reviewed_at DESC,id DESC LIMIT 1", (user_id,),
     )
@@ -179,7 +184,7 @@ def rejected_deposit_today(cur, user_id):
     if reviewed.date() != now.date():
         return None
     retry_at = reviewed.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    return {"id": row["id"], "retry_at": retry_at.isoformat()}
+    return {"id": row["id"], "retry_at": retry_at.isoformat(), "rejection_reason": row.get("rejection_reason")}
 
 
 def account(user_id):
@@ -193,7 +198,7 @@ def account(user_id):
             cur.execute("SELECT balance FROM wallet_accounts WHERE user_id=%s", (user_id,))
             balance = cur.fetchone()
             cur.execute(
-                "SELECT id,txid,method,claimed,status,credited,created_at FROM wallet_deposits "
+                "SELECT id,txid,method,claimed,status,credited,created_at,rejection_reason FROM wallet_deposits "
                 "WHERE user_id=%s ORDER BY id DESC LIMIT 30", (user_id,),
             )
             deposits = cur.fetchall()
@@ -418,8 +423,10 @@ def proof_image(deposit_id):
         conn.close()
 
 
-def review(deposit_id, admin_id, amount=None, reference=None):
+def review(deposit_id, admin_id, amount=None, reference=None, reason=None):
+    from review_notifications import enqueue, rejection_reason
     credit = amount_value(amount) if amount is not None else None
+    reason = rejection_reason(reason) if credit is None else None
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -448,9 +455,12 @@ def review(deposit_id, admin_id, amount=None, reference=None):
                     (deposit["user_id"], deposit_id, credit, admin_id),
                 )
             cur.execute(
-                "UPDATE wallet_deposits SET status=%s,credited=%s,admin_id=%s,reviewed_at=NOW() WHERE id=%s",
-                ("approved" if credit is not None else "rejected", credit, admin_id, deposit_id),
+                "UPDATE wallet_deposits SET status=%s,credited=%s,admin_id=%s,rejection_reason=%s,reviewed_at=NOW() WHERE id=%s",
+                ("approved" if credit is not None else "rejected", credit, admin_id, reason, deposit_id),
             )
+            if credit is None:
+                enqueue(cur, f"deposit:{deposit_id}", deposit["user_id"],
+                        f"充值申请 #{deposit_id} 复核未通过。\n拒绝原因：{reason}\n余额未增加；请勿再次付款，当天暂停申请，柬埔寨时间次日00:00恢复。")
         conn.commit()
         return deposit["user_id"]
     except Exception:

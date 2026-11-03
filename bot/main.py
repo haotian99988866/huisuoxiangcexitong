@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pymysql
 import requests
 import telebot
-from telebot import apihelper, util
+from telebot import apihelper, types, util
 from dotenv import load_dotenv
 from db import get_conn
 from image_hash import compute_hash, ensure_columns as ensure_image_hash_columns
@@ -261,9 +261,9 @@ def handle_wallet(message):
                 bot.send_message(customer_id, f"充值申请 #{parts[2]} 已核实到账，请刷新账户余额。")
             except Exception:
                 logger.exception("Could not notify customer of verified deposit user=%s", customer_id)
-        elif len(parts) == 3 and parts[1] == "reject":
-            review(int(parts[2]), message.from_user.id)
-            bot.reply_to(message, "申请已拒绝，余额未变动。")
+        elif len(parts) >= 4 and parts[1] == "reject":
+            review(int(parts[2]), message.from_user.id, reason=" ".join(parts[3:]))
+            bot.reply_to(message, "申请已拒绝，余额未变动，原因已保存并排队通知客人。")
         elif len(parts) == 1:
             rows = pending()
             wallet = account(message.from_user.id)
@@ -277,7 +277,7 @@ def handle_wallet(message):
                 "核款：/wallet approve 申请编号 实际到账金额\n"
                 "查看凭证：/wallet proof 申请编号\n"
                 "凭证／ABA金额申请核款：/wallet verify 申请编号 实际到账金额 真实交易编号 核实入账\n"
-                "拒绝：/wallet reject 申请编号\n\n待审核（最多8条，处理后查看下一批）：\n"
+                "拒绝：/wallet reject 申请编号 拒绝原因（必填，最多300字）\n\n待审核（最多8条，处理后查看下一批）：\n"
             )
             for row in rows:
                 text += (
@@ -374,9 +374,9 @@ def handle_member_sales(message):
         elif len(parts) == 3 and parts[1] == "delivered":
             confirm_delivery(parts[2], message.from_user.id)
             bot.reply_to(message, "已确认服务完成；此操作必须以实际开通或代充记录为依据。")
-        elif len(parts) == 4 and parts[1] == "refund" and parts[3] in {"NOT_GIFTED", "NOT_CHARGED"}:
-            refund_order(parts[2], message.from_user.id, confirmed_not_delivered=True)
-            bot.reply_to(message, "购买金额已退回站内 USD 余额（不是链上退款）。")
+        elif len(parts) >= 5 and parts[1] == "refund" and parts[3] in {"NOT_GIFTED", "NOT_CHARGED"}:
+            refund_order(parts[2], message.from_user.id, confirmed_not_delivered=True, reason=" ".join(parts[4:]))
+            bot.reply_to(message, "购买金额已退回站内 USD 余额，原因已保存并排队通知客人（不是链上退款）。")
         elif len(parts) == 1 or (len(parts) == 2 and parts[1] == "status"):
             lines = [
                 f"网站会员购买：{'开放' if catalog()['enabled'] else '关闭'}",
@@ -386,8 +386,8 @@ def handle_member_sales(message):
                 "/member_sales enable|disable",
                 "/member_sales phone_enable|phone_disable",
                 "/member_sales delivered 订单号（核实已开通或代充）",
-                "/member_sales refund 订单号 NOT_GIFTED（核实未开通）",
-                "/member_sales refund 订单号 NOT_CHARGED（核实未代充，全额退余额）",
+                "/member_sales refund 订单号 NOT_GIFTED 拒绝原因（核实未开通）",
+                "/member_sales refund 订单号 NOT_CHARGED 拒绝原因（核实未代充，全额退余额）",
             ]
             for order in recent_orders():
                 product = (f"话费 ${order['topup_usd']} → {order['phone']}"
@@ -424,14 +424,18 @@ def handle_manual_membership(call):
         if order["status"] != "manual_pending":
             raise ValueError("订单已处理或正在核实，不可重复确认或退款")
         phone = order.get("product_kind") == "phone"
-        if action in {"done", "refund", "back"}:
+        if action == "refund":
+            prompt = bot.send_message(call.message.chat.id,
+                                      f"订单 {order_id}：请回复拒绝原因（1–300字，客人可见）。发送 /cancel 取消；填写后还需确认未完成服务才能退款。",
+                                      reply_markup=types.ForceReply(selective=True))
+            bot.register_next_step_handler(prompt, handle_manual_refund_reason, order_id)
+            bot.answer_callback_query(call.id, "请填写拒绝原因")
+            return
+        if action in {"done", "back"}:
             text = manual_order_text(order)
             if action == "done":
                 text += ("\n\n请再次确认：上述手机号已实际收到对应话费，完成后不再允许退余额。"
                          if phone else "\n\n请再次确认：已给上述账号开通对应套餐，完成后不再允许退余额。")
-            elif action == "refund":
-                text += ("\n\n请再次确认：该订单确实未代充，话费及手续费全额退回客户站内余额。"
-                         if phone else "\n\n请再次确认：该订单确实未开通，购买金额将退回客户站内余额。")
             bot.edit_message_text(
                 text, chat_id=call.message.chat.id, message_id=call.message.message_id,
                 reply_markup=manual_keyboard(order_id, None if action == "back" else action,
@@ -443,7 +447,11 @@ def handle_manual_membership(call):
             confirm_delivery(order_id, call.from_user.id)
             result = "代充完成" if phone else "开通完成"
         else:
-            refund_order(order_id, call.from_user.id, confirmed_not_delivered=True)
+            from review_notifications import rejection_reason
+            reason = rejection_reason(order.get("refund_reason"))
+            if call.message.text != manual_refund_confirmation_text(order_id, reason):
+                raise ValueError("拒绝原因已重新填写，请使用最新的确认消息，或返回订单重新填写")
+            refund_order(order_id, call.from_user.id, confirmed_not_delivered=True, reason=reason)
             result = "未代充，话费及手续费已全额退回站内余额" if phone else "未开通，已退回站内余额"
     except ValueError as exc:
         bot.answer_callback_query(call.id, str(exc), show_alert=True)
@@ -461,11 +469,42 @@ def handle_manual_membership(call):
         )
     except apihelper.ApiException:
         logger.exception("Manual membership result message failed order=%s", order_id)
+    if action == "confirm_refund":
+        return
     try:
         product = "话费" if phone else "会员"
         bot.send_message(order["payer_id"], f"{product}订单 {order_id}：{result}。请刷新我的订单及余额。")
     except apihelper.ApiException:
         logger.exception("Manual membership customer notification failed order=%s", order_id)
+
+
+def manual_refund_confirmation_text(order_id, reason):
+    return (f"订单 {order_id}\n拒绝原因：{reason}\n"
+            "请再次核实确实未完成服务，确认后全额退回站内余额并通知客人。")
+
+
+def handle_manual_refund_reason(message, order_id):
+    from premium_balance import get_order, manual_keyboard, require_order_owner, set_refund_reason
+    if (message.text or "").strip() == "/cancel":
+        bot.reply_to(message, "已取消填写，订单和余额未变动。")
+        return
+    try:
+        order = get_order(order_id)
+        if not order:
+            raise ValueError("订单不存在")
+        require_order_owner(order, message.from_user.id)
+        if message.chat.type != "private" or message.chat.id != order["owner_id"]:
+            raise ValueError("请在负责人私聊中操作")
+        reason = set_refund_reason(order_id, message.from_user.id, message.text)
+        bot.send_message(message.chat.id,
+                         manual_refund_confirmation_text(order_id, reason),
+                         reply_markup=manual_keyboard(order_id, "refund", order.get("product_kind", "premium")),
+                         parse_mode=None)
+    except ValueError as exc:
+        bot.reply_to(message, f"{exc}。请回到订单点击退款重新填写，余额未变动。")
+    except (pymysql.MySQLError, apihelper.ApiException):
+        logger.exception("Manual refund reason could not be confirmed order=%s", order_id)
+        bot.reply_to(message, "原因保存或确认消息失败，请查询订单后重新操作，勿重复退款。")
 
 
 @bot.pre_checkout_query_handler(func=lambda query: True)
@@ -1063,5 +1102,7 @@ if __name__ == "__main__":
     logger.warning("News subscription worker ready")
     from operations_alerts import start_worker as start_operations_alerts
     start_operations_alerts(bot)
+    from review_notifications import start_worker as start_review_notifications
+    start_review_notifications(bot)
     start_cleanup_thread()
     bot.infinity_polling(allowed_updates=[])

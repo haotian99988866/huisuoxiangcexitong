@@ -104,6 +104,7 @@ export default function BalanceDeposit({ account, onRefresh, onFailure, onPendin
     <span className="account-status">已拒绝</span>
     <h3>本次复核未通过</h3>
     <p>申请 #{rejected.id} · 余额未增加</p>
+    <ReviewRejection reason={rejected.rejection_reason} />
     <p>USDT / ABA 当天暂停申请，请勿再次付款。</p>
     <p>柬埔寨时间（UTC+7）{rejected.retry_at.slice(0, 10)} 00:00 恢复申请入口。</p>
     {error && <p className="membership-error" role="alert">{error}</p>}
@@ -169,3 +170,4 @@ export default function BalanceDeposit({ account, onRefresh, onFailure, onPendin
     </form>}
   </div>
 }
+import ReviewRejection from './ReviewRejection'

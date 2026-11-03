@@ -18,6 +18,8 @@
   border-radius: 12px; background: #f8f9fb; color: var(--ink-text);
 }
 .membership-panel input[type="file"] { font-size: 12px; }
+.review-rejection p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ink-app .account-sheet textarea { width: 100%; box-sizing: border-box; padding: 12px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); font: inherit; resize: vertical; }
 .membership-panel input::file-selector-button { background: var(--ink-surface); color: var(--ink-text); border: 0; border-radius: 6px; padding: 6px; }
 .membership-panel button, .ink-app .account-sheet button {
   min-height: 44px; padding: 10px 14px; border: 1px solid var(--ink-line);

@@ -970,9 +970,12 @@ def webhook():
                     raise ValueError("请明确核对并确认审核操作")
                 if decision == "approve" and data.get("amount") is None:
                     raise ValueError("请输入实际到账金额")
+                if decision == "reject":
+                    from review_notifications import rejection_reason
+                    rejection_reason(data.get("reason"))
                 review(deposit_id, user["id"],
                        data.get("amount") if decision == "approve" else None,
-                       reference=data.get("reference"))
+                       reference=data.get("reference"), reason=data.get("reason"))
                 return jsonify({"ok": True})
             if action == "admin_tenant_save":
                 save_from_request(data, user["id"])

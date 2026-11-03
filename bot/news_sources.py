@@ -7,6 +7,7 @@ NEWS_SOURCES = (
     ("dnyDXxinwen", 3312649794),
     ("DNY001zx", 1669737575),
     ("hrdsj3", 2937278806),
+    ("vhhhh", 2062055062),
 )
 
 

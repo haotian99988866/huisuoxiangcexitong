@@ -239,7 +239,7 @@ class PremiumBalanceTests(unittest.TestCase):
         conn = get_conn.return_value
         cur = conn.cursor.return_value.__enter__.return_value
         cur.fetchone.return_value = order("delivery_unknown")
-        premium_balance.refund_order(ORDER_ID, 99, confirmed_not_delivered=True)
+        premium_balance.refund_order(ORDER_ID, 99, confirmed_not_delivered=True, reason="Service not delivered")
         self.assertEqual(cur.execute.call_args_list[2].args[1][-1], 99)
         conn.commit.assert_called_once()
 
@@ -276,7 +276,7 @@ class PremiumBalanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             premium_balance.refund_order(ORDER_ID, 99)
         cur.reset_mock()
-        premium_balance.refund_order(ORDER_ID, 99, True)
+        premium_balance.refund_order(ORDER_ID, 99, True, reason="Service not delivered")
         self.assertEqual(cur.execute.call_args_list[1].args[1], (123, Decimal("15.99")))
         self.assertEqual(cur.execute.call_args_list[2].args[1][-1], 99)
         conn.commit.assert_called_once()
@@ -290,7 +290,7 @@ class PremiumBalanceTests(unittest.TestCase):
                 premium_balance.confirm_delivery(ORDER_ID, 99)
         cur.fetchone.return_value = {**order("delivered"), "owner_id": 99}
         with self.assertRaises(ValueError):
-            premium_balance.refund_order(ORDER_ID, 99, True)
+            premium_balance.refund_order(ORDER_ID, 99, True, reason="Service not delivered")
 
     @patch("premium_balance.get_conn")
     def test_notification_sends_only_owner_and_stores_message_id(self, get_conn):
@@ -411,7 +411,7 @@ class PremiumBalanceTests(unittest.TestCase):
             **order("manual_pending"), "product_kind": "phone", "owner_id": 99,
             "price_usd": Decimal("6"), "topup_usd": Decimal("5"), "fee_usd": Decimal("1"),
         }
-        premium_balance.refund_order(ORDER_ID, 99, True)
+        premium_balance.refund_order(ORDER_ID, 99, True, reason="Carrier unsupported")
         self.assertEqual(cur.execute.call_args_list[1].args[1], (123, Decimal("6")))
         self.assertEqual(cur.execute.call_args_list[2].args[1], (ORDER_ID, 123, Decimal("6"), 99))
         cur.reset_mock()

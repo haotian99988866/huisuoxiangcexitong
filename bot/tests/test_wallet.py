@@ -69,7 +69,7 @@ class WalletTests(unittest.TestCase):
         self.assertEqual(calls[1].args[1], ("a" * 64, 9))
         self.assertEqual(calls[2].args[1], (123, Decimal("15.123456")))
         self.assertEqual(calls[3].args[1], (123, 9, Decimal("15.123456"), 99))
-        self.assertEqual(calls[4].args[1], ("approved", Decimal("15.123456"), 99, 9))
+        self.assertEqual(calls[4].args[1], ("approved", Decimal("15.123456"), 99, None, 9))
         conn.commit.assert_called_once()
 
     @patch("wallet.get_conn")
@@ -181,7 +181,7 @@ class WalletTests(unittest.TestCase):
         self.assertEqual(calls[1].args[1], ("aba:bank12345", 8))
         self.assertEqual(calls[2].args[1], (123, Decimal("15.123456")))
         self.assertEqual(calls[3].args[1], (123, 8, Decimal("15.123456"), 99))
-        self.assertEqual(calls[4].args[1], ("approved", Decimal("15.123456"), 99, 8))
+        self.assertEqual(calls[4].args[1], ("approved", Decimal("15.123456"), 99, None, 8))
         conn.commit.assert_called_once()
 
     @patch("wallet.get_conn")
@@ -201,9 +201,10 @@ class WalletTests(unittest.TestCase):
         conn = connection.return_value
         cur = conn.cursor.return_value.__enter__.return_value
         cur.fetchone.return_value = {"status": "pending", "user_id": 123, "method": "aba", "txid": "manual:test"}
-        review(8, 99)
-        self.assertEqual(cur.execute.call_count, 2)
-        self.assertEqual(cur.execute.call_args.args[1], ("rejected", None, 99, 8))
+        review(8, 99, reason="Bank payment not found")
+        self.assertEqual(cur.execute.call_count, 3)
+        self.assertEqual(cur.execute.call_args_list[1].args[1], ("rejected", None, 99, "Bank payment not found", 8))
+        self.assertIn("review_notifications", cur.execute.call_args.args[0])
         conn.commit.assert_called_once()
 
     @patch("wallet.pending")
@@ -326,7 +327,7 @@ class WalletTests(unittest.TestCase):
                                    {"id": 7, "reviewed_epoch": epoch, "now_epoch": epoch}]
         cur.fetchall.return_value = []
         result = account(123)
-        self.assertEqual(result["rejected_deposit"], {"id": 7, "retry_at": "2026-11-02T00:00:00+07:00"})
+        self.assertEqual(result["rejected_deposit"], {"id": 7, "retry_at": "2026-11-02T00:00:00+07:00", "rejection_reason": None})
         self.assertEqual(result["deposits"], [])
         self.assertIsNone(result["pending_deposit"])
 
@@ -336,10 +337,11 @@ class WalletTests(unittest.TestCase):
             set_aba("bad-account", "Test")
         connection.assert_not_called()
 
+    @patch("review_notifications.ensure_tables")
     @patch("wallet.get_conn")
-    def test_interrupted_migration_still_expands_existing_columns(self, connection):
+    def test_interrupted_migration_still_expands_existing_columns(self, connection, notifications):
         cur = connection.return_value.cursor.return_value.__enter__.return_value
-        cur.fetchone.side_effect = [{"Type": "varchar(8)"}, {"Type": "char(64)"}, {"Type": "varchar(34)"}]
+        cur.fetchone.side_effect = [{"Type": "varchar(8)"}, None, {"Type": "char(64)"}, {"Type": "varchar(34)"}]
         ensure_tables()
         queries = [call.args[0] for call in cur.execute.call_args_list]
         self.assertNotIn("ALTER TABLE wallet_deposits ADD COLUMN method VARCHAR(8) NOT NULL DEFAULT 'usdt'", queries)
