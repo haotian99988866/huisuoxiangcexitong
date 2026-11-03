@@ -6,6 +6,7 @@ import time
 
 from db import get_conn
 import pymysql
+from news_sources import NEWS_SOURCES, announcement_job_key
 
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,7 @@ def _iso_timestamp(value):
     return datetime.fromtimestamp(value, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _component(path, key, name, worker=None, enabled=True, include_queue=True):
+def _component(path, key, name, worker=None, enabled=True, include_queue=True, source=None):
     result = {
         "key": key,
         "name": name,
@@ -102,10 +103,14 @@ def _component(path, key, name, worker=None, enabled=True, include_queue=True):
                     result["state"] = "unavailable"
                     result["note"] = "任务队列结构不可用"
                 else:
+                    query = "SELECT status,COUNT(*) AS total FROM jobs"
+                    parameters = ()
+                    if source is not None:
+                        query += " WHERE source=?"
+                        parameters = (source,)
                     result["counts"] = {
                         row["status"]: row["total"] for row in connection.execute(
-                            "SELECT status,COUNT(*) AS total FROM jobs GROUP BY status"
-                        )
+                            query + " GROUP BY status", parameters)
                     }
             if enabled and worker:
                 if "worker_health" not in tables:
@@ -122,7 +127,8 @@ def _component(path, key, name, worker=None, enabled=True, include_queue=True):
                         result["heartbeat_age_seconds"] = age
                         result["last_error_code"] = heartbeat["last_error_code"]
                         result["last_error_at"] = _iso_timestamp(heartbeat["last_error_at"])
-                        result["state"] = "active" if age <= HEARTBEAT_STALE_SECONDS else "stale"
+                        if result["state"] != "unavailable":
+                            result["state"] = "active" if age <= HEARTBEAT_STALE_SECONDS else "stale"
                     else:
                         result["state"] = "not_started"
                         result["note"] = "尚未收到任务心跳"
@@ -141,10 +147,11 @@ def _announcement_pending(component, path):
     connection = None
     try:
         connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)
+        connection.row_factory = sqlite3.Row
         rows = connection.execute(
-            "SELECT target,job_key FROM jobs WHERE status='sent'"
+            "SELECT source,target,job_key FROM jobs WHERE status='sent'"
         ).fetchall()
-        expected = {f"{row[0]}:{row[1]}" for row in rows}
+        expected = {announcement_job_key(row) for row in rows}
         if not expected:
             component["counts"]["pending_index"] = 0
             return
@@ -166,6 +173,7 @@ def _announcement_pending(component, path):
         component["counts"]["pending_index"] = len(expected - indexed)
     except (OSError, sqlite3.Error, pymysql.MySQLError, ValueError):
         logger.exception("Announcement index health unavailable")
+        component["state"] = "unavailable"
         component["note"] = "公告索引队列读取失败"
     finally:
         if connection is not None:
@@ -189,6 +197,11 @@ def snapshot():
                    include_queue=False),
     ]
     _announcement_pending(components[-1], jobs_path)
+    for username, source_id in NEWS_SOURCES:
+        components.append(_component(
+            jobs_path, f"news_source_{source_id}", f"新闻来源 @{username}",
+            f"news_source_{source_id}", source=source_id,
+        ))
 
     music_connection = None
     music_enabled = False

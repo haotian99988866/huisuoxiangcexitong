@@ -1061,5 +1061,7 @@ if __name__ == "__main__":
     ensure_customer_record_tables()
     start_customer_record_worker(bot)
     logger.warning("News subscription worker ready")
+    from operations_alerts import start_worker as start_operations_alerts
+    start_operations_alerts(bot)
     start_cleanup_thread()
     bot.infinity_polling(allowed_updates=[])

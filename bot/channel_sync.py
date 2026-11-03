@@ -12,14 +12,21 @@ import sqlite3
 import tempfile
 
 from dotenv import load_dotenv
-from telethon import TelegramClient, events, errors, types
+from telethon import TelegramClient, events, errors, types, utils
 
 from channel_sync_clean import clean_text, is_advertisement
 from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
+from news_sources import NEWS_SOURCES, announcement_job_key
+from news_dedupe import NewsDeduper, MIN_SIMILAR_LENGTH, media_digest, normalized_body, seed_recent_news
 
 
 logger = logging.getLogger("channel_sync")
 CONFIG_PATH = Path(__file__).with_name(".channel-sync.env")
+
+
+class OverlappingSyncJob(ValueError):
+    pass
+
 
 def split_telegram_text(text, limit=4096):
     chunks = []
@@ -62,6 +69,9 @@ class JobStore:
                 PRIMARY KEY (source, target, job_key)
             )
         """)
+        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
+        if "source_published_at" not in columns:
+            self.connection.execute("ALTER TABLE jobs ADD COLUMN source_published_at REAL")
         self.connection.execute("""
             CREATE TABLE IF NOT EXISTS sync_progress (
                 source INTEGER NOT NULL, target TEXT NOT NULL,
@@ -70,9 +80,10 @@ class JobStore:
             )
         """)
         ensure_health_table(self.connection)
+        self.news_deduper = NewsDeduper(self.connection)
         self.connection.commit()
 
-    def enqueue(self, source, target, ids):
+    def enqueue(self, source, target, ids, published_at=None):
         ids = sorted(set(ids))
         key = ",".join(map(str, ids))
         with self.connection:
@@ -89,14 +100,28 @@ class JobStore:
                 (source, target, *ids),
             ).fetchone() if ids else None
             if overlap:
-                raise ValueError(f"Overlapping sync jobs {key} and {overlap['job_key']}; inspect before sending.")
+                raise OverlappingSyncJob(
+                    f"Overlapping sync jobs {key} and {overlap['job_key']}; inspect before sending.")
             self.connection.execute(
-                "INSERT OR IGNORE INTO jobs (source,target,job_key,message_ids,created)"
-                " VALUES (?,?,?,?,?)",
+                "INSERT OR IGNORE INTO jobs (source,target,job_key,message_ids,created,source_published_at)"
+                " VALUES (?,?,?,?,?,?)",
                 (source, target, key, json.dumps(ids),
-                 datetime.now(timezone.utc).isoformat()),
+                 datetime.now(timezone.utc).isoformat(), published_at),
             )
         return True
+
+    def record_overlap(self, source, target, messages, error):
+        ids = sorted({message.id for message in messages})
+        dates = [message.date for message in messages if getattr(message, "date", None)]
+        with self.connection:
+            self.connection.execute(
+                "INSERT OR IGNORE INTO jobs"
+                " (source,target,job_key,message_ids,created,source_published_at,status,error)"
+                " VALUES (?,?,?,?,?,?,'uncertain',?)",
+                (source, target, ",".join(map(str, ids)), json.dumps(ids),
+                 datetime.now(timezone.utc).isoformat(), min(dates).timestamp() if dates else None,
+                 f"Historical album overlap; not republished: {error}"),
+            )
 
     def progress(self, source, target, latest):
         row = self.connection.execute(
@@ -130,6 +155,14 @@ class JobStore:
             " ORDER BY rowid LIMIT 1", (source, target),
         ).fetchone()
 
+    def next_news(self, sources, target):
+        return self.connection.execute(
+            "SELECT * FROM jobs WHERE target=? AND status='queued' AND source IN ("
+            + ",".join("?" for _ in sources) + ") ORDER BY COALESCE(source_published_at,"
+            " (julianday(created)-2440587.5)*86400),rowid LIMIT 1",
+            (target, *sources),
+        ).fetchone()
+
     def update(self, job, status, *, result_ids=None, error=None):
         with self.connection:
             self.connection.execute(
@@ -156,7 +189,9 @@ def enqueue_new_messages(store, source_id, target_id, boundary, messages):
         return
     if any(getattr(message, "action", None) for message in messages):
         return
-    if store.enqueue(source_id, str(target_id), [message.id for message in messages]):
+    dates = [message.date for message in messages if getattr(message, "date", None)]
+    published_at = min(dates).timestamp() if dates else None
+    if store.enqueue(source_id, str(target_id), [message.id for message in messages], published_at):
         logger.info("Queued source message(s) %s", [message.id for message in messages])
 
 
@@ -203,7 +238,12 @@ async def reconcile_messages(user, source, target, store, boundary):
         complete = await complete_album(user, source, group)
         if (now - complete[-1].date).total_seconds() < 10:
             break
-        enqueue_new_messages(store, source.id, target.id, boundary, complete)
+        try:
+            enqueue_new_messages(store, source.id, target.id, boundary, complete)
+        except OverlappingSyncJob as error:
+            store.record_overlap(source.id, str(target.id), complete, error)
+            logger.warning("Recorded overlapping album for manual review source=%s ids=%s: %s",
+                           source.id, [message.id for message in complete], error)
         store.advance(source.id, str(target.id), complete[-1].id)
     return len(messages)
 
@@ -211,6 +251,7 @@ async def reconcile_messages(user, source, target, store, boundary):
 async def reconciliation_worker(user, source, target, store, boundary):
     while True:
         record_worker_heartbeat(store.connection, "channel_reconciliation")
+        record_worker_heartbeat(store.connection, f"news_source_{source.id}")
         delay = 30
         try:
             count = await reconcile_messages(user, source, target, store, boundary)
@@ -221,6 +262,7 @@ async def reconciliation_worker(user, source, target, store, boundary):
             logger.warning("Source reconciliation rate limited; waiting %s seconds", delay)
         except Exception as error:
             record_worker_failure(store.connection, "channel_reconciliation", error)
+            record_worker_failure(store.connection, f"news_source_{source.id}", error)
             logger.exception("Source reconciliation failed; cursor retained, retrying in 30 seconds")
         await asyncio.sleep(delay)
 
@@ -284,6 +326,14 @@ async def deliver(user, bot, source, target, store, job, directory):
         store.update(job, "skipped", error="No text remains after contact cleanup.")
         logger.info("Skipped empty job %s", job["job_key"])
         return
+    body = "\n\n".join(text for text in captions if text)
+    duplicate = store.news_deduper.find(job, body) if (
+        not media_messages or len(normalized_body(body)) >= MIN_SIMILAR_LENGTH) else None
+    if duplicate:
+        store.update(job, "skipped", error=(
+            f"Duplicate news within 5 hours: {duplicate['source']}:{duplicate['job_key']}"))
+        logger.info("Skipped duplicate news source=%s job=%s", job["source"], job["job_key"])
+        return
     long_caption = any(len(text.encode("utf-16-le")) // 2 > 1024 for text in captions)
     # Bot accounts have a smaller caption limit than premium source-channel authors.
     text_parts = split_telegram_text("\n\n".join(text for text in captions if text)) if (
@@ -297,7 +347,14 @@ async def deliver(user, bot, source, target, store, job, directory):
             if not path:
                 raise ValueError("Media download did not produce a file.")
             paths.append(path)
-        store.update(job, "sending")
+        digest = await asyncio.to_thread(media_digest, paths) if paths else None
+        duplicate = store.news_deduper.find(job, body, digest)
+        if duplicate:
+            store.update(job, "skipped", error=(
+                f"Duplicate news within 5 hours: {duplicate['source']}:{duplicate['job_key']}"))
+            logger.info("Skipped duplicate news source=%s job=%s", job["source"], job["job_key"])
+            return
+        store.news_deduper.begin_send(job, body, digest)
         result_ids = []
         if paths:
             if len(paths) == 1:
@@ -324,14 +381,15 @@ async def deliver(user, bot, source, target, store, job, directory):
 
 
 async def worker(user, bot, source, target, store, directory):
+    sources = {item.id: item for item in source} if isinstance(source, (list, tuple)) else {source.id: source}
     while True:
         record_worker_heartbeat(store.connection, "channel_forwarder")
-        job = store.next(source.id, str(target.id))
+        job = store.next_news(tuple(sources), str(target.id))
         if not job:
             await asyncio.sleep(1)
             continue
         try:
-            await deliver(user, bot, source, target, store, job, directory)
+            await deliver(user, bot, sources[job["source"]], target, store, job, directory)
         except errors.FloodWaitError as error:
             row = store.connection.execute(
                 "SELECT result_ids FROM jobs WHERE source=? AND target=? AND job_key=?",
@@ -364,7 +422,7 @@ async def index_announcements(bot, target, store):
     ).fetchall()
     failed = 0
     for job in jobs:
-        key = f"{target.id}:{job['job_key']}"
+        key = announcement_job_key(job)
         if key in known:
             continue
         try:
@@ -434,7 +492,7 @@ async def announcement_worker(bot, target, store):
         await asyncio.sleep(delay)
 
 
-async def run(mode, directory):
+async def run(mode, directory, news_only=False):
     api_id, api_hash = credentials()
     user = TelegramClient(str(directory / "user"), api_id, api_hash)
     if mode == "login":
@@ -461,54 +519,55 @@ async def run(mode, directory):
         publisher = await bot.get_me()
         if str(publisher.id) != token.partition(":")[0]:
             raise ValueError("Publisher session does not match the configured bot.")
-        source = await user.get_entity("https://t.me/svip")
         target = await bot.get_entity("https://t.me/haotiancm99988866")
-        if not isinstance(source, types.Channel) or not source.broadcast:
-            raise ValueError("Source must be a broadcast channel.")
         if not isinstance(target, types.Channel) or not target.broadcast:
             raise ValueError("Target must be a broadcast channel.")
-        if getattr(source, "noforwards", False):
-            raise ValueError("Source has protected content; synchronization is not permitted.")
         permissions = await bot.get_permissions(target, publisher)
         if not permissions.is_admin or not permissions.post_messages:
             raise ValueError("Bot requires target-channel post_messages permission.")
-        latest = await user.get_messages(source, limit=1)
-        progress = store.progress(source.id, str(target.id), latest[0].id if latest else 0)
-        boundary = progress["boundary"]
+        sources, boundaries = await prepare_news_sources(user, target, store)
         store.recover()
+        from announcements import ensure_tables
+        await asyncio.to_thread(ensure_tables)
+        await seed_recent_news(bot, target, store, directory)
 
-        async def receive(messages):
+        async def receive(source, messages):
             # Allow all album members and their captions to reach the source before queuing.
             if messages and messages[0].grouped_id:
                 await asyncio.sleep(10)
             complete = await complete_album(user, source, messages)
-            enqueue_new_messages(store, source.id, target.id, boundary, complete)
+            enqueue_new_messages(store, source.id, target.id, boundaries[source.id], complete)
 
         async def on_message(event):
             if not event.message.grouped_id:
-                await receive([event.message])
+                await receive(source_by_chat[event.chat_id], [event.message])
 
         async def on_album(event):
-            await receive(event.messages)
+            await receive(source_by_chat[event.chat_id], event.messages)
 
-        user.add_event_handler(on_message, events.NewMessage(chats=source))
-        user.add_event_handler(on_album, events.Album(chats=source))
+        source_by_chat = {utils.get_peer_id(source): source for source in sources}
+        user.add_event_handler(on_message, events.NewMessage(chats=sources))
+        user.add_event_handler(on_album, events.Album(chats=sources))
         async def monitor_listener():
             while True:
                 record_worker_heartbeat(store.connection, "channel_listener")
                 await asyncio.sleep(30)
 
-        logger.info("READY: @svip -> @haotiancm99988866; only messages newer than %s", boundary)
+        logger.info("READY: news sources=%s -> @haotiancm99988866; news_only=%s",
+                    ",".join(name for name, _ in NEWS_SOURCES), news_only)
         async with asyncio.TaskGroup() as tasks:
-            from music_ingest import music_worker
-            from movie_ingest import movie_worker
-            from music_playback import playback_worker
-            tasks.create_task(music_worker(user, bot, directory))
-            tasks.create_task(movie_worker(user, bot, directory))
-            tasks.create_task(playback_worker())
-            tasks.create_task(worker(user, bot, source, target, store, directory))
+            if not news_only:
+                from music_ingest import music_worker
+                from movie_ingest import movie_worker
+                from music_playback import playback_worker
+                tasks.create_task(music_worker(user, bot, directory))
+                tasks.create_task(movie_worker(user, bot, directory))
+                tasks.create_task(playback_worker())
+            tasks.create_task(worker(user, bot, sources, target, store, directory))
             tasks.create_task(announcement_worker(bot, target, store))
-            tasks.create_task(reconciliation_worker(user, source, target, store, boundary))
+            for source in sources:
+                tasks.create_task(reconciliation_worker(
+                    user, source, target, store, boundaries[source.id]))
             tasks.create_task(monitor_listener())
             await user.run_until_disconnected()
             raise ConnectionError("Listener disconnected; stop and inspect before restarting.")
@@ -518,9 +577,31 @@ async def run(mode, directory):
         store.close()
 
 
+async def prepare_news_sources(user, target, store):
+    sources = []
+    latest_ids = {}
+    for username, expected_id in NEWS_SOURCES:
+        source = await user.get_entity(f"https://t.me/{username}")
+        if not isinstance(source, types.Channel) or not source.broadcast or source.id != expected_id:
+            raise ValueError(f"News source @{username} identity or channel type changed.")
+        if getattr(source, "noforwards", False):
+            raise ValueError(f"News source @{username} has protected content; not permitted.")
+        latest = await user.get_messages(source, limit=1)
+        latest_ids[source.id] = latest[0].id if latest else 0
+        sources.append(source)
+    boundaries = {}
+    for (username, _), source in zip(NEWS_SOURCES, sources):
+        progress = store.progress(source.id, str(target.id), latest_ids[source.id])
+        boundaries[source.id] = progress["boundary"]
+        logger.info("News source @%s ready; baseline=%s", username, progress["boundary"])
+    return sources, boundaries
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("login", "run", "status"))
+    parser.add_argument("--news-only", action="store_true",
+                        help="Run news workers without music/movie ingestion or playback preparation")
     args = parser.parse_args()
     directory = state_directory()
     directory.mkdir(parents=True, exist_ok=True)
@@ -545,7 +626,7 @@ def main():
             finally:
                 store.close()
         else:
-            asyncio.run(run(args.mode, directory))
+            asyncio.run(run(args.mode, directory, news_only=args.news_only))
 
 
 if __name__ == "__main__":

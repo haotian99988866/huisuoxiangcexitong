@@ -1,3 +1,5 @@
+param([switch]$NewsOnly)
+
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $root 'bot\venv\Scripts\python.exe'
@@ -27,7 +29,9 @@ try {
     $log = Join-Path $directory 'sync.log'
     $offset = 0
     if (Test-Path -LiteralPath $log) { $offset = (Get-Item -LiteralPath $log).Length }
-    $process = Start-Process -FilePath $python -ArgumentList "-u `"$script`" run" `
+    $arguments = "-u `"$script`" run"
+    if ($NewsOnly) { $arguments += ' --news-only' }
+    $process = Start-Process -FilePath $python -ArgumentList $arguments `
         -WorkingDirectory $root -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $directory 'listener.out.log') `
         -RedirectStandardError (Join-Path $directory 'listener.err.log')
@@ -42,7 +46,7 @@ try {
                 $reader = New-Object System.IO.StreamReader($stream)
                 try { $newLog = $reader.ReadToEnd() } finally { $reader.Dispose() }
             } finally { $stream.Dispose() }
-            if ($newLog -match 'INFO READY: @svip -> @haotiancm99988866;') {
+            if ($newLog -match 'INFO READY: news sources=.* -> @haotiancm99988866;') {
                 "$(Get-Date -Format o) READY; launcher PID $($process.Id)." | Add-Content -LiteralPath $startupLog
                 exit 0
             }

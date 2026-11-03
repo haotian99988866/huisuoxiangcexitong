@@ -3,11 +3,12 @@ from datetime import datetime, timedelta, timezone
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from telethon import types, errors
 
-from channel_sync import JobStore, complete_album, deliver, enqueue_new_messages, reconcile_messages, single_instance, split_telegram_text, worker
+from channel_sync import JobStore, complete_album, deliver, enqueue_new_messages, prepare_news_sources, reconcile_messages, single_instance, split_telegram_text, worker
+from news_sources import NEWS_SOURCES, announcement_job_key
 from channel_sync_clean import clean_text, is_advertisement
 
 
@@ -68,6 +69,9 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
             send_message=AsyncMock(return_value=SimpleNamespace(id=100)),
             send_file=AsyncMock(return_value=SimpleNamespace(id=101)),
         )
+        digest = patch("channel_sync.media_digest", side_effect=lambda paths: "|".join(paths))
+        digest.start()
+        self.addCleanup(digest.stop)
 
     def job(self, ids=(10,)):
         self.store.enqueue(1, "2", ids)
@@ -177,6 +181,32 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
             self.store.enqueue(1, "2", [21, 22])
         self.assertEqual(self.store.connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 1)
 
+    async def test_overlapping_history_is_recorded_without_republishing_and_later_news_proceeds(self):
+        self.store.progress(1, "2", 20)
+        self.store.enqueue(1, "2", [22, 23])
+        self.store.update(self.store.next(1, "2"), "sent", result_ids=[100, 101])
+        self.history([self.historical(21, 500), self.historical(22, 500),
+                      self.historical(23, 500), self.historical(24)])
+        await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        rows = self.store.connection.execute(
+            "SELECT job_key,status,result_ids,error FROM jobs ORDER BY rowid").fetchall()
+        self.assertEqual([(row["job_key"], row["status"]) for row in rows],
+                         [("22,23", "sent"), ("21,22,23", "uncertain"), ("24", "queued")])
+        self.assertEqual(rows[0]["result_ids"], "[100, 101]")
+        self.assertIn("not republished", rows[1]["error"])
+        self.assertEqual(self.store.progress(1, "2", 99)["scanned_id"], 24)
+        await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        self.assertEqual(self.store.connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 3)
+
+    async def test_overlap_record_failure_does_not_advance_cursor(self):
+        self.store.progress(1, "2", 20)
+        self.store.enqueue(1, "2", [22])
+        self.history([self.historical(21, 500), self.historical(22, 500)])
+        with patch.object(self.store, "record_overlap", side_effect=RuntimeError("disk failure")):
+            with self.assertRaisesRegex(RuntimeError, "disk failure"):
+                await reconcile_messages(self.user, self.source, self.target, self.store, 20)
+        self.assertEqual(self.store.progress(1, "2", 99)["scanned_id"], 20)
+
     def message(self, text="正文 @contact", media=None):
         return SimpleNamespace(
             message=text, entities=[], media=media, noforwards=False,
@@ -204,6 +234,101 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         enqueue_new_messages(self.store, 1, 2, 20,
                              [SimpleNamespace(id=22), SimpleNamespace(id=21)])
         self.assertEqual(self.store.next(1, "2")["message_ids"], "[21, 22]")
+
+    async def test_news_sources_start_at_independent_latest_messages_and_keep_existing_cursor(self):
+        channels = [
+            types.Channel(id=ident, title=username, username=username,
+                          photo=types.ChatPhotoEmpty(), date=datetime.now(timezone.utc),
+                          broadcast=True)
+            for username, ident in NEWS_SOURCES
+        ]
+        self.user.get_entity.side_effect = channels
+        self.user.get_messages.side_effect = [[SimpleNamespace(id=100 + index)]
+                                             for index in range(len(channels))]
+        self.store.progress(channels[0].id, "2", 20)
+        self.store.advance(channels[0].id, "2", 25)
+        sources, boundaries = await prepare_news_sources(self.user, self.target, self.store)
+        self.assertEqual(len(sources), 6)
+        self.assertEqual(boundaries[channels[0].id], 20)
+        self.assertEqual(self.store.progress(channels[0].id, "2", 999)["scanned_id"], 25)
+        for index, channel in enumerate(channels[1:], 1):
+            self.assertEqual(boundaries[channel.id], 100 + index)
+            enqueue_new_messages(self.store, channel.id, 2, boundaries[channel.id],
+                                 [SimpleNamespace(id=100 + index)])
+            self.assertIsNone(self.store.next(channel.id, "2"))
+            enqueue_new_messages(self.store, channel.id, 2, boundaries[channel.id],
+                                 [SimpleNamespace(id=101 + index)])
+            self.assertIsNotNone(self.store.next(channel.id, "2"))
+
+    async def test_protected_news_source_rejects_activation_before_any_baselines_are_written(self):
+        username, ident = NEWS_SOURCES[0]
+        channel = types.Channel(id=ident, title=username, username=username,
+                                photo=types.ChatPhotoEmpty(), date=datetime.now(timezone.utc),
+                                broadcast=True, noforwards=True)
+        self.user.get_entity.return_value = channel
+        with self.assertRaisesRegex(ValueError, "protected"):
+            await prepare_news_sources(self.user, self.target, self.store)
+        self.assertEqual(self.store.connection.execute("SELECT COUNT(*) FROM sync_progress").fetchone()[0], 0)
+
+    async def test_changed_news_username_identity_is_rejected(self):
+        channel = types.Channel(id=999, title="changed", photo=types.ChatPhotoEmpty(),
+                                date=datetime.now(timezone.utc), broadcast=True)
+        self.user.get_entity.return_value = channel
+        with self.assertRaisesRegex(ValueError, "identity"):
+            await prepare_news_sources(self.user, self.target, self.store)
+        self.user.get_messages.assert_not_awaited()
+
+    def test_news_queue_and_index_keys_distinguish_identical_message_numbers(self):
+        legacy, added = NEWS_SOURCES[0][1], NEWS_SOURCES[1][1]
+        self.store.enqueue(legacy, "2", [10])
+        self.store.enqueue(added, "2", [10])
+        self.store.enqueue(999, "2", [1])
+        first = self.store.next_news((legacy, added), "2")
+        self.assertEqual(first["source"], legacy)
+        self.assertEqual(announcement_job_key(first), "2:10")
+        self.store.update(first, "sent", result_ids=[100])
+        second = self.store.next_news((legacy, added), "2")
+        self.assertEqual(second["source"], added)
+        self.assertEqual(announcement_job_key(second), f"2:{added}:10")
+        self.store.update(second, "uncertain", result_ids=[101])
+        self.assertIsNone(self.store.next_news((legacy, added), "2"))
+
+    def test_operations_health_filters_news_queues_by_source(self):
+        from operations_health import _component
+        self.store.enqueue(1, "2", [10])
+        self.store.enqueue(3, "2", [10])
+        self.store.update(self.store.next(3, "2"), "failed")
+        result = _component(self.directory / "test.sqlite3", "news_test", "Test news",
+                            source=1)
+        self.assertEqual(result["counts"], {"queued": 1})
+
+    def test_operations_health_counts_unindexed_news_with_source_safe_keys(self):
+        from operations_health import _announcement_pending
+        legacy, added = NEWS_SOURCES[0][1], NEWS_SOURCES[1][1]
+        for source in (legacy, added):
+            self.store.enqueue(source, "2", [10])
+            self.store.update(self.store.next(source, "2"), "sent", result_ids=[source])
+        database = MagicMock()
+        cursor = database.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [{"job_key": "2:10"}]
+        component = {"state": "active", "counts": {}, "note": None}
+        with patch("operations_health.get_conn", return_value=database):
+            _announcement_pending(component, self.directory / "test.sqlite3")
+        self.assertEqual(component["counts"], {"pending_index": 1})
+        self.assertEqual(set(cursor.execute.call_args.args[1]), {"2:10", f"2:{added}:10"})
+        database.close.assert_called_once()
+
+    async def test_single_news_publisher_routes_jobs_to_the_correct_source(self):
+        second = SimpleNamespace(id=3)
+        self.store.enqueue(3, "2", [10])
+        with patch("channel_sync.deliver", new_callable=AsyncMock) as send, \
+                patch("channel_sync.asyncio.sleep", side_effect=RuntimeError("stop worker")):
+            send.side_effect = lambda user, bot, source, target, store, job, directory: store.update(
+                job, "sent", result_ids=[100])
+            with self.assertRaisesRegex(RuntimeError, "stop worker"):
+                await worker(self.user, self.bot, [self.source, second], self.target,
+                             self.store, self.directory)
+            self.assertEqual(send.await_args.args[2], second)
 
     def test_single_instance_prevents_two_listeners(self):
         with single_instance(self.directory):

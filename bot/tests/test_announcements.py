@@ -149,8 +149,9 @@ class AnnouncementIndexTests(unittest.IsolatedAsyncioTestCase):
                                    send_message=AsyncMock(), send_file=AsyncMock())
 
     def sent(self, source_id, target_id):
-        self.store.enqueue(1, "2", [source_id])
-        job = self.store.next(1, "2")
+        from news_sources import NEWS_SOURCES
+        self.store.enqueue(NEWS_SOURCES[0][1], "2", [source_id])
+        job = self.store.next(NEWS_SOURCES[0][1], "2")
         self.store.update(job, "sent", result_ids=[target_id])
         return self.store.connection.execute("SELECT * FROM jobs WHERE job_key=?", (str(source_id),)).fetchone()
 
@@ -246,3 +247,15 @@ class AnnouncementIndexTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await index_announcements(self.bot, self.target, self.store)
             self.assertEqual(index.await_count, 2)
+
+    async def test_equal_source_message_numbers_are_indexed_separately(self):
+        from news_sources import NEWS_SOURCES
+        self.sent(10, 100)
+        added = NEWS_SOURCES[1][1]
+        self.store.enqueue(added, "2", [10])
+        self.store.update(self.store.next(added, "2"), "sent", result_ids=[101])
+        with patch("announcements.indexed_keys", return_value={"2:10"}), \
+                patch("channel_sync.index_announcement", new_callable=AsyncMock) as index:
+            await index_announcements(self.bot, self.target, self.store)
+        index.assert_awaited_once()
+        self.assertEqual(index.await_args.args[3], f"2:{added}:10")
