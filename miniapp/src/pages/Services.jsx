@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import ModuleIcon from '../components/ModuleIcon'
-import BrandArtwork from '../components/BrandArtwork'
 import AccountHeader from '../components/AccountHeader'
 import { bindBackButton } from '../utils/twa'
 import { useModuleScroll } from '../utils/moduleState'
@@ -15,28 +14,34 @@ export default function Services() {
       <h1>服务中心</h1>
     </header></AccountHeader>
     <p className="consumption-intro">精选服务，轻松开通</p>
+    <section className="membership-panel service-news" aria-labelledby="service-news">
+      <Link className="service-product" to="/announcements">
+        <span className="service-product-icon"><ModuleIcon name="announcements" /></span>
+        <div><h3 id="service-news">新闻资讯 <span className="service-news-tag">重点关注</span></h3>
+          <p>东南亚大事件 · 多频道新闻汇集</p>
+          <span className="service-inline-action">查看最新资讯</span>
+        </div>
+      </Link>
+    </section>
     <section className="membership-panel service-hero" aria-labelledby="service-membership">
-      <BrandArtwork />
-      <span className="membership-tag" id="service-membership">TELEGRAM PREMIUM</span>
       <Link className="service-product" to="/membership">
         <span className="service-product-icon"><ModuleIcon name="membership" /></span>
-        <div><h3>Telegram会员</h3><p>3 / 6 / 12个月 · 支持赠送</p><strong>$15.99 <small>起</small></strong></div>
+        <div><h3 id="service-membership">Telegram会员</h3><p>3 / 6 / 12个月 · 支持赠送</p>
+          <span className="service-inline-row"><strong>$15.99 <small>起</small></strong><span>选择套餐 · 人工开通</span></span>
+        </div>
       </Link>
-      <Link className="service-cta" to="/membership"><span>选择套餐</span><span>人工开通</span></Link>
     </section>
     <section className="membership-panel" aria-labelledby="service-phone">
       <Link className="service-product" to="/phone-topup">
         <span className="service-product-icon"><ModuleIcon name="phone" /></span>
-        <div><h3 id="service-phone">柬埔寨话费代充</h3><p>$5–$100 · 每单手续费 $1</p><strong>人工代充</strong></div>
+        <div><h3 id="service-phone">柬埔寨话费代充</h3><p>$5–$100 · 每单手续费 $1</p><span className="service-inline-action">填写手机号 · 人工代充</span></div>
       </Link>
-      <Link className="service-cta" to="/phone-topup"><span>填写手机号</span><span>去充值</span></Link>
     </section>
     <section className="membership-panel" aria-labelledby="service-hotels">
       <Link className="service-product" to="/hotels">
         <span className="service-product-icon"><ModuleIcon name="location" /></span>
-        <div><h3 id="service-hotels">酒店推荐</h3><p>门头照片 · 地图位置 · 前台Telegram</p><strong>住宿信息</strong></div>
+        <div><h3 id="service-hotels">酒店推荐</h3><p>门头照片 · 地图位置 · 前台Telegram</p><span className="service-inline-action">查看酒店 · 联系前台</span></div>
       </Link>
-      <Link className="service-cta" to="/hotels"><span>查看酒店</span><span>联系前台</span></Link>
     </section>
   </main>
 }

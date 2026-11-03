@@ -4,6 +4,7 @@ import AccountAccess from '../components/AccountAccess'
 import OrderSummary from '../components/OrderSummary'
 import BrandArtwork from '../components/BrandArtwork'
 import AccountHeader from '../components/AccountHeader'
+import ModuleIcon from '../components/ModuleIcon'
 import { bindBackButton, openTelegramLink } from '../utils/twa'
 import { isTelegramMemberEntry } from '../utils/membership'
 import { money, orderMatches } from '../utils/commerce'
@@ -43,6 +44,11 @@ export default function Personal() {
     </AccountHeader>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
+      {account.can_test && isTelegramMemberEntry() && <Link className="personal-admin-entry" to="/admin">
+        <span className="personal-admin-icon"><ModuleIcon name="personal" /></span>
+        <div><strong>运营管理平台</strong><span>业务管理 · 运营健康 · 更多管理</span></div>
+        <span className="personal-admin-action">进入管理</span>
+      </Link>}
       <section className="membership-panel wallet-card" aria-labelledby="my-wallet">
         <BrandArtwork />
         <div className="membership-row"><h2 id="my-wallet">我的钱包</h2><span>USD</span></div>
@@ -78,7 +84,6 @@ export default function Personal() {
       </button>
       {account && <div className="personal-account-actions">
         {account && <button type="button" disabled={busy} onClick={() => accountAction(refresh)}>{busy ? '处理中…' : '刷新账户'}</button>}
-        {account?.can_test && isTelegramMemberEntry() && <Link to="/admin">运营管理台</Link>}
         {account && !isTelegramMemberEntry() && <button type="button" disabled={busy} onClick={() => accountAction(logout)}>退出网站账户</button>}
       </div>}
     </footer>

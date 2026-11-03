@@ -92,6 +92,13 @@
 .personal-footer button, .personal-footer a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 12px; border: 0; background: none; color: var(--ink-muted); text-decoration: none; }
 .personal-footer .personal-support { color: var(--ink-accent); }
 .personal-account-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.personal-admin-entry { display: flex; align-items: center; gap: 12px; padding: 16px; margin-bottom: 14px; border: 1px solid #e4d7c3; border-radius: 16px; background: linear-gradient(120deg, #f8efe0, #fff); color: var(--ink-accent); text-decoration: none; min-height: 76px; }
+.personal-admin-icon { display: grid; place-items: center; width: 42px; height: 42px; flex-shrink: 0; border-radius: 12px; background: #f0e0c6; }
+.personal-admin-icon svg { width: 24px; height: 24px; }
+.personal-admin-entry > div { display: grid; gap: 5px; flex: 1; min-width: 0; }
+.personal-admin-entry strong { font-size: 17px; color: var(--ink-text); }
+.personal-admin-entry > div > span { font-size: 12px; color: var(--ink-muted); line-height: 1.5; }
+.personal-admin-action { font-size: 13px; font-weight: 600; flex-shrink: 0; }
 .personal-footer :is(button, a):focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 2px; border-radius: 8px; }
 .account-avatar { display: grid; place-items: center; flex-shrink: 0; width: 54px; height: 54px; border-radius: 18px; color: var(--ink-accent); background: #f3ede3; border: 1px solid #e3d4bb; font-size: 24px; }
 .wallet-card { background: linear-gradient(125deg, #f9f4ec, #fff); border-color: #e4d7c3; position: relative; overflow: hidden; isolation: isolate; }
@@ -117,6 +124,18 @@
 .service-product-icon svg { width: 30px; height: 30px; }
 .service-hero { background: linear-gradient(130deg, #f8efe0, #fff); border-color: #e4d7c3; position: relative; overflow: hidden; isolation: isolate; }
 .service-cta { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--ink-line); display: flex; justify-content: space-between; color: var(--ink-accent); font-size: 13px; }
+.services-page .membership-panel { padding: 14px 16px; margin-bottom: 12px; border-radius: 16px; }
+.services-page .service-product { padding: 0; min-height: 90px; gap: 12px; text-decoration: none; }
+.services-page .service-product-icon { width: 46px; height: 46px; border-radius: 14px; }
+.services-page .service-product-icon svg { width: 25px; height: 25px; }
+.services-page .service-product h3 { font-size: 18px; margin: 0 0 4px; line-height: 1.4; }
+.services-page .service-product p { font-size: 12px; margin: 0 0 8px; line-height: 1.6; overflow-wrap: anywhere; }
+.services-page .service-product strong { font-size: 19px; margin: 0; }
+.service-inline-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.service-inline-action { font-size: 13px; font-weight: 600; }
+.service-news { border-color: #d8c29e; background: linear-gradient(120deg, #f7ead5, #fffaf1); }
+.service-news h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.service-news-tag { padding: 2px 6px; border-radius: 6px; background: #eee0c7; color: var(--ink-accent); font-size: 10px; font-weight: 500; }
 .account-details { margin: 12px 0; color: var(--ink-muted); font-size: 12px; }
 .account-details summary { cursor: pointer; padding: 10px 0; min-height: 40px; }
 .account-details p { margin: 6px 0; }
