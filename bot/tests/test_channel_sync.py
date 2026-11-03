@@ -15,7 +15,8 @@ from channel_sync_clean import clean_text, is_advertisement
 class CleanTextTests(unittest.TestCase):
     def test_advertisement_labels_and_news_distinguished(self):
         for text in ["#付费广告\n推广内容", "**#付费广告**\n推广内容",
-                     "\n 【商业广告】\n推广内容", "#付費廣告：推广内容", "#广告 推广内容"]:
+                     "\n 【商业广告】\n推广内容", "#付費廣告：推广内容", "#广告 推广内容",
+                     "Telegram必备的搜索引擎，极搜帮你精准找到，想要的群组、频道、视频"]:
             with self.subTest(text=text):
                 self.assertTrue(is_advertisement(text))
         for text in [None, "", "#新闻：广告诈骗被查处", "广告公司被查处",

@@ -23,9 +23,16 @@ ADVERTISEMENT = re.compile(
 )
 
 
+PROMOTION = re.compile(
+    r"极搜|極搜|Telegram\s*必备(?:的)?(?:搜索引擎|工具)|搜索引擎.{0,20}(?:群组|频道|群組|頻道)",
+    re.IGNORECASE,
+)
+
+
 def is_advertisement(text):
-    """Only treat an explicit leading advertisement label as an opt-out."""
-    return bool(ADVERTISEMENT.match((text or "").lstrip()))
+    """Skip explicit leading ad labels and known unlabeled promotions."""
+    text = (text or "").lstrip()
+    return bool(ADVERTISEMENT.match(text) or PROMOTION.search(text))
 
 
 def clean_text(text, entities=()):
