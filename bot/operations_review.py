@@ -63,6 +63,13 @@ def connection(module):
             );
             CREATE UNIQUE INDEX IF NOT EXISTS operation_reviews_open
                 ON operation_reviews(task_key) WHERE state='open';
+            CREATE TABLE IF NOT EXISTS operation_music_cleanups (
+                ticket_id TEXT PRIMARY KEY, plan TEXT NOT NULL, retry_at REAL NOT NULL DEFAULT 0,
+                error_code TEXT, completed INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS operation_music_exclusions (
+                message INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL
+            );
         """)
         yield conn
     finally:
@@ -169,6 +176,8 @@ def send_pending(bot, owner, *, force=False):
     sent = 0
     failures = []
     for module in modules():
+        if module.key != "n":
+            continue
         if not (state_directory() / module.filename).is_file():
             continue
         try:
@@ -253,6 +262,8 @@ def handle_callback(bot, call):
         owner = require_owner(call.from_user.id, call.message.chat.id, call.message.chat.type)
         _, key, ticket_id, action = call.data.split(":")
         module = get_module(key)
+        if module.key != "n":
+            raise ValueError("音乐疑问已改为自动清理、影视自动跳过，此旧核查卡不再操作；新闻仍由你核查")
         with connection(module) as conn:
             if action.startswith("ok_"):
                 result = apply(module, conn, ticket_id, action[3:], owner)
@@ -291,7 +302,8 @@ def handle_command(bot, message):
     try:
         owner = require_owner(message.from_user.id, message.chat.id, message.chat.type)
         count = send_pending(bot, owner, force=True)
-        bot.reply_to(message, f"已尝试发送{count}条待核查任务（每次最多3条；发送不明会记录日志）。可再次发送 /ops_review 查看；"
+        bot.reply_to(message, f"已尝试发送{count}条新闻待核查任务（每次最多3条；发送不明会记录日志）。可再次发送 /ops_review 查看；"
+                     "音乐疑问自动清理、影视疑问自动跳过，不再等待人工确认。"
                      "已经处理或自动恢复的任务不会再次列出。")
     except ValueError as error:
         bot.reply_to(message, str(error))
@@ -320,3 +332,127 @@ def worker(bot):
 
 def start_worker(bot):
     threading.Thread(target=worker, args=(bot,), daemon=True, name="operations-review").start()
+    threading.Thread(target=automatic_worker, daemon=True, name="operations-media-cleanup").start()
+
+
+def automatic_module(module):
+    from music_cleanup import advance
+    with connection(module) as conn:
+        scan(module, conn)
+        tickets = conn.execute("SELECT * FROM operation_reviews WHERE state='open' "
+                               "ORDER BY COALESCE(last_attempt,0),created_at LIMIT 3").fetchall()
+        for ticket in tickets:
+            try:
+                begin_automatic_task(module, conn, ticket["id"])
+            except Exception as error:
+                with conn:
+                    conn.execute("UPDATE operation_reviews SET last_attempt=?,error_code=? WHERE id=?",
+                                 (time.time(), type(error).__name__, ticket["id"]))
+                logger.exception("Automatic task isolation failed module=%s ticket=%s; other tasks continue",
+                                 module.key, ticket["id"])
+        cleanups = conn.execute(
+            "SELECT * FROM operation_music_cleanups WHERE completed=0 AND retry_at<=? ORDER BY rowid LIMIT 3",
+            (time.time(),),
+        ).fetchall()
+        for cleanup in cleanups:
+            try:
+                plan = json.loads(cleanup["plan"])
+                for _ in range(6):
+                    plan = advance(plan)
+                    with conn:
+                        for message in plan["messages"]:
+                            conn.execute("INSERT OR IGNORE INTO operation_music_exclusions VALUES (?,?)",
+                                         (message, cleanup["ticket_id"]))
+                        conn.execute("UPDATE operation_music_cleanups SET plan=?,error_code=NULL WHERE ticket_id=?",
+                                     (json.dumps(plan), cleanup["ticket_id"]))
+                    if not plan["located"]:
+                        break
+                    if plan["phase"] == "done":
+                        with conn:
+                            conn.execute("BEGIN IMMEDIATE")
+                            ticket = conn.execute("SELECT * FROM operation_reviews WHERE id=?",
+                                                  (cleanup["ticket_id"],)).fetchone()
+                            saved = json.loads(ticket["snapshot"])
+                            where, values = task_where(module, saved)
+                            extra = ",retryable=0" if module.key == "p" else ""
+                            conn.execute("UPDATE jobs SET status='skipped',error=?" + extra +
+                                         " WHERE " + where + " AND status='cleanup_pending'",
+                                         ("Owner policy: doubtful music deleted from website, disk and owned channel", *values))
+                            conn.execute("UPDATE operation_music_cleanups SET completed=1 WHERE ticket_id=?",
+                                         (cleanup["ticket_id"],))
+                            conn.execute("UPDATE operation_reviews SET state='applied',finished_at=? WHERE id=?",
+                                         (time.time(), cleanup["ticket_id"]))
+                        logger.info("Doubtful music cleanup complete module=%s ticket=%s", module.key, cleanup["ticket_id"])
+                        break
+            except Exception as error:
+                from telethon.errors import FloodWaitError
+                delay = error.seconds + 1 if isinstance(error, FloodWaitError) else 60
+                with conn:
+                    conn.execute("UPDATE operation_music_cleanups SET retry_at=?,error_code=? WHERE ticket_id=?",
+                                 (time.time() + delay, type(error).__name__, cleanup["ticket_id"]))
+                logger.exception("Doubtful music cleanup incomplete module=%s ticket=%s; retry later",
+                                 module.key, cleanup["ticket_id"])
+                if isinstance(error, FloodWaitError):
+                    break
+
+
+def begin_automatic_task(module, conn, ticket_id):
+    from music_cleanup import initial_plan
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        _, row, where, values = get_current(conn, module, ticket_id)
+        if module.key.startswith("v"):
+            conn.execute("UPDATE jobs SET status='excluded',error=? WHERE " + where,
+                         ("Owner policy: doubtful movie automatically excluded; existing copy retained", *values))
+            conn.execute("UPDATE operation_reviews SET state='applied',action='auto_movie_skip',"
+                         "finished_at=? WHERE id=?", (time.time(), ticket_id))
+        else:
+            plan = initial_plan(module, row)
+            conn.execute("INSERT INTO operation_music_cleanups(ticket_id,plan) VALUES (?,?)",
+                         (ticket_id, json.dumps(plan)))
+            for message in plan["messages"]:
+                conn.execute("INSERT OR IGNORE INTO operation_music_exclusions VALUES (?,?)", (message, ticket_id))
+            conn.execute("UPDATE jobs SET status='cleanup_pending' WHERE " + where, values)
+            conn.execute("UPDATE operation_reviews SET state='cleaning',action='auto_music_delete' WHERE id=?",
+                         (ticket_id,))
+    logger.info("Automatic task isolated module=%s ticket=%s", module.key, ticket_id)
+
+
+def automatic_once():
+    from channel_sync import state_directory
+    for module in modules():
+        if module.key == "n" or not (state_directory() / module.filename).is_file():
+            continue
+        try:
+            if module.key in {"p", "a"} and cleanup_cooldown() > time.time():
+                continue
+            automatic_module(module)
+        except Exception:
+            logger.exception("Automatic media disposition failed module=%s; task state retained", module.key)
+
+
+def cleanup_cooldown():
+    from channel_sync import state_directory
+    deadline = 0
+    for module in modules():
+        if module.key not in {"p", "a"} or not (state_directory() / module.filename).is_file():
+            continue
+        with connection(module) as conn:
+            value = conn.execute("SELECT MAX(retry_at) FROM operation_music_cleanups "
+                                 "WHERE completed=0 AND error_code='FloodWaitError'").fetchone()[0]
+            deadline = max(deadline, value or 0)
+    return deadline
+
+
+def automatic_worker():
+    from channel_sync import single_instance, state_directory
+    while True:
+        try:
+            with single_instance(state_directory(), "operations-auto-media.lock"):
+                logger.warning("Automatic media policy READY: doubtful music delete; movies exclude; news manual")
+                while True:
+                    automatic_once()
+                    time.sleep(30)
+        except Exception:
+            logger.exception("Automatic media policy unavailable; retry in 30s")
+            time.sleep(30)

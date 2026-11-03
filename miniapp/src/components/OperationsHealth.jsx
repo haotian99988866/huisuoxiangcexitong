@@ -23,8 +23,9 @@ const statusLabels = {
   preparing: '准备中',
   ready: '已准备',
   pending_index: '公告待入库',
+  cleanup_pending: '自动清理中／待重试',
 }
-const problemStatuses = new Set(['failed', 'uncertain', 'pending_index'])
+const problemStatuses = new Set(['failed', 'uncertain', 'pending_index', 'cleanup_pending'])
 
 function formatTime(value) {
   if (!value) return '暂无记录'
@@ -114,9 +115,10 @@ export default function OperationsHealth() {
         {data.components.map(component => <ComponentCard key={component.key} component={component} />)}
       </div>
       <p className="operations-health-footnote">
-        心跳超过 {data.stale_after_seconds} 秒标记为超时。需人工核查的任务会私聊负责人昊天；
-        可在机器人私聊发送 /ops_review 获取核查卡片，确认后仅处理对应任务，其他任务继续运行。
-        发送结果不明或部分发布不会盲目重发。本面板保持只读。
+        心跳超过 {data.stale_after_seconds} 秒标记为超时。新闻疑问会私聊负责人昊天，
+        可发送 /ops_review 核查。音乐疑问自动删除网站记录、本机文件和自有频道副本，
+        影视疑问自动跳过；网络和限流仍重试，其他任务继续运行。
+        自动清理未完成会保留提示，不会盲目重发。本面板保持只读。
       </p>
     </>}
   </section>

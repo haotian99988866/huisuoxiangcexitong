@@ -33,7 +33,8 @@ def component_issues(component, now):
         issues[f"{key}:worker"] = (name, labels.get(component["state"], "工作状态异常"), None)
     counts = component["counts"]
     problems = [(label, counts.get(status, 0)) for status, label in (
-        ("failed", "失败"), ("uncertain", "待核查")) if counts.get(status, 0)]
+        ("failed", "失败"), ("uncertain", "待核查"),
+        ("cleanup_pending", "自动清理未完成")) if counts.get(status, 0)]
     if problems:
         issues[f"{key}:jobs"] = (name, "、".join(f"{label} {count} 条" for label, count in problems), None)
     if component["last_error_at"] and component["last_error_code"]:
@@ -151,7 +152,7 @@ def send_due(bot, owner_id, store, now):
                      if kind == "alert" else "\n\n此项状态已恢复，其他异常请分别核查。")
             text += "\n请打开小程序「更多管理 → 运营健康」查看。不会自动重试发布或修改业务记录。"
             if kind == "alert":
-                text += "\n需人工核查的任务会另发操作卡片，负责人可私聊发送 /ops_review 查看。"
+                text += "\n新闻人工核查可私聊发送 /ops_review；音乐疑问自动清理，影视疑问自动跳过，清理未完成请检查日志。"
             delivery_id = store.claim(kind, batch, now)
             try:
                 bot.send_message(owner_id, text)

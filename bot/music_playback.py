@@ -236,7 +236,7 @@ def record_preparation_failure(store, job, error):
                  retryable=retryable)
     logger.error("Playback preparation message=%s failed: %s; %s",
                  job["message"], type(error).__name__,
-                 "retry in 60s" if retryable else "manual review required; automatic retry disabled")
+                 "retry in 60s" if retryable else "pending automatic cleanup; automatic retry disabled")
 
 
 def discover(store):

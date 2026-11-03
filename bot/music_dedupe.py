@@ -97,6 +97,8 @@ def ensure_schema(conn):
 def save_track(conn, title, artist, album, filename, download=None,
                channel_id=None, message_id=None, file_id=None, size=None):
     """Caller holds import_lock; download runs only for a new or edited source."""
+    from music_cleanup import require_not_excluded
+    require_not_excluded(channel_id, message_id)
     key = song_key(title, artist)
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM music_tracks WHERE dedupe_key=%s", (key,))

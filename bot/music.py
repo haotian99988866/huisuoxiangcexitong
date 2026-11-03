@@ -17,6 +17,7 @@ from db import get_conn
 from music_dedupe import ensure_schema, import_lock, save_track, song_key
 from music_metadata import identify
 from music_sources import external_forward
+from music_cleanup import ExcludedMusic
 
 MAX_AUDIO_BYTES = 128 * 1024 * 1024
 TELEGRAM_MAX_BYTES = 20 * 1024 * 1024
@@ -216,6 +217,8 @@ def download_owned_cached_audio(message_id, name, expected_size):
         raise ValueError("自有频道音乐配置无效")
     destination = library_dir() / name
     with download_lock:
+        from music_cleanup import require_not_excluded
+        require_not_excluded(MUSIC_CHANNEL_ID, message_id)
         if destination.is_file() and destination.stat().st_size == expected_size:
             validate_audio(destination, strict_suffix=False)
             destination.touch()
@@ -258,6 +261,7 @@ def download_owned_cached_audio(message_id, name, expected_size):
             if actual != destination.suffix:
                 logger.warning("Owned audio %s declares %s but contains %s; serving actual audio type",
                                message_id, destination.suffix, actual)
+            require_not_excluded(MUSIC_CHANNEL_ID, message_id)
             temporary.replace(destination)
             return destination
         finally:
@@ -307,6 +311,8 @@ def handle_channel_message(bot, message, admins):
     try:
         save_channel_message(message)
         logger.info("Music channel message %s imported and cached", message.message_id)
+    except ExcludedMusic:
+        logger.info("Excluded music channel message %s not reimported", message.message_id)
     except (ValueError, OSError, pymysql.MySQLError) as exc:
         logger.error("Music channel message %s import failed: %s", message.message_id, type(exc).__name__)
         detail = str(exc) if isinstance(exc, ValueError) else "数据库或本机文件操作失败，请检查服务日志和磁盘"
@@ -360,6 +366,8 @@ def commit_stream_cache(temporary, name, expected_size):
     validate_audio(temporary, strict_suffix=False)
     destination = library_dir() / name
     with download_lock:
+        from music_cleanup import require_file_not_excluded
+        require_file_not_excluded(name)
         if destination.is_file():
             return
         used = sum(path.stat().st_size for path in destination.parent.iterdir()
@@ -383,6 +391,8 @@ def audio_file(track_id, *, stream=False):
         conn.close()
     if row is None:
         return None
+    from music_cleanup import require_not_excluded
+    require_not_excluded(row.get("channel_id"), row.get("message_id"))
     name = row["file_name"]
     if not isinstance(name, str) or not STORED_NAME.fullmatch(name):
         raise ValueError("音乐文件配置无效")

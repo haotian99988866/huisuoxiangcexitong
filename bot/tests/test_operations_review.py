@@ -46,7 +46,7 @@ class OperationsReviewTests(unittest.TestCase):
             message=SimpleNamespace(chat=SimpleNamespace(id=actor, type="private")),
         )
 
-    def test_scanner_covers_all_modules_and_deduplicates_restart(self):
+    def test_scanner_only_sends_news_under_new_media_policy(self):
         self.news_job()
         self.music.enqueue(123, 20, False, "2026-11-04")
         self.music.update(self.music.pending(), "uncertain", "Interrupted")
@@ -55,13 +55,11 @@ class OperationsReviewTests(unittest.TestCase):
         for movie in self.movies:
             movie.enqueue(90000, False)
             movie.update(movie.pending(), "failed", "ValueError")
-        self.assertEqual(review.send_pending(self.bot, 99), 3)
-        self.assertEqual(review.send_pending(self.bot, 99), 3)
+        self.assertEqual(review.send_pending(self.bot, 99), 1)
         self.assertEqual(review.send_pending(self.bot, 99), 0)
-        self.assertEqual(self.bot.send_message.call_count, 6)
-        for module in review.modules():
-            with review.connection(module) as conn:
-                self.assertEqual(conn.execute("SELECT count(*) FROM operation_reviews").fetchone()[0], 1)
+        self.assertEqual(self.bot.send_message.call_count, 1)
+        with review.connection(review.get_module("n")) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM operation_reviews").fetchone()[0], 1)
 
     def test_playback_network_retries_do_not_generate_manual_tickets(self):
         self.playback.enqueue("a" * 32 + ".flac", 30, 100)

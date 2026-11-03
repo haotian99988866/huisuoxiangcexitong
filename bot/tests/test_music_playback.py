@@ -61,7 +61,7 @@ class PlaybackTests(unittest.IsolatedAsyncioTestCase):
         row = self.store.connection.execute("SELECT * FROM jobs WHERE name=?", (self.name,)).fetchone()
         self.assertEqual((row["status"], row["error"], row["retryable"]),
                          ("failed", "PlaybackInvalidAudio", 0))
-        self.assertIn("manual review", log.call_args.args[-1])
+        self.assertEqual(log.call_args.args[-1], "pending automatic cleanup; automatic retry disabled")
         self.store.enqueue(self.name, 1020, 100, True)
         self.store.enqueue("b" * 32 + ".flac", 1021, 200)
         observer = playback.PlaybackStore()
