@@ -241,7 +241,7 @@ def snapshot():
             if connection is not None:
                 connection.close()
         components.append(_component(
-            path, f"movie_import_{source.id}", f"影视收录 · {source.username}",
+            path, f"movie_import_{source.id}", f"{'短剧' if source.short_drama else '影视'}收录 · {source.username}",
             f"movie_import_{source.id}", enabled if configured else None,
         ))
 

@@ -4,6 +4,7 @@ import VenueList from './pages/VenueList'
 import VenueDetail from './pages/VenueDetail'
 import TechnicianList from './pages/TechnicianList'
 import MovieList from './pages/MovieList'
+import ShortDramas from './pages/ShortDramas'
 import Recharge from './pages/Recharge'
 import Membership from './pages/Membership'
 import PhoneTopup from './pages/PhoneTopup'
@@ -64,6 +65,7 @@ function Content() {
       <Routes>
         <Route path="/" element={<VenueList />} />
         <Route path="/movies" element={<MovieList />} />
+        <Route path="/short-dramas" element={<ShortDramas />} />
         <Route path="/media" element={<Navigate to="/movies" replace />} />
         <Route path="/recharge" element={<Recharge />} />
         <Route path="/membership" element={<Membership />} />

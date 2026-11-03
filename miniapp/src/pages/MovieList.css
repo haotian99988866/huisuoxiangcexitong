@@ -8,6 +8,7 @@
 .movie-categories { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 2px; scrollbar-width: none; }
 .movie-categories button { flex-shrink: 0; min-height: 44px; border: 0; border-radius: 12px; padding: 8px 14px; background: transparent; color: var(--ink-muted); font: inherit; font-size: 13px; cursor: pointer; }
 .movie-categories button[aria-pressed="true"] { background: var(--ink-wash); color: var(--ink-accent); font-weight: 700; }
+.movie-categories button:disabled { opacity: .45; cursor: default; }
 .movie-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; }
 .movie-section-heading h1, .movie-section-heading h2 { font-size: 19px; margin: 0; overflow-wrap: anywhere; }
 .movie-section-heading p { font-size: 12px; color: var(--ink-muted); margin-top: 4px; }

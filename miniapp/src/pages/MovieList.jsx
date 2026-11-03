@@ -10,12 +10,12 @@ import { API_BASE_URL, bindBackButton, hasTelegramBackButton, openTelegramLink, 
 import './MovieList.css'
 
 const coverUrl = cover => !cover ? '' : /^https?:/.test(cover) ? cover : mediaUrl(`${API_BASE_URL}/${cover}`)
-const openMovie = href => {
+export const openMovie = href => {
   const url = new URL(href)
   url.searchParams.set('t', '1')
   openTelegramLink(url.href)
 }
-const durationText = seconds => {
+export const durationText = seconds => {
   if (!seconds) return ''
   const h = Math.floor(seconds / 3600)
   const m = Math.floor(seconds % 3600 / 60)
@@ -31,12 +31,12 @@ async function post(body, signal) {
   if (!res.ok) throw new Error(payload.error || '影视请求失败，请稍后重试')
   return payload
 }
-function Cover({ src }) {
+export function Cover({ src, label = '影视片库' }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [src])
   return <div className="movie-cover">
     {src && !failed ? <img src={coverUrl(src)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
-      : <span className="movie-cover-placeholder" aria-hidden="true"><ModuleIcon name="movies" /><small>影视片库</small></span>}
+      : <span className="movie-cover-placeholder" aria-hidden="true"><ModuleIcon name="movies" /><small>{label}</small></span>}
   </div>
 }
 

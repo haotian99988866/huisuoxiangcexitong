@@ -34,7 +34,7 @@ def modules():
         Module("n", "新闻转发", "jobs.sqlite3", ("source", "target", "job_key")),
         Module("p", "音乐播放准备", "music-playback.sqlite3", ("name",)),
         Module("a", "音乐收录", "music-import.sqlite3", ("source", "message")),
-        *(Module(f"v{index}", f"影视收录 @{source.username}",
+        *(Module(f"v{index}", f"{'短剧' if source.short_drama else '影视'}收录 @{source.username}",
                  "movie-import.sqlite3" if source.id == SOURCE_ID else f"movie-import-{source.id}.sqlite3",
                  ("message",), source.id) for index, source in enumerate(SOURCES)),
     )
@@ -133,8 +133,11 @@ def keyboard(module, ticket):
     source_url = (f"https://t.me/haotiandkhy99988866/{message}" if module.key == "p"
                   else f"https://t.me/c/{source}/{message}")
     result.add(types.InlineKeyboardButton("打开来源核查", url=source_url))
-    target = row.get("target") if module.key == "n" else (
-        "haotiandkhy99988866" if module.key in {"a", "p"} else "haotianyingyuan")
+    if module.key.startswith("v"):
+        from movie_ingest import SOURCES
+        target = next(item.target_username for item in SOURCES if item.id == module.source)
+    else:
+        target = row.get("target") if module.key == "n" else "haotiandkhy99988866"
     ids = json.loads(row.get("result_ids") or "[]") or [row.get("result_id")]
     target_url = f"https://t.me/c/{target}" if module.key == "n" else f"https://t.me/{target}"
     if ids[0]:

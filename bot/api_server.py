@@ -32,6 +32,7 @@ from movies import (
     ensure_tables as ensure_movie_tables,
     movie_catalog,
     movie_episodes,
+    short_drama_catalog, DRAMA_CHANNEL_ID,
     thumb_file_id as movie_thumb_file_id,
 )
 from technician_photo_ocr import (
@@ -652,6 +653,20 @@ def movie_thumb(message_id):
     return _telegram_image(file_id)
 
 
+@app.get("/short-drama-thumb/<int:message_id>")
+def short_drama_thumb(message_id):
+    if g.tenant is not None:
+        return jsonify({"error": "此租户入口暂未开放短剧"}), 403
+    try:
+        file_id = movie_thumb_file_id(message_id, DRAMA_CHANNEL_ID)
+    except pymysql.MySQLError:
+        logger.exception("Failed to look up short drama thumb %s", message_id)
+        return jsonify({"error": "Database request failed"}), 500
+    if not file_id:
+        return jsonify({"error": "Thumbnail not found"}), 404
+    return _telegram_image(file_id)
+
+
 @app.get("/music-audio/<int:track_id>")
 def music_audio(track_id):
     try:
@@ -1241,6 +1256,16 @@ def webhook():
         except Exception:
             logger.exception("记录访问失败")
         return jsonify({"ok": True})
+
+    if action == "get_short_dramas":
+        try:
+            query = str(data.get("query") or "").strip()[:50] or None
+            return jsonify(short_drama_catalog(query, data.get("page", 1)))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("Failed to load short dramas")
+            return jsonify({"error": "短剧加载失败，请稍后重试"}), 503
 
     if action in {"get_movies", "get_movie_series"}:
         try:

@@ -23,6 +23,14 @@ export default function Services() {
         </div>
       </Link>
     </section>
+    <section className="membership-panel" aria-labelledby="service-short-dramas">
+      <Link className="service-product" to="/short-dramas">
+        <span className="service-product-icon"><ModuleIcon name="movies" /></span>
+        <div><h3 id="service-short-dramas">短剧合集</h3><p>热门短剧合集 · 无需选集</p>
+          <span className="service-inline-action">挑选短剧 · Telegram 播放</span>
+        </div>
+      </Link>
+    </section>
     <section className="membership-panel service-hero" aria-labelledby="service-membership">
       <Link className="service-product" to="/membership">
         <span className="service-product-icon"><ModuleIcon name="membership" /></span>

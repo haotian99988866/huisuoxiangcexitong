@@ -2,9 +2,11 @@
 import argparse
 import asyncio
 from copy import copy
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import timezone
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -12,7 +14,8 @@ import time
 from telethon import Button, errors, types
 
 from channel_sync_clean import clean_text, is_advertisement
-from movies import MOVIE_CHANNEL_USERNAME, ensure_tables, parse_caption, save_movie
+from movies import (MOVIE_CHANNEL_USERNAME, DRAMA_CHANNEL_USERNAME, DRAMA_CHANNEL_ID,
+                    ensure_tables, parse_caption, save_movie)
 from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 from welcome import BOT_URL, CONTACT_URL
 
@@ -31,12 +34,20 @@ class MovieSource:
     username: str
     start: int = 1
     movie_tag: bool = False
+    target_id: int = TARGET_ID
+    target_username: str = MOVIE_CHANNEL_USERNAME
+    short_drama: bool = False
+
+
+DRAMA_SOURCE = MovieSource(3068433963, "xmdm888", target_id=int(DRAMA_CHANNEL_ID.removeprefix("-100")),
+                          target_username=DRAMA_CHANNEL_USERNAME, short_drama=True)
 
 
 SOURCES = (
     MovieSource(SOURCE_ID, SOURCE_USERNAME, HISTORY_START_ID),
     MovieSource(1305510420, "yfqh06", movie_tag=True),
     MovieSource(2118669215, "meizhaoxiezhen"),
+    DRAMA_SOURCE,
 )
 
 
@@ -173,6 +184,22 @@ def video_metadata(message, source=SOURCES[0]):
 
 def clean_movie_caption(text, source=SOURCES[0]):
     text = (text or "").strip()
+    if source.short_drama:
+        first = text.split("\n", 1)[0].strip()
+        if (re.search(r"广告|廣告|推广|推廣|招商|招代理|博彩|送彩金|注册送|返水|百家乐",
+                      text)
+                or not re.search(
+                    r"合集|全集|完整版|全剧|一口气|完结|大结局|纯享版|尊享版|"
+                    r"(?:第\s*)?[零〇一二三四五六七八九十百\d]+"
+                    r"(?:\s*[-~～至到]\s*[零〇一二三四五六七八九十百\d]+)?\s*季", first)):
+            raise ValueError("Short drama needs an identifiable compilation title, without advertising")
+        title = clean_text(first).strip()
+        if not re.search(r"《[^》]+》", title):
+            raise ValueError("Short drama compilation has no bracketed title")
+        caption = title + ("" if "#短剧" in title.split() else " #短剧")
+        if len(caption.encode("utf-16-le")) // 2 > 1024:
+            raise ValueError("Short drama caption exceeds Telegram caption limit")
+        return caption
     if source.movie_tag and text.startswith("#"):
         match = re.match(r"(?:\s*#\w+)+", text)
         labels = re.findall(r"#(\w+)", match.group()) if match else []
@@ -212,10 +239,11 @@ async def resolve_album_caption(user, source, message, config):
     siblings = await user.get_messages(source, ids=list(range(max(1, message.id - 9), message.id + 10)))
     for sibling in siblings:
         if (sibling and getattr(sibling, "grouped_id", None) == message.grouped_id
-                and sibling.message and video_metadata(sibling, config)):
+                and sibling.message and not getattr(sibling, "noforwards", False)):
             resolved = copy(message)
             resolved.message = sibling.message
-            return resolved
+            if video_metadata(resolved, config):
+                return resolved
     return message
 
 
@@ -324,7 +352,8 @@ async def process_job(user, bot, source, target, store, job, other_stores=()):
         logger.warning("Movie ineligible; skipped message=%s", job["message"])
         return
     duplicate = None
-    for candidate in (store, *(item for item in other_stores if item is not store)):
+    for candidate in (store, *(item for item in other_stores
+                              if item is not store and item.source.target_id == store.source.target_id)):
         duplicate = candidate.connection.execute(
             "SELECT result_id FROM jobs WHERE document_id=? AND status IN ('forwarded','sent') LIMIT 1",
             (metadata["document_id"],)).fetchone()
@@ -365,8 +394,16 @@ async def process_job(user, bot, source, target, store, job, other_stores=()):
     logger.info("Movie stored source=%s message=%s target=%s", source.id, message.id, sent.id)
 
 
-async def movie_worker(user, bot, directory):
-    stores = [MovieStore(store_path(directory, config), recover=True, source=config) for config in SOURCES]
+async def movie_worker(user, bot, directory, sources=SOURCES):
+    from channel_sync import single_instance
+    with ExitStack() as locks:
+        for config in sources:
+            locks.enter_context(single_instance(directory, f"movie-worker-{config.id}.lock"))
+        await _movie_worker(user, bot, directory, sources)
+
+
+async def _movie_worker(user, bot, directory, sources):
+    stores = [MovieStore(store_path(directory, config), recover=True, source=config) for config in sources]
     contexts = {}
     turn = 0
     try:
@@ -389,16 +426,16 @@ async def movie_worker(user, bot, directory):
             try:
                 if config.id not in contexts:
                     candidate = await user.get_entity(f"https://t.me/{config.username}")
-                    owned = await user.get_entity(f"https://t.me/{MOVIE_CHANNEL_USERNAME}")
-                    if candidate.id != config.id or owned.id != TARGET_ID:
+                    owned = await user.get_entity(f"https://t.me/{config.target_username}")
+                    if candidate.id != config.id or owned.id != config.target_id:
                         raise ValueError("Movie source or target identity changed")
                     if getattr(candidate, "noforwards", False):
                         raise ValueError("Movie source is protected")
                     permissions = await user.get_permissions(owned, await user.get_me())
                     if not permissions.is_admin or not permissions.post_messages:
                         raise ValueError("Movie forwarding account needs target posting permission")
-                    reader = await bot.get_entity(f"https://t.me/{MOVIE_CHANNEL_USERNAME}")
-                    if reader.id != TARGET_ID:
+                    reader = await bot.get_entity(f"https://t.me/{config.target_username}")
+                    if reader.id != config.target_id:
                         raise ValueError("Movie publisher target identity changed")
                     editor = await bot.get_permissions(reader, await bot.get_me())
                     if not editor.is_admin or not editor.edit_messages:
@@ -408,7 +445,7 @@ async def movie_worker(user, bot, directory):
                     store.progress(latest[0].id if latest else 0)
                     contexts[config.id] = candidate, owned
                     logger.info("MOVIE READY: @%s -> @%s; historical+live; Telegram flood waits respected",
-                                config.username, MOVIE_CHANNEL_USERNAME)
+                                config.username, config.target_username)
                 source, target = contexts[config.id]
                 if not await scan_owned(user, target, store):
                     await asyncio.sleep(3)
@@ -448,10 +485,43 @@ async def movie_worker(user, bot, directory):
             store.close()
 
 
+async def run_source(directory, config):
+    from channel_sync import credentials
+    from telethon import TelegramClient
+    from telethon.sessions import MemorySession
+    from telethon.crypto import AuthKey
+    clients = []
+    try:
+        for filename in ("user.session", "publisher.session"):
+            conn = sqlite3.connect((directory / filename).as_uri() + "?mode=ro", uri=True)
+            try:
+                saved = conn.execute("SELECT dc_id,server_address,port,auth_key FROM sessions").fetchone()
+            finally:
+                conn.close()
+            if not saved:
+                raise ValueError("Authorized Telegram session is missing")
+            session = MemorySession()
+            session.set_dc(*saved[:3])
+            session.auth_key = AuthKey(saved[3])
+            client = TelegramClient(session, *credentials(), receive_updates=False, flood_sleep_threshold=0)
+            clients.append(client)
+            await client.connect()
+            if not await client.is_user_authorized():
+                raise ValueError("Telegram session is not authorized")
+        user, bot = clients
+        if (await user.get_me()).bot or str((await bot.get_me()).id) != os.environ.get(
+                "TELEGRAM_BOT_TOKEN", "").partition(":")[0]:
+            raise ValueError("Reader or publisher identity does not match configuration")
+        await movie_worker(user, bot, directory, sources=(config,))
+    finally:
+        for client in clients:
+            await client.disconnect()
+
+
 def main():
     from channel_sync import state_directory
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("status", "enable", "disable"))
+    parser.add_argument("action", choices=("status", "enable", "disable", "run"))
     parser.add_argument("--source", choices=[item.username for item in SOURCES],
                         default=SOURCE_USERNAME, help="Authorized source; default preserves the original source")
     parser.add_argument("--start-message", type=int, help="Inclusive source history start; resets scan cursor")
@@ -459,6 +529,13 @@ def main():
     directory = state_directory()
     directory.mkdir(parents=True, exist_ok=True)
     config = next(item for item in SOURCES if item.username == args.source)
+    if args.action == "run":
+        if args.start_message is not None:
+            parser.error("Use enable --start-message before run")
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+        logging.getLogger("telethon").setLevel(logging.WARNING)
+        asyncio.run(run_source(directory, config))
+        return
     store = MovieStore(store_path(directory, config), source=config)
     try:
         if args.start_message is not None:

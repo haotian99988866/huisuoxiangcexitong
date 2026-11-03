@@ -8,7 +8,7 @@ test('navigation groups old and new deep links under the right main destination'
   for (const path of ['/media', '/movies', '/movies/12']) assert.equal(navigationSection(path), 'movies')
   for (const path of ['/music', '/music/12']) assert.equal(navigationSection(path), 'music')
   for (const path of ['/announcements', '/announcements/12']) assert.equal(navigationSection(path), 'news')
-  for (const path of ['/services', '/membership', '/phone-topup']) assert.equal(navigationSection(path), 'services')
+  for (const path of ['/services', '/membership', '/phone-topup', '/short-dramas']) assert.equal(navigationSection(path), 'services')
   for (const path of ['/personal', '/recharge', '/orders', '/orders/abc', '/wallet-history', '/admin']) {
     assert.equal(navigationSection(path), 'personal')
   }

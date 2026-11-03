@@ -8,9 +8,12 @@ logger = logging.getLogger(__name__)
 
 MOVIE_CHANNEL_ID = "-1003920194464"
 MOVIE_CHANNEL_USERNAME = "haotianyingyuan"
+DRAMA_CHANNEL_ID = "-1004363255088"
+DRAMA_CHANNEL_USERNAME = "htwssp"
 
 # 频道导航里的类型;标签命中其中之一就归到该类型
 CATEGORY_ALIASES = {
+    "短剧": "短剧",
     "电视剧": "电视剧", "剧集": "电视剧",
     "综艺": "综艺",
     "电影": "电影",
@@ -106,6 +109,8 @@ def save_movie(channel_id, message_id, caption, duration=None, thumb_file_id=Non
     parsed = parse_caption(caption)
     if not parsed:
         return False
+    if str(channel_id) == DRAMA_CHANNEL_ID:
+        parsed["category"] = "短剧"
     conn = get_conn()
     try:
         with conn.cursor() as cursor:
@@ -137,7 +142,8 @@ def save_movie(channel_id, message_id, caption, duration=None, thumb_file_id=Non
 
 def save_movie_message(message):
     """频道里新发/编辑的视频帖子入库。返回是否已处理。"""
-    if str(message.chat.id) != MOVIE_CHANNEL_ID:
+    channel = str(message.chat.id)
+    if channel not in (MOVIE_CHANNEL_ID, DRAMA_CHANNEL_ID):
         return False
     video = getattr(message, "video", None)
     document = getattr(message, "document", None)
@@ -146,10 +152,18 @@ def save_movie_message(message):
         return False
     thumb = getattr(media, "thumbnail", None) or getattr(media, "thumb", None)
     from datetime import datetime
+    caption = message.caption or ""
+    if channel == DRAMA_CHANNEL_ID:
+        from movie_ingest import DRAMA_SOURCE, clean_movie_caption
+        try:
+            caption = clean_movie_caption(caption, DRAMA_SOURCE)
+        except ValueError:
+            logger.warning("Short drama channel post ineligible message=%s", message.message_id)
+            return False
     return save_movie(
-        MOVIE_CHANNEL_ID,
+        channel,
         message.message_id,
-        message.caption or "",
+        caption,
         duration=getattr(media, "duration", None),
         thumb_file_id=getattr(thumb, "file_id", None),
         posted_at=datetime.fromtimestamp(message.date),
@@ -172,11 +186,12 @@ def movie_catalog(category=None, query=None, limit=120):
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT category, COUNT(DISTINCT series) AS n FROM movie_videos GROUP BY category"
+                "SELECT category, COUNT(DISTINCT series) AS n FROM movie_videos "
+                "WHERE channel_id = %s GROUP BY category", (MOVIE_CHANNEL_ID,)
             )
             counts = {row["category"]: row["n"] for row in cursor.fetchall()}
 
-            conditions, params = [], []
+            conditions, params = ["channel_id = %s"], [MOVIE_CHANNEL_ID]
             if category:
                 conditions.append("category = %s")
                 params.append(category)
@@ -255,13 +270,47 @@ def movie_episodes(series, limit=500):
     ]
 
 
-def thumb_file_id(message_id):
+def short_drama_catalog(query=None, page=1, limit=24):
+    if type(page) is not int or page < 1 or page > 10000:
+        raise ValueError("短剧页码不合法")
+    if type(limit) is not int or not 1 <= limit <= 60:
+        raise ValueError("短剧每页数量不合法")
+    conditions, params = ["channel_id = %s"], [DRAMA_CHANNEL_ID]
+    if query:
+        conditions.append("(title LIKE %s OR tags LIKE %s)")
+        params.extend([f"%{query}%", f"%{query}%"])
+    where = " AND ".join(conditions)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) AS n FROM movie_videos WHERE {where}", params)
+            total = cursor.fetchone()["n"]
+            cursor.execute(
+                "SELECT message_id,title,duration,thumb_file_id,thumb_url FROM movie_videos "
+                f"WHERE {where} ORDER BY message_id DESC LIMIT %s OFFSET %s",
+                [*params, limit, (page - 1) * limit],
+            )
+            rows = cursor.fetchall()
+    finally:
+        conn.close()
+    return {
+        "items": [{
+            "id": row["message_id"], "title": row["title"], "duration": row["duration"],
+            "cover": (f"short-drama-thumb/{row['message_id']}" if row.get("thumb_file_id")
+                      else row.get("thumb_url")),
+            "url": f"https://t.me/{DRAMA_CHANNEL_USERNAME}/{row['message_id']}",
+        } for row in rows],
+        "total": total, "page": page, "has_more": page * limit < total,
+    }
+
+
+def thumb_file_id(message_id, channel_id=MOVIE_CHANNEL_ID):
     conn = get_conn()
     try:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT thumb_file_id FROM movie_videos WHERE channel_id = %s AND message_id = %s",
-                (MOVIE_CHANNEL_ID, message_id),
+                (channel_id, message_id),
             )
             row = cursor.fetchone()
         return row["thumb_file_id"] if row else None
