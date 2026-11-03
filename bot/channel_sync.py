@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from telethon import TelegramClient, events, errors, types
 
 from channel_sync_clean import clean_text, is_advertisement
+from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 
 
 logger = logging.getLogger("channel_sync")
@@ -68,6 +69,7 @@ class JobStore:
                 PRIMARY KEY (source,target)
             )
         """)
+        ensure_health_table(self.connection)
         self.connection.commit()
 
     def enqueue(self, source, target, ids):
@@ -208,6 +210,7 @@ async def reconcile_messages(user, source, target, store, boundary):
 
 async def reconciliation_worker(user, source, target, store, boundary):
     while True:
+        record_worker_heartbeat(store.connection, "channel_reconciliation")
         delay = 30
         try:
             count = await reconcile_messages(user, source, target, store, boundary)
@@ -216,7 +219,8 @@ async def reconciliation_worker(user, source, target, store, boundary):
         except errors.FloodWaitError as error:
             delay = max(delay, error.seconds + 1)
             logger.warning("Source reconciliation rate limited; waiting %s seconds", delay)
-        except Exception:
+        except Exception as error:
+            record_worker_failure(store.connection, "channel_reconciliation", error)
             logger.exception("Source reconciliation failed; cursor retained, retrying in 30 seconds")
         await asyncio.sleep(delay)
 
@@ -321,6 +325,7 @@ async def deliver(user, bot, source, target, store, job, directory):
 
 async def worker(user, bot, source, target, store, directory):
     while True:
+        record_worker_heartbeat(store.connection, "channel_forwarder")
         job = store.next(source.id, str(target.id))
         if not job:
             await asyncio.sleep(1)
@@ -339,6 +344,7 @@ async def worker(user, bot, source, target, store, directory):
             logger.warning("Rate limited; waiting %s seconds for job %s", error.seconds, job["job_key"])
             await asyncio.sleep(error.seconds + 1)
         except Exception as error:
+            record_worker_failure(store.connection, "channel_forwarder", error)
             row = store.connection.execute(
                 "SELECT status,result_ids FROM jobs WHERE source=? AND target=? AND job_key=?",
                 (job["source"], job["target"], job["job_key"]),
@@ -412,6 +418,7 @@ async def announcement_worker(bot, target, store):
     from announcements import ensure_tables
     ready = False
     while True:
+        record_worker_heartbeat(store.connection, "announcement_indexer")
         delay = 30
         try:
             if not ready:
@@ -421,7 +428,8 @@ async def announcement_worker(bot, target, store):
         except errors.FloodWaitError as error:
             delay = max(delay, error.seconds + 1)
             logger.warning("Announcement rate limited; waiting %s seconds", delay)
-        except Exception:
+        except Exception as error:
+            record_worker_failure(store.connection, "announcement_indexer", error)
             logger.exception("Announcement indexing failed; retrying in 30 seconds")
         await asyncio.sleep(delay)
 
@@ -485,6 +493,11 @@ async def run(mode, directory):
 
         user.add_event_handler(on_message, events.NewMessage(chats=source))
         user.add_event_handler(on_album, events.Album(chats=source))
+        async def monitor_listener():
+            while True:
+                record_worker_heartbeat(store.connection, "channel_listener")
+                await asyncio.sleep(30)
+
         logger.info("READY: @svip -> @haotiancm99988866; only messages newer than %s", boundary)
         async with asyncio.TaskGroup() as tasks:
             from music_ingest import music_worker
@@ -496,6 +509,7 @@ async def run(mode, directory):
             tasks.create_task(worker(user, bot, source, target, store, directory))
             tasks.create_task(announcement_worker(bot, target, store))
             tasks.create_task(reconciliation_worker(user, source, target, store, boundary))
+            tasks.create_task(monitor_listener())
             await user.run_until_disconnected()
             raise ConnectionError("Listener disconnected; stop and inspect before restarting.")
     finally:

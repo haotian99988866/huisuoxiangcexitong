@@ -13,6 +13,7 @@ from telethon import errors, types, utils
 from channel_sync_clean import LINK, MENTION, is_advertisement
 from music_metadata import identify
 from music_sources import DYNAMIC_HISTORY_SOURCES, SOURCES
+from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 
 logger = logging.getLogger(__name__)
 DAILY_LIMIT = 50
@@ -42,6 +43,7 @@ class MusicStore:
                 PRIMARY KEY(source,message)
             );
         """)
+        ensure_health_table(self.connection)
         if recover:
             with self.connection:
                 self.connection.execute("UPDATE jobs SET status='uncertain',error='Interrupted during forward; inspect target'"
@@ -300,6 +302,7 @@ async def music_worker(user, bot, directory):
     target = None
     try:
         while True:
+            record_worker_heartbeat(store.connection, "music_import")
             delay = 5
             if not store.enabled():
                 await asyncio.sleep(30)
@@ -347,6 +350,7 @@ async def music_worker(user, bot, directory):
                             store.update(job, "queued", "Telegram flood wait; retry after delay")
                         raise
                     except Exception as error:
+                        record_worker_failure(store.connection, "music_import", error)
                         current = store.connection.execute(
                             "SELECT status FROM jobs WHERE source=? AND message=?",
                             (job["source"], job["message"]),
@@ -369,8 +373,9 @@ async def music_worker(user, bot, directory):
                 delay = max(30, error.seconds + 1)
                 store.defer(error.seconds)
                 logger.warning("Music collection rate limited; waiting %s seconds", delay)
-            except Exception:
+            except Exception as error:
                 target = None
+                record_worker_failure(store.connection, "music_import", error)
                 logger.exception("Music collection failed; progress retained; retrying in 30 seconds")
                 delay = 30
             await asyncio.sleep(delay)

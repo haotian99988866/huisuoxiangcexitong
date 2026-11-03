@@ -1,0 +1,28 @@
+.operations-health-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.operations-health-header h2 { margin: 0; }
+.operations-health-header p, .operations-health-checked, .operations-health-time,
+.operations-health-note, .operations-health-footnote { color: var(--ink-muted); font-size: 12px; line-height: 1.6; }
+.operations-health-header p { margin: 5px 0 0; }
+.operations-health-checked { margin: 14px 0; }
+.operations-health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.operations-health-card { min-width: 0; padding: 14px; border: 1px solid var(--ink-line); border-radius: 14px; background: var(--ink-paper); }
+.operations-health-card > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.operations-health-card h3 { min-width: 0; margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.operations-health-badge { flex-shrink: 0; padding: 3px 7px; border-radius: 999px; background: #e8f4ec; color: #286541; font-size: 10px; }
+.operations-health-card.is-stale .operations-health-badge,
+.operations-health-card.is-not_started .operations-health-badge,
+.operations-health-card.is-unavailable .operations-health-badge,
+.operations-health-card.is-attention .operations-health-badge { background: #fff0e8; color: #974719; }
+.operations-health-card.is-disabled .operations-health-badge,
+.operations-health-card.is-not_initialized .operations-health-badge { background: #f0f1f3; color: #626873; }
+.operations-health-time { margin: 9px 0 0; overflow-wrap: anywhere; }
+.operations-health-note { margin: 6px 0 0; }
+.operations-health-counts { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.operations-health-counts > div { display: flex; gap: 4px; padding: 4px 7px; border-radius: 8px; background: #f0f2f5; font-size: 11px; }
+.operations-health-counts dt, .operations-health-counts dd { margin: 0; }
+.operations-health-counts .has-problem { background: #fff0e8; color: #974719; }
+.operations-health-footnote { margin: 14px 0 0; }
+@media (max-width: 540px) {
+  .operations-health-grid { grid-template-columns: minmax(0, 1fr); }
+  .operations-health-card { padding: 12px; }
+}

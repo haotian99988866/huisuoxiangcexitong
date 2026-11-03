@@ -868,6 +868,7 @@ def webhook():
     if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
                   "admin_credited_customers",
                   "admin_hotels", "admin_hotel_save", "admin_hotel_image",
+                  "admin_operations_health",
                   "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer",
                   "admin_staff", "admin_staff_replace", "admin_staff_management", "admin_staff_management_save",
                   "admin_customers", "admin_customer_detail",
@@ -878,10 +879,21 @@ def webhook():
         init_data = data.get("init_data")
         user = authenticate(init_data, os.getenv("TELEGRAM_BOT_TOKEN"))
         if user is None:
-            return jsonify({"error": "请从 Telegram 重新打开主入口，以验证管理员身份"}), 401
+            response = jsonify({"error": "请从 Telegram 重新打开主入口，以验证管理员身份"})
+            if action == "admin_operations_health":
+                response.headers["Cache-Control"] = "private, no-store"
+            return response, 401
         if not allowed_admin(user) or is_tenant_session(init_data):
-            return jsonify({"error": "仅平台管理员可从主入口访问管理台"}), 403
+            response = jsonify({"error": "仅平台管理员可从主入口访问管理台"})
+            if action == "admin_operations_health":
+                response.headers["Cache-Control"] = "private, no-store"
+            return response, 403
         try:
+            if action == "admin_operations_health":
+                from operations_health import snapshot as operations_health
+                response = jsonify(operations_health())
+                response.headers["Cache-Control"] = "private, no-store"
+                return response
             if action == "admin_hotels":
                 return jsonify(hotels.catalog(data, admin=True))
             if action == "admin_hotel_image":

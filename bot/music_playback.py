@@ -9,14 +9,28 @@ import subprocess
 import time
 
 from telethon import errors
+from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 
 logger = logging.getLogger(__name__)
-PLAYBACK_BUDGET = 1024 * 1024 * 1024
+PLAYBACK_BUDGET = 40 * 1024 * 1024 * 1024
+PLAYBACK_COPY_RESERVE = 16 * 1024 * 1024
+
+
+class PlaybackBudgetReached(ValueError):
+    pass
 
 
 def playback_directory():
     from music import library_dir
     return library_dir() / "playback"
+
+
+def playback_cache_size():
+    return sum(path.stat().st_size for path in playback_directory().glob("*.mp3"))
+
+
+def playback_budget_reached():
+    return playback_cache_size() + PLAYBACK_COPY_RESERVE > PLAYBACK_BUDGET
 
 
 class PlaybackStore:
@@ -34,6 +48,7 @@ class PlaybackStore:
             );
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value REAL NOT NULL);
         """)
+        ensure_health_table(self.connection)
 
     def enqueue(self, name, message, size, priority=False):
         from music import MAX_AUDIO_BYTES, STORED_NAME
@@ -57,7 +72,8 @@ class PlaybackStore:
                 return row if row["retry_at"] <= time.time() else None
         return self.connection.execute(
             "SELECT * FROM jobs WHERE status IN ('queued','preparing','failed') AND retry_at<=?"
-            " ORDER BY priority DESC,retry_at,name LIMIT 1", (time.time(),)).fetchone()
+            " ORDER BY CASE WHEN status='queued' THEN 0 ELSE 1 END,priority DESC,retry_at,name"
+            " LIMIT 1", (time.time(),)).fetchone()
 
     def update(self, name, status, error=None, delay=0):
         with self.connection:
@@ -118,10 +134,8 @@ async def prepare(job):
     from music_mtproto import _audio_chunks
     folder = playback_directory()
     folder.mkdir(parents=True, exist_ok=True)
-    used = sum(path.stat().st_size for path in folder.glob("*.mp3"))
-    # Reserve a conservative 16 MB for a <=8 minute, 192 kbps copy.
-    if used + 16 * 1024 * 1024 > PLAYBACK_BUDGET:
-        raise ValueError("Playback cache budget reached; preparation paused")
+    if playback_budget_reached():
+        raise PlaybackBudgetReached("Playback cache budget reached; preparation paused")
     name = job["name"]
     original = library_dir() / name
     partial = folder / (name + ".download")
@@ -201,13 +215,25 @@ async def playback_worker():
 async def _playback_worker():
     store = PlaybackStore()
     scanned = 0
+    budget_pause_reported = False
     try:
         logger.info("PLAYBACK READY: single resumable worker; MP3 192kbps; originals retained")
         while True:
+            record_worker_heartbeat(store.connection, "music_playback")
             wait = store.wait_until() - time.time()
             if wait > 0:
                 await asyncio.sleep(min(wait, 30))
                 continue
+            if playback_budget_reached():
+                if not budget_pause_reported:
+                    error = PlaybackBudgetReached("Playback cache budget reached")
+                    record_worker_failure(store.connection, "music_playback", error)
+                    logger.warning("Playback preparation paused at cache budget (%s/%s bytes)",
+                                   playback_cache_size(), PLAYBACK_BUDGET)
+                    budget_pause_reported = True
+                await asyncio.sleep(30)
+                continue
+            budget_pause_reported = False
             try:
                 if time.time() - scanned >= 60:
                     await asyncio.to_thread(discover_queue)
@@ -221,14 +247,23 @@ async def _playback_worker():
                         store.wait_until(time.time() + error.seconds + 1)
                         store.update(job["name"], "failed", "Telegram flood wait", error.seconds + 1)
                         logger.warning("Playback preparation flood wait %s seconds", error.seconds)
+                    except PlaybackBudgetReached as error:
+                        store.update(job["name"], "queued")
+                        record_worker_failure(store.connection, "music_playback", error)
+                        logger.warning("Playback preparation paused at cache budget")
+                        budget_pause_reported = True
+                        await asyncio.sleep(30)
+                        continue
                     except Exception as error:
+                        record_worker_failure(store.connection, "music_playback", error)
                         store.update(job["name"], "failed", type(error).__name__, 60)
                         logger.error("Playback preparation message=%s failed: %s; retry in 60s",
                                      job["message"], type(error).__name__)
                     else:
                         store.update(job["name"], "ready")
                 await asyncio.sleep(3 if job else 10)
-            except Exception:
+            except Exception as error:
+                record_worker_failure(store.connection, "music_playback", error)
                 logger.exception("Playback worker unavailable; retry in 30s")
                 await asyncio.sleep(30)
     finally:

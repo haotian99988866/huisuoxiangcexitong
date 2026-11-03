@@ -35,6 +35,8 @@ class PlaybackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.store.pending()["message"], 1021)
         self.store.update("b" * 32 + ".flac", "failed", "offline", 60)
         self.assertEqual(self.store.pending()["message"], 1020)
+        self.store.update("b" * 32 + ".flac", "failed")
+        self.assertEqual(self.store.pending()["message"], 1020)
         self.store.wait_until(100)
         self.store.wait_until(50)
         observer = playback.PlaybackStore()
@@ -134,8 +136,32 @@ class PlaybackTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_disk_budget_refuses_additional_preparation(self):
         with patch.object(playback, "PLAYBACK_BUDGET", 1):
-            with self.assertRaisesRegex(ValueError, "budget"):
+            with self.assertRaisesRegex(playback.PlaybackBudgetReached, "budget"):
                 await playback.prepare(self.store.pending())
+
+    async def test_worker_keeps_pending_jobs_queued_when_cache_budget_is_full(self):
+        class StopWorker(BaseException):
+            pass
+
+        folder = playback.playback_directory()
+        folder.mkdir()
+        (folder / "prepared.mp3").write_bytes(b"x")
+        observer = None
+        try:
+            with patch.object(playback, "PLAYBACK_BUDGET", 1), \
+                    patch.object(playback, "PlaybackStore", return_value=self.store), \
+                    patch.object(playback.asyncio, "sleep", side_effect=StopWorker):
+                with self.assertRaises(StopWorker):
+                    await playback._playback_worker()
+            observer = playback.PlaybackStore()
+            self.assertEqual(observer.pending()["status"], "queued")
+            health = observer.connection.execute(
+                "SELECT last_error_code FROM worker_health WHERE worker='music_playback'"
+            ).fetchone()
+            self.assertEqual(health["last_error_code"], "PlaybackBudgetReached")
+        finally:
+            if observer:
+                observer.close()
 
     async def test_invalid_download_does_not_block_the_rest_of_the_queue(self):
         folder = playback.playback_directory()

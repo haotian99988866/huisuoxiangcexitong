@@ -13,6 +13,7 @@ from telethon import Button, errors, types
 
 from channel_sync_clean import clean_text, is_advertisement
 from movies import MOVIE_CHANNEL_USERNAME, ensure_tables, parse_caption, save_movie
+from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 from welcome import BOT_URL, CONTACT_URL
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class MovieStore:
                 document_id INTEGER PRIMARY KEY, message INTEGER NOT NULL
             );
         """)
+        ensure_health_table(self.connection)
         if recover:
             with self.connection:
                 self.connection.execute(
@@ -369,6 +371,9 @@ async def movie_worker(user, bot, directory):
     turn = 0
     try:
         while True:
+            for item in stores:
+                if item.setting("enabled") == "1":
+                    record_worker_heartbeat(item.connection, f"movie_import_{item.source.id}")
             enabled = [item for item in stores if item.setting("enabled") == "1"]
             if not enabled:
                 await asyncio.sleep(30)
@@ -418,6 +423,7 @@ async def movie_worker(user, bot, directory):
                     except errors.FloodWaitError:
                         raise
                     except Exception as error:
+                        record_worker_failure(store.connection, f"movie_import_{config.id}", error)
                         current = store.connection.execute(
                             "SELECT * FROM jobs WHERE message=?", (job["message"],)).fetchone()
                         if current["status"] == "sending":
@@ -433,7 +439,8 @@ async def movie_worker(user, bot, directory):
             except errors.FloodWaitError as error:
                 store.set("not_before", time.time() + error.seconds + 1)
                 logger.warning("Movie flood wait: %s seconds; persisted across restart", error.seconds)
-            except Exception:
+            except Exception as error:
+                record_worker_failure(store.connection, f"movie_import_{config.id}", error)
                 logger.exception("Movie synchronization unavailable; retrying in 30 seconds")
                 await asyncio.sleep(30)
     finally:

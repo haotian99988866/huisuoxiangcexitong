@@ -9,6 +9,7 @@ import HotelAdmin from '../components/HotelAdmin'
 import CustomerAnalytics from '../components/CustomerAnalytics'
 import StaffAdmin from '../components/StaffAdmin'
 import CustomerRecords from '../components/CustomerRecords'
+import OperationsHealth from '../components/OperationsHealth'
 import './Membership.css'
 import './Admin.css'
 
@@ -160,13 +161,14 @@ export default function Admin() {
           <button key={key} type="button" aria-pressed={section === key} disabled={saving}
             onClick={() => setSection(key)}>{label}</button>)}
         <label className="admin-more"><span className="music-sr-only">其他管理功能</span>
-          <select aria-label="其他管理功能" disabled={saving} value={['deposits', 'credited', 'hotels', 'tenants'].includes(section) ? section : ''}
+          <select aria-label="其他管理功能" disabled={saving} value={['deposits', 'credited', 'hotels', 'tenants', 'operations'].includes(section) ? section : ''}
             onChange={event => { if (event.target.value) setSection(event.target.value) }}>
             <option value="">更多管理</option>
             <option value="deposits">充值复核（{data.counts.pending_deposits}待核）</option>
             <option value="credited">已充值用户</option>
             <option value="hotels">酒店推荐管理</option>
             <option value="tenants">租户管理</option>
+            <option value="operations">运营健康</option>
           </select>
         </label>
       </nav>}
@@ -182,6 +184,7 @@ export default function Admin() {
         {section === 'staff' && <StaffAdmin venues={data.venues} />}
         {section === 'credited' && <CreditedCustomers />}
         {section === 'hotels' && <HotelAdmin />}
+        {section === 'operations' && <OperationsHealth />}
         <div hidden={section !== 'deposits'}><DepositReview onReviewed={refresh} /></div>
         <div hidden={section !== 'tenants'}>
         <section aria-label="租户概览" className="admin-stats">
