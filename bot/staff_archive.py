@@ -278,8 +278,7 @@ def listing(data, admin=False):
                 member["price_usd"] is not None,
                 Decimal(member["price_usd"]) if member["price_usd"] is not None else Decimal("0"),
                 member["id"]), reverse=True)
-            members = members[(page - 1) * 24:page * 24]
-        return {"members": members, "total": total, "page": page, "shift": shift,
+        return {"members": members, "total": total, "shift": shift,
                 "roster_available": bool(roster or photo_duty_ids), "venue_id": venue_id}
     finally:
         conn.close()

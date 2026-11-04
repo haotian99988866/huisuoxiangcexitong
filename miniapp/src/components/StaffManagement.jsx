@@ -11,7 +11,6 @@ const statuses = { pending: '待发送', sending: '发送结果待核实', uncon
 const date = value => value ? new Date(value.replace(' ', 'T')).toLocaleString('zh-CN', { hour12: false }) : '尚未设置'
 
 export default function StaffManagement({ venue }) {
-  const [page, setPage] = useState(1)
   const [reload, setReload] = useState(0)
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
@@ -42,7 +41,7 @@ export default function StaffManagement({ venue }) {
   useEffect(() => {
     let active = true
     setLoading(true); setError('')
-    requestAdmin('admin_staff_management', { venue_id: venue.id, mode: 'all', page })
+    requestAdmin('admin_staff_management', { venue_id: venue.id, mode: 'all' })
       .then(result => { if (active) setData(result) })
       .catch(failure => {
         console.error('[Staff management]', failure)
@@ -50,7 +49,7 @@ export default function StaffManagement({ venue }) {
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [venue.id, page, reload])
+  }, [venue.id, reload])
   useEffect(() => {
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible' && !editor && !busy) setReload(value => value + 1)
@@ -122,11 +121,6 @@ export default function StaffManagement({ venue }) {
         {member.notification && <small className="staff-delivery-status">{statuses[member.notification.status]}</small>}
       </article>)}</div>
       {!data.members.length && <p className="staff-meta">暂无人员档案。</p>}
-      {data.total > 24 && <nav className="staff-pages" aria-label="人员分页">
-        <button disabled={page <= 1 || busy || !!editor} onClick={() => setPage(value => value - 1)}>上一页</button>
-        <span>{page} / {Math.ceil(data.total / 24)}</span>
-        <button disabled={page * 24 >= data.total || busy || !!editor} onClick={() => setPage(value => value + 1)}>下一页</button>
-      </nav>}
     </>}
     {editor && <MusicDialog title={`工号 ${editor.code}`} scrollBody onClose={close}
       footer={<div className="staff-management-actions">

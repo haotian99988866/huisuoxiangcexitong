@@ -48,15 +48,12 @@
 .music-page .music-list { box-shadow: var(--shadow); border-radius: 18px; }
 .music-page .music-row.is-current { background: #faf5ec; }
 .music-page .music-track-copy small, .music-page .music-song-number { color: var(--ink-muted); }
-.music-page :is(.music-login-hint,.music-hint,.music-time,.music-page-jump,.music-section-title p) { color: var(--ink-muted); }
+.music-page :is(.music-login-hint,.music-hint,.music-time,.music-section-title p) { color: var(--ink-muted); }
 .music-page .music-art { background: linear-gradient(135deg, #f0e4cd, #ced9e7); color: #695637; }
 .music-playlist-art { background: linear-gradient(140deg, #a9b9d0, #4b5c76); }
 .music-color-1 { background: linear-gradient(140deg, #d9bd8d, #886b49); }
 .music-color-2 { background: linear-gradient(140deg, #c1b5d5, #776688); }
 .music-search input::placeholder { color: var(--ink-muted); }
-.music-page .music-page-jump input { border-color: var(--ink-line); color: var(--ink-text); background: white; }
-.music-page .music-page-jump button { color: var(--ink-accent); }
-.music-page .music-page-go { background: var(--ink-wash); }
 .music-page .music-empty { color: var(--ink-muted); background: var(--ink-reading); }
 .music-page .music-empty h3 { color: var(--ink-text); }
 .music-page .music-primary, .ink-app .music-sheet .music-primary { background: #292f3b; color: white; }

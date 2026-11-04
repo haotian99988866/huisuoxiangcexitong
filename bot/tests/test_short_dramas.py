@@ -66,6 +66,7 @@ class ShortDramaCatalogTests(unittest.TestCase):
     def test_existing_movie_catalog_cannot_include_drama_records(self):
         conn, cur = self.database()
         cur.fetchall.side_effect = [[], []]
+        cur.fetchone.return_value = {"n": 0}
         with patch.object(movies, "get_conn", return_value=conn):
             result = movies.movie_catalog()
         self.assertEqual(result["total"], 0)

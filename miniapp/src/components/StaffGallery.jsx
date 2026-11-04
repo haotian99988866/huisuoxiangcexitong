@@ -20,7 +20,6 @@ async function requestStaff(action, fields, signal) {
 }
 
 export default function StaffGallery({ venue, admin = false, onSelect }) {
-  const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -37,7 +36,6 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
   useAnalyticsScreen(selected ? 'technician_detail' : null)
 
   useEffect(() => {
-    setPage(1)
     setData(null)
     setSelected(null)
     setReplacement(null)
@@ -49,7 +47,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
     const timeout = setTimeout(() => controller.abort(), 15000)
     setData(null)
     setError('')
-    const fields = { venue_id: venue.id, mode: 'all', page }
+    const fields = { venue_id: venue.id, mode: 'all' }
     const request = admin ? requestAdmin('admin_staff', fields) : requestStaff('get_staff', fields, controller.signal)
     request.then(result => { if (active) setData(result) }).catch(failure => {
       if (active) {
@@ -58,7 +56,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
       }
     }).finally(() => clearTimeout(timeout))
     return () => { active = false; clearTimeout(timeout); controller.abort() }
-  }, [venue.id, page, attempt, admin])
+  }, [venue.id, attempt, admin])
   useEffect(() => {
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible' && !selected && !replacement && !busy) setAttempt(value => value + 1)
@@ -144,11 +142,6 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
             onClick={() => setReplacement(member)}>此工号已换人</button>}
         </article>)}
       </div>
-      {data.total > 24 && <nav className="staff-pages" aria-label="档案分页">
-        <button type="button" disabled={page === 1 || busy} onClick={() => setPage(value => value - 1)}>上一页</button>
-        <span>{page} / {Math.ceil(data.total / 24)}</span>
-        <button type="button" disabled={page >= Math.ceil(data.total / 24) || busy} onClick={() => setPage(value => value + 1)}>下一页</button>
-      </nav>}
     </>}
     {selected && <MusicDialog className={ordinaryMassage ? 'staff-sheet' : 'account-sheet staff-sheet'}
       title={ordinaryMassage ? `工号 ${selected.code}` : `${venue.name} · 工号 ${selected.code}`}

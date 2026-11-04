@@ -8,7 +8,10 @@ import { movieSummary } from '../utils/catalogSummary'
 import { useAnalyticsScreen } from '../utils/analytics'
 import { API_BASE_URL, bindBackButton, hasTelegramBackButton, openTelegramLink, subscribeFullscreen } from '../utils/twa'
 import './MovieList.css'
+import usePagedCatalog from '../utils/usePagedCatalog'
+import { ListRefresh, LoadMore } from '../components/ContinuousList'
 
+const seriesKey = item => JSON.stringify([item.category, item.name])
 const coverUrl = cover => !cover ? '' : /^https?:/.test(cover) ? cover : mediaUrl(`${API_BASE_URL}/${cover}`)
 export const openMovie = href => {
   const url = new URL(href)
@@ -45,31 +48,19 @@ export default function MovieList() {
   const [category, setCategory] = useModuleState('movies.category', '')
   const [queryInput, setQueryInput] = useModuleState('movies.searchInput', '')
   const [query, setQuery] = useModuleState('movies.search', '')
-  const [data, setData] = useState({ categories: [], series: [], total: 0 })
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const catalog = usePagedCatalog('movies', { action: 'get_movies', category, query, limit: 24 }, 'series', seriesKey)
+  const data = catalog.data || { categories: [], series: [], total: 0 }
+  const { loading, error } = catalog
   const [attempt, setAttempt] = useState(0)
   const [openSeries, setOpenSeries] = useState(null)
   const [episodeData, setEpisodeData] = useState({ loading: true, episodes: [], error: '' })
   const searchRef = useRef(null)
-  useModuleScroll('movies', !loading && !openSeries)
+  useModuleScroll('movies', catalog.ready && !openSeries)
   useEffect(() => subscribeFullscreen(setFullscreen), [])
   useEffect(() => {
     const timer = setTimeout(() => setQuery(queryInput.trim()), 350)
     return () => clearTimeout(timer)
   }, [queryInput])
-  useEffect(() => {
-    let active = true
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 15000)
-    setLoading(true)
-    setError('')
-    post({ action: 'get_movies', category, query }, controller.signal)
-      .then(result => { if (active) setData(result) })
-      .catch(failure => { if (active) setError(failure.name === 'AbortError' ? '影视加载超时，请重试' : failure.message) })
-      .finally(() => { clearTimeout(timer); if (active) setLoading(false) })
-    return () => { active = false; clearTimeout(timer); controller.abort() }
-  }, [category, query, attempt])
   useEffect(() => {
     if (!openSeries) return undefined
     let active = true
@@ -87,7 +78,7 @@ export default function MovieList() {
   useAnalyticsScreen(openSeries ? 'movie_detail' : null)
 
   function openItem(item) {
-    if (item.url) { openMovie(item.url); return }
+    if (item.url) { rememberModuleScroll('movies'); openMovie(item.url); return }
     rememberModuleScroll('movies')
     setOpenSeries(item)
   }
@@ -110,6 +101,7 @@ export default function MovieList() {
           aria-pressed={category === item.name} onClick={() => setCategory(item.name)}>{item.name}</button>)}
       </nav>}
     </header>
+    {!openSeries && <ListRefresh onRefresh={catalog.refresh} busy={catalog.refreshing} disabled={catalog.busy} />}
     {openSeries ? <>
       {!hasTelegramBackButton && <button className="movie-back" type="button" onClick={() => setOpenSeries(null)}>← 返回片库</button>}
       <section className="movie-detail">
@@ -135,17 +127,19 @@ export default function MovieList() {
       </div>
       {loading ? <div className="movie-grid movie-skeleton" role="status" aria-label="正在加载影视">
         {Array.from({ length: 6 }, (_, index) => <div className="movie-skeleton-card" key={index} />)}
-      </div> : error ? <div className="movie-state" role="alert"><p>{error}</p><button onClick={() => setAttempt(value => value + 1)}>重新加载片库</button></div>
+      </div> : error && !catalog.ready ? <div className="movie-state" role="alert"><p>{error}</p><button onClick={catalog.refresh}>重新加载片库</button></div>
         : !data.series.length ? <div className="movie-state"><ModuleIcon name="search" /><h2>{query ? '没有找到相关影片' : '暂无影片'}</h2>
           <p>试试其他分类或更短的片名。</p><button onClick={() => { setCategory(''); setQueryInput(''); setQuery('') }}>查看全部影片</button></div>
           : <div className="movie-grid">{data.series.map(item => <button type="button" className="movie-card"
-            key={`${item.category}-${item.name}`} onClick={() => openItem(item)}>
+            key={seriesKey(item)} onClick={() => openItem(item)}>
             <div className="movie-poster"><Cover src={item.cover} />
               <span className="movie-card-badge">{item.url ? '直接播放' : `共 ${item.episodes} 集`}</span>
               <span className="movie-card-play" aria-hidden="true">▷</span>
             </div>
             <h2>{item.name}</h2><p>{item.category || '影视'} · {item.url ? '在 Telegram 中播放' : '点击选集'}</p>
           </button>)}</div>}
+      {catalog.ready && <LoadMore hasMore={data.has_more} busy={catalog.busy} error={error}
+        onLoad={catalog.loadMore} />}
     </>}
   </main>
 }

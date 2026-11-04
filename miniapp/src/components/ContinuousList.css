@@ -1,0 +1,6 @@
+.continuous-refresh { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 36px; color: var(--ink-muted); font-size: 12px; }
+.continuous-refresh button, .continuous-load button { min-height: 44px; padding: 8px 14px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-accent); font: inherit; cursor: pointer; }
+.continuous-refresh button:disabled, .continuous-load button:disabled { opacity: .5; cursor: default; }
+.continuous-load { min-height: 64px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; padding: 16px 0; color: var(--ink-muted); font-size: 13px; text-align: center; }
+.continuous-load p { margin: 0; }
+.continuous-load button:focus-visible, .continuous-refresh button:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 3px; }

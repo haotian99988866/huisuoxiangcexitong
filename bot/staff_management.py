@@ -65,27 +65,40 @@ def overview(data, actor_id):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            ids = [member["id"] for member in result["members"]]
+            details = {}
+            if ids:
+                marks = ",".join(["%s"] * len(ids))
+                cur.execute(
+                    "SELECT m.id,g.employment,g.circumstance,g.revision,g.updated_at,"
+                    "s.enabled AS subscribed,p.enabled AS customer_authorized,"
+                    "n.status AS notification_status,n.published_at AS notification_published_at"
+                    " FROM staff_members m LEFT JOIN staff_management g ON g.staff_id=m.id"
+                    " LEFT JOIN staff_duty_subscriptions s ON s.staff_id=m.id AND s.admin_id=%s"
+                    " LEFT JOIN staff_customer_permissions p ON p.staff_id=m.id"
+                    " LEFT JOIN staff_duty_notifications n ON n.staff_id=m.id AND n.admin_id=%s"
+                    " AND (n.duty_date,n.shift)=(SELECT latest.duty_date,latest.shift"
+                    " FROM staff_duty_notifications latest WHERE latest.staff_id=m.id AND latest.admin_id=%s"
+                    " ORDER BY latest.created_at DESC,latest.duty_date DESC,latest.shift DESC LIMIT 1)"
+                    f" WHERE m.id IN ({marks})",
+                    [actor_id, actor_id, actor_id, *ids],
+                )
+                details = {row["id"]: row for row in cur.fetchall()}
             for member in result["members"]:
                 member.pop("price_usd", None)
                 member.pop("price_detail", None)
-                cur.execute("SELECT employment,circumstance,revision,updated_at FROM staff_management WHERE staff_id=%s",
-                            (member["id"],))
-                management = cur.fetchone()
-                member.update(management or {"employment": "", "circumstance": "", "revision": 0, "updated_at": None})
-                if member["updated_at"]:
-                    member["updated_at"] = str(member["updated_at"])
-                cur.execute("SELECT enabled FROM staff_duty_subscriptions WHERE staff_id=%s AND admin_id=%s",
-                            (member["id"], actor_id))
-                subscription = cur.fetchone()
-                member["subscribed"] = bool(subscription and subscription["enabled"])
-                cur.execute("SELECT enabled FROM staff_customer_permissions WHERE staff_id=%s", (member["id"],))
-                permission = cur.fetchone()
-                member["customer_authorized"] = bool(permission and permission["enabled"])
-                cur.execute("""SELECT status,published_at FROM staff_duty_notifications
-                    WHERE staff_id=%s AND admin_id=%s ORDER BY created_at DESC LIMIT 1""", (member["id"], actor_id))
-                notification = cur.fetchone()
-                member["notification"] = ({**notification, "published_at": str(notification["published_at"])}
-                                          if notification else None)
+                detail = details.get(member["id"])
+                if detail is None:
+                    raise ValueError("人员档案已变化，请刷新后重试")
+                member.update({
+                    "employment": detail["employment"] or "", "circumstance": detail["circumstance"] or "",
+                    "revision": detail["revision"] or 0,
+                    "updated_at": str(detail["updated_at"]) if detail["updated_at"] else None,
+                    "subscribed": bool(detail["subscribed"]), "customer_authorized": bool(detail["customer_authorized"]),
+                    "notification": {"status": detail["notification_status"],
+                                     "published_at": str(detail["notification_published_at"])}
+                    if detail["notification_status"] else None,
+                })
         return result
     finally:
         conn.close()

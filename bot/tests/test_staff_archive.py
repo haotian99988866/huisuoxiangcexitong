@@ -1,11 +1,33 @@
 from datetime import datetime
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import staff_archive
 
 
 class StaffArchiveTests(unittest.TestCase):
+    def test_full_staff_list_exceeds_old_page_size_and_retains_visibility_guards(self):
+        for admin in (False, True):
+            connection = MagicMock()
+            cursor = connection.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [None, {"total": 61}]
+            now = datetime.now()
+            cursor.fetchall.side_effect = [[{
+                "id": ident, "code": str(ident), "first_seen": now, "last_seen": now,
+                "blocked": False, "price_tags_json": "[]", "last_roster_at": None,
+                "last_photo_at": None, "cover": None, "photo_count": 0,
+            } for ident in range(1, 62)], []]
+            with self.subTest(admin=admin), patch.object(staff_archive, "get_conn", return_value=connection), \
+                    patch.object(staff_archive, "staff_price", return_value=(None, None)):
+                result = staff_archive.listing({"venue_id": 1, "mode": "all"}, admin=admin)
+            self.assertEqual((result["total"], len(result["members"])), (61, 61))
+            self.assertEqual(result["members"][0]["id"], 61)
+            sql = cursor.execute.call_args_list[2].args[0]
+            self.assertNotIn("OFFSET", sql)
+            if not admin:
+                self.assertIn("m.blocked=0", sql)
+                self.assertIn("m.adult_confirmed=1", sql)
+
     def test_delivery_and_invalid_inputs_are_not_staff_venues(self):
         for value in (3, 7, 8, 9, 10, True, "1", None):
             with self.subTest(value=value), self.assertRaises(ValueError):

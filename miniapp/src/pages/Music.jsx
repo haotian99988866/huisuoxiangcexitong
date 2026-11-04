@@ -10,6 +10,7 @@ import { requestMusic } from '../utils/music'
 import { musicArtist as artistName, playlistLink } from '../utils/musicPlayback'
 import { filterMusicTracks, musicCategories } from '../utils/musicCategories'
 import { musicSummary } from '../utils/catalogSummary'
+import { ListRefresh, LoadMore } from '../components/ContinuousList'
 import './Music.css'
 
 export default function Music() {
@@ -32,17 +33,13 @@ export default function Music() {
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [shareUrl, setShareUrl] = useState('')
   const [notice, setNotice] = useState('')
-  const [pageNumber, setPageNumber] = useState(() => sharedToken ? 1 : player.browseState.current.page)
-  const [jumpPage, setJumpPage] = useState(null)
-  const [pageError, setPageError] = useState('')
+  const [visibleCount, setVisibleCount] = useState(() => sharedToken ? 20 : player.browseState.current.visibleCount || 20)
   const [pickQuery, setPickQuery] = useState('')
-  const [pickPage, setPickPage] = useState(1)
+  const [pickCount, setPickCount] = useState(20)
   const searchRef = useRef(null)
-  const songsRef = useRef(null)
-  const navigationRef = useRef(null)
   const previousFilter = useRef({ view, query, category })
   const browseRef = useRef(null)
-  browseRef.current = { view, query, category, page: pageNumber }
+  browseRef.current = { view, query, category, visibleCount }
   useLayoutEffect(() => {
     window.scrollTo(0, sharedToken ? 0 : player.browseState.current.scroll)
     return () => {
@@ -53,13 +50,13 @@ export default function Music() {
   const closeSheet = () => { setSheet(null); setDeleteConfirm(false) }
   const changeView = value => {
     setView(value); setQuery(''); setSearchInput(''); setNotice('')
-    setPageNumber(1)
+    setVisibleCount(20)
   }
 
   useEffect(() => {
     if (requestedView && !sharedToken) {
       changeView(requestedView)
-      setPageNumber(1)
+      setVisibleCount(20)
       window.scrollTo(0, 0)
       setParams(current => {
         const next = new URLSearchParams(current)
@@ -103,24 +100,20 @@ export default function Music() {
   const source = ids ? ids.map(id => player.tracks.find(track => track.id === id)).filter(Boolean)
     : view === 'all' ? player.tracks : []
   const filtered = filterMusicTracks(source, view === 'all' ? category : 'all', query)
-  const rowsPerPage = 20
-  const pageCount = Math.max(1, Math.ceil(filtered.length / rowsPerPage))
-  const currentPage = Math.min(pageNumber, pageCount)
-  const pageTracks = filtered.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage)
+  const visibleTracks = filtered.slice(0, visibleCount)
   useEffect(() => {
     if (previousFilter.current.view === view && previousFilter.current.query === query
       && previousFilter.current.category === category) return
     previousFilter.current = { view, query, category }
-    setPageNumber(1); setJumpPage(null); setPageError('')
+    setVisibleCount(20)
+    window.scrollTo(0, 0)
   }, [view, query, category])
-  useEffect(() => { setPageNumber(number => Math.min(number, pageCount)) }, [pageCount])
-  const goToPage = number => {
-    setPageNumber(number)
-    setJumpPage(null)
-    setPageError('')
-    if (songsRef.current) window.scrollTo({
-      top: window.scrollY + songsRef.current.getBoundingClientRect().top - navigationRef.current.offsetHeight - 12,
-    })
+  const refresh = () => {
+    setVisibleCount(20)
+    window.scrollTo(0, 0)
+    player.load()
+    if (player.profile) player.loadAccount()
+    if (sharedToken) setSharedAttempt(value => value + 1)
   }
   const categoryLabel = musicCategories.find(([key]) => key === category)?.[1] || '全部'
   const title = selected?.name || ({ all: category === 'all' ? '全部歌曲' : `${categoryLabel}歌曲`, favorites: '我喜欢', recent: '最近播放',
@@ -128,8 +121,6 @@ export default function Music() {
   const activeTab = selected ? 'playlists' : view
   const favorites = player.profile?.favorites || []
   const pickTracks = player.tracks.filter(track => `${track.title} ${track.artist}`.toLowerCase().includes(pickQuery.trim().toLowerCase()))
-  const pickPages = Math.max(1, Math.ceil(pickTracks.length / 12))
-  const safePickPage = Math.min(pickPage, pickPages)
   const savePlaylist = (playlist, fields) => player.accountRequest('music_playlist_save', {
     playlist_id: playlist.id, revision: playlist.revision, name: playlist.name,
     tracks: playlist.tracks.filter(id => player.tracks.some(track => track.id === id)), ...fields,
@@ -156,15 +147,13 @@ export default function Music() {
     event.preventDefault()
     setQuery(searchInput.trim())
     if (view === 'playlists') setView('all')
-    setPageNumber(1)
-    setJumpPage(null)
-    setPageError('')
+    setVisibleCount(20)
     searchRef.current?.blur()
   }
 
   return (
     <main className="music-page">
-      <div ref={navigationRef} className="music-navigation">
+      <div className="music-navigation">
         {isFullscreen && <FullscreenAnnouncementBar />}
         <ModuleTabs active="music" />
       <form className="music-search" role="search" onSubmit={search}><MusicIcon name="search" size={19} />
@@ -182,6 +171,7 @@ export default function Music() {
         ))}
       </nav>
       </div>
+      <ListRefresh onRefresh={refresh} busy={player.status === 'loading'} disabled={!!sheet || player.busy} />
       {view === 'all' && <nav className="music-language-tabs" aria-label="歌曲语言分类">
         {musicCategories.map(([key, label]) => <button type="button" key={key}
           aria-pressed={category === key} onClick={() => setCategory(key)}>{label}</button>)}
@@ -209,9 +199,9 @@ export default function Music() {
             {player.profile && <button className="music-primary" type="button" onClick={() => { setNotice(''); setActionTrack(null); setName(''); setSheet('create') }}>创建第一个歌单</button>}</div>}
         </section>
       ) : (
-        <section ref={songsRef} aria-label="歌曲列表" className="music-songs">
+        <section aria-label="歌曲列表" className="music-songs">
           {selected && <button type="button" className="music-text-button" onClick={() => changeView('playlists')}>← 全部歌单</button>}
-          <header className="music-section-heading"><div className="music-section-title"><h1>{title}</h1><p>{player.status === 'loading' ? '正在更新歌曲…' : player.catalogError ? '歌曲更新失败' : view === 'shared' && !shared ? sharedError ? '歌单加载失败' : '正在加载分享歌单…' : musicSummary(filtered.length, currentPage, rowsPerPage)}</p></div>
+          <header className="music-section-heading"><div className="music-section-title"><h1>{title}</h1><p>{player.status === 'loading' ? '正在更新歌曲…' : player.catalogError ? '歌曲更新失败' : view === 'shared' && !shared ? sharedError ? '歌单加载失败' : '正在加载分享歌单…' : musicSummary(filtered.length, visibleCount)}</p></div>
             <div className="music-heading-actions">
               <button type="button" className="music-text-button music-play-all" disabled={!filtered.length} onClick={() => player.start(filtered[0], filtered)}><MusicIcon name="play" size={13} />播放全部</button>
               {selected && <button type="button" className="music-icon-button" aria-label="管理歌单" onClick={() => setSheet('manage')}><MusicIcon name="more" /></button>}
@@ -223,7 +213,7 @@ export default function Music() {
               const result = await player.accountRequest('music_playlist_create', { name: shared.name, tracks: source.map(track => track.id) })
               if (result) changeView(`playlist:${result.playlists[0].id}`)
             }}><MusicIcon name="plus" size={16} />保存为我的歌单</button>)}
-          {selected && <div className="music-list-toolbar"><button type="button" className="music-text-button" onClick={() => { setPickQuery(''); setPickPage(1); setSheet('pick'); setNotice('') }}><MusicIcon name="plus" size={15} />添加歌曲</button></div>}
+          {selected && <div className="music-list-toolbar"><button type="button" className="music-text-button" onClick={() => { setPickQuery(''); setPickCount(20); setSheet('pick'); setNotice('') }}><MusicIcon name="plus" size={15} />添加歌曲</button></div>}
           {player.status === 'loading' && !player.tracks.length && <div className="music-skeleton" role="status">正在加载歌曲…</div>}
           {ids && source.length < ids.length && <p className="music-hint">已隐藏不存在或下架的歌曲。</p>}
           {!filtered.length && player.status === 'ready' && <div className="music-empty"><MusicIcon name={query ? 'search' : 'note'} size={32} />
@@ -231,40 +221,20 @@ export default function Music() {
             <p>{query ? '试试更短的歌名，或换一个歌手。' : view === 'favorites' ? '点击歌曲旁的「更多」，收藏喜欢的歌曲。' : view === 'recent' ? '播放过的歌曲，会在这里与你重逢。' : selected ? '去发现页，点击歌曲旁的「更多」添加。' : '稍后刷新，发现新的旋律。'}</p>
             {query && <button type="button" onClick={clearSearch}>清空搜索</button>}
           </div>}
-          <ul className="music-list">{pageTracks.map((track, index) => (
+          <ul className="music-list">{visibleTracks.map((track, index) => (
             <li key={track.id} className={player.current?.id === track.id ? 'music-row is-current' : 'music-row'}>
               <button type="button" className="music-song-button" onClick={() => player.selectTrack(track, filtered)}
                 aria-busy={player.current?.id === track.id && player.waiting}
                 aria-label={`${player.current?.id === track.id && (player.playing || player.waiting) ? '暂停' : '播放'} ${track.title} - ${artistName(track.artist)}`} aria-current={player.current?.id === track.id ? 'true' : undefined}>
-                <span className="music-song-number" aria-hidden="true">{player.current?.id === track.id && player.waiting ? <span className="music-buffer-spinner" /> : player.current?.id === track.id && player.playing ? '♫' : String((currentPage - 1) * rowsPerPage + index + 1).padStart(2, '0')}</span>
+                <span className="music-song-number" aria-hidden="true">{player.current?.id === track.id && player.waiting ? <span className="music-buffer-spinner" /> : player.current?.id === track.id && player.playing ? '♫' : String(index + 1).padStart(2, '0')}</span>
                 <span className="music-track-copy"><strong>{track.title}</strong><small>{player.current?.id === track.id && player.waiting ? '正在缓冲，请稍候…' : `${artistName(track.artist)}${track.album ? ` · ${track.album}` : ''}`}</small></span>
               </button>
               <button type="button" className="music-icon-button" aria-label={`更多操作 ${track.title}`} onClick={() => { setNotice(''); setActionTrack(track); setSheet('track') }}><MusicIcon name="more" size={18} /></button>
             </li>
           ))}</ul>
-          {pageCount > 1 && <nav className="music-pagination" aria-label="歌曲分页">
-            <form className="music-page-jump" onSubmit={event => {
-              event.preventDefault()
-              const value = jumpPage ?? String(currentPage)
-              const number = Number(value)
-              if (!/^\d+$/.test(value) || !Number.isInteger(number) || number < 1 || number > pageCount) {
-                setPageError(`请输入 1–${pageCount} 之间的整数页码`)
-                return
-              }
-              goToPage(number)
-            }}>
-              <button type="button" aria-label="上一页" disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)}>‹</button>
-              <label className="music-page-position"><span className="music-sr-only">当前页，共 {pageCount} 页</span>
-                <input aria-label="跳转页码" inputMode="numeric" value={jumpPage ?? String(currentPage)}
-                  onChange={event => { setJumpPage(event.target.value); setPageError('') }} maxLength={6}
-                  aria-invalid={!!pageError} aria-describedby={pageError ? 'music-page-error' : undefined} />
-                <span aria-hidden="true">/ {pageCount}</span>
-              </label>
-              <button type="submit" className="music-page-go">跳转</button>
-              <button type="button" aria-label="下一页" disabled={currentPage === pageCount} onClick={() => goToPage(currentPage + 1)}>›</button>
-            </form>
-            {pageError && <p id="music-page-error" role="alert" className="music-error">{pageError}</p>}
-          </nav>}
+          {player.tracks.length > 0 && <LoadMore hasMore={visibleCount < filtered.length}
+            disabled={!!sheet || player.status === 'loading'}
+            onLoad={() => setVisibleCount(count => count + 20)} />}
         </section>
       )}
       {notice && !sheet && <div className="music-toast" role="status"><MusicIcon name="check" size={17} />{notice}</div>}
@@ -319,8 +289,8 @@ export default function Music() {
         {sheet === 'pick' && selected && <>
           <p className="music-hint">为「{selected.name}」添加歌曲，已添加的歌曲不会重复加入。</p>
           <input className="music-pick-search" aria-label="搜索可添加歌曲" type="search" placeholder="搜索歌名或歌手"
-            value={pickQuery} onChange={event => { setPickQuery(event.target.value); setPickPage(1) }} />
-          {pickTracks.slice((safePickPage - 1) * 12, safePickPage * 12).map(track => (
+            value={pickQuery} onChange={event => { setPickQuery(event.target.value); setPickCount(20) }} />
+          {pickTracks.slice(0, pickCount).map(track => (
             <button type="button" className="music-sheet-option" key={track.id} aria-label={`添加 ${track.title}`}
               disabled={player.busy || selected.tracks.includes(track.id)} onClick={async () => {
                 const tracks = [...selected.tracks.filter(id => player.tracks.some(item => item.id === id)), track.id]
@@ -329,8 +299,7 @@ export default function Music() {
               <MusicIcon name={selected.tracks.includes(track.id) ? 'check' : 'plus'} size={18} /></button>
           ))}
           {!pickTracks.length && <p className="music-hint">没有找到匹配歌曲。</p>}
-          <div className="music-pick-pages"><button type="button" disabled={safePickPage === 1} onClick={() => setPickPage(safePickPage - 1)}>上一页</button>
-            <span>{safePickPage} / {pickPages}</span><button type="button" disabled={safePickPage === pickPages} onClick={() => setPickPage(safePickPage + 1)}>下一页</button></div>
+          <LoadMore hasMore={pickCount < pickTracks.length} onLoad={() => setPickCount(count => count + 20)} />
           <button type="button" className="music-primary music-wide" onClick={closeSheet}>完成添加</button>
         </>}
         {sheet === 'share' && <>

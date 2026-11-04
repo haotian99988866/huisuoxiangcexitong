@@ -189,8 +189,11 @@ def _thumb(row):
     return row.get("thumb_url")
 
 
-def movie_catalog(category=None, query=None, limit=120):
-    limit = max(1, min(int(limit), 200))
+def movie_catalog(category=None, query=None, limit=120, page=1):
+    if type(page) is not int or not 1 <= page <= 10000:
+        raise ValueError("影视页码不合法")
+    if type(limit) is not int or not 1 <= limit <= 200:
+        raise ValueError("影视每次加载数量不合法")
     conn = get_conn()
     try:
         with conn.cursor() as cursor:
@@ -210,14 +213,18 @@ def movie_catalog(category=None, query=None, limit=120):
                 params.extend([like, like, like])
             where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
             cursor.execute(
+                f"SELECT COUNT(*) AS n FROM (SELECT series,category FROM movie_videos {where}"
+                " GROUP BY series,category) matching_series", params)
+            matching_total = cursor.fetchone()["n"]
+            cursor.execute(
                 f"""
                 SELECT series, category, COUNT(DISTINCT title) AS episodes,
                        MIN(message_id) AS first_id, MAX(message_id) AS last_id
                 FROM movie_videos {where}
                 GROUP BY series, category
-                ORDER BY last_id DESC LIMIT %s
+                ORDER BY last_id DESC,series,category LIMIT %s OFFSET %s
                 """,
-                params + [limit],
+                params + [limit, (page - 1) * limit],
             )
             series = cursor.fetchall()
 
@@ -239,6 +246,8 @@ def movie_catalog(category=None, query=None, limit=120):
     return {
         "categories": [{"name": name, "count": counts[name]} for name in ordered],
         "total": sum(counts.values()),
+        "matching_total": matching_total,
+        "page": page, "has_more": page * limit < matching_total,
         "series": [
             {
                 "name": row["series"],

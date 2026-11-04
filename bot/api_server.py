@@ -1272,11 +1272,13 @@ def webhook():
             if action == "get_movies":
                 category = str(data.get("category") or "").strip()[:50] or None
                 query = str(data.get("query") or "").strip()[:50] or None
-                return jsonify(movie_catalog(category, query))
+                return jsonify(movie_catalog(category, query, limit=data.get("limit", 120), page=data.get("page", 1)))
             series = str(data.get("series") or "").strip()[:255]
             if not series:
                 return jsonify({"error": "A series name is required"}), 400
             return jsonify({"episodes": movie_episodes(series)})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         except pymysql.MySQLError:
             logger.exception("Failed to load movies")
             return jsonify({"error": "Database request failed"}), 500
