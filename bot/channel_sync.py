@@ -14,7 +14,7 @@ import tempfile
 from dotenv import load_dotenv
 from telethon import TelegramClient, events, errors, types, utils
 
-from channel_sync_clean import clean_text, is_advertisement
+from channel_sync_clean import clean_text, is_news_advertisement
 from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 from news_sources import NEWS_SOURCES, announcement_job_key
 from news_dedupe import NewsDeduper, MIN_SIMILAR_LENGTH, media_digest, normalized_body, seed_recent_news
@@ -308,8 +308,8 @@ async def deliver(user, bot, source, target, store, job, directory):
         store.update(job, "skipped", error="Source message has protected content.")
         logger.warning("Skipped protected job %s", job["job_key"])
         return
-    if any(is_advertisement(message.message) for message in messages):
-        store.update(job, "skipped", error="Explicit advertisement label; entire job excluded.")
+    if any(is_news_advertisement(message.message) for message in messages):
+        store.update(job, "skipped", error="Advertisement label or promotional template; entire job excluded.")
         logger.info("Skipped advertisement job %s", job["job_key"])
         return
     captions = [clean_text(message.message, message.entities) for message in messages]
@@ -340,7 +340,7 @@ async def deliver(user, bot, source, target, store, job, directory):
         not media_messages or len(normalized_body(body)) >= MIN_SIMILAR_LENGTH) else None
     if duplicate:
         store.update(job, "skipped", error=(
-            f"Duplicate news within 5 hours: {duplicate['source']}:{duplicate['job_key']}"))
+            f"Duplicate news within 15 hours: {duplicate['source']}:{duplicate['job_key']}"))
         logger.info("Skipped duplicate news source=%s job=%s", job["source"], job["job_key"])
         return
     long_caption = any(len(text.encode("utf-16-le")) // 2 > 1024 for text in captions)
@@ -360,7 +360,7 @@ async def deliver(user, bot, source, target, store, job, directory):
         duplicate = store.news_deduper.find(job, body, digest)
         if duplicate:
             store.update(job, "skipped", error=(
-                f"Duplicate news within 5 hours: {duplicate['source']}:{duplicate['job_key']}"))
+                f"Duplicate news within 15 hours: {duplicate['source']}:{duplicate['job_key']}"))
             logger.info("Skipped duplicate news source=%s job=%s", job["source"], job["job_key"])
             return
         store.news_deduper.begin_send(job, body, digest)
@@ -586,13 +586,23 @@ async def run(mode, directory, news_only=False):
         store.close()
 
 
+async def resolve_channel(client, expected_id, username):
+    peer = await client.get_input_entity(types.PeerChannel(expected_id))
+    channel = await client.get_entity(peer)
+    usernames = {value.casefold() for value in [getattr(channel, "username", None)] if value}
+    usernames.update(alias.username.casefold() for alias in getattr(channel, "usernames", None) or []
+                     if alias.active)
+    if (not isinstance(channel, types.Channel) or not channel.broadcast or channel.id != expected_id
+            or username.casefold() not in usernames):
+        raise ValueError(f"Channel @{username} identity or channel type changed.")
+    return channel
+
+
 async def prepare_news_sources(user, target, store):
     sources = []
     latest_ids = {}
     for username, expected_id in NEWS_SOURCES:
-        source = await user.get_entity(f"https://t.me/{username}")
-        if not isinstance(source, types.Channel) or not source.broadcast or source.id != expected_id:
-            raise ValueError(f"News source @{username} identity or channel type changed.")
+        source = await resolve_channel(user, expected_id, username)
         if getattr(source, "noforwards", False):
             raise ValueError(f"News source @{username} has protected content; not permitted.")
         latest = await user.get_messages(source, limit=1)

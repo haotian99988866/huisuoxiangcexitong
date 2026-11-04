@@ -296,6 +296,13 @@ async def process_job(user, bot, sources, target, store, job):
 
 
 async def music_worker(user, bot, directory):
+    from channel_sync import single_instance
+    with single_instance(directory, "music-ingest-worker.lock"):
+        await _music_worker(user, bot, directory)
+
+
+async def _music_worker(user, bot, directory):
+    from channel_sync import resolve_channel
     import music
     store = MusicStore(directory / "music-import.sqlite3", recover=True)
     sources = {}
@@ -313,16 +320,17 @@ async def music_worker(user, bot, directory):
                 continue
             try:
                 if target is None:
-                    candidate = await user.get_entity(f"https://t.me/{music.MUSIC_CHANNEL_USERNAME}")
+                    target_id = int(music.MUSIC_CHANNEL_ID.removeprefix("-100"))
+                    candidate = await resolve_channel(user, target_id, music.MUSIC_CHANNEL_USERNAME)
                     sources.clear()
                     for client in (user, bot):
-                        owned = await client.get_entity(f"https://t.me/{music.MUSIC_CHANNEL_USERNAME}")
+                        owned = await resolve_channel(client, target_id, music.MUSIC_CHANNEL_USERNAME)
                         permissions = await client.get_permissions(owned, await client.get_me())
                         if not permissions.is_admin or not permissions.post_messages:
                             raise ValueError("Music target requires both account and bot posting permissions")
                     await asyncio.to_thread(music.ensure_tables)
                     for ident, (username, _) in SOURCES.items():
-                        source = await user.get_entity(f"https://t.me/{username}")
+                        source = await resolve_channel(user, ident, username)
                         if source.id != ident:
                             raise ValueError(f"Music source identity changed: {username}")
                         sources[ident] = source

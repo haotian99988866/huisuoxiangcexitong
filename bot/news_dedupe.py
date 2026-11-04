@@ -1,4 +1,4 @@
-"""Conservative, five-hour content matching before news publication."""
+"""Conservative, fifteen-hour content matching before news publication."""
 from difflib import SequenceMatcher
 import asyncio
 from datetime import datetime, timezone
@@ -11,7 +11,7 @@ import time
 import unicodedata
 
 
-WINDOW_SECONDS = 5 * 60 * 60
+WINDOW_SECONDS = 15 * 60 * 60
 MIN_SIMILAR_LENGTH = 80
 SIMILARITY_THRESHOLD = 0.95
 

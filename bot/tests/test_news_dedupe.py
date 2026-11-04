@@ -30,7 +30,7 @@ class MatchingTests(unittest.TestCase):
         self.assertFalse(similar_body("短新闻", "短消息"))
         self.assertTrue(similar_body("短新闻", "短新闻"))
         self.assertEqual(MIN_SIMILAR_LENGTH, 80)
-        self.assertEqual(WINDOW_SECONDS, 18000)
+        self.assertEqual(WINDOW_SECONDS, 54000)
 
     def test_media_digest_uses_full_bytes_and_complete_album_not_filenames(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -123,7 +123,7 @@ class NewsDedupeTests(unittest.IsolatedAsyncioTestCase):
         self.store.update(first, "sending", result_ids=[100])
         self.assertIsNotNone(self.store.news_deduper.find(second, "相同新闻"))
 
-    def test_five_hour_expiry_and_restart_persistence(self):
+    def test_fifteen_hour_expiry_and_restart_persistence(self):
         first, second = self.job(1, 10), self.job(3, 10)
         now = time.time()
         self.remember(first, "相同新闻", seen_at=now - WINDOW_SECONDS)
@@ -137,6 +137,18 @@ class NewsDedupeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(another.news_deduper.find(second, "相同新闻"))
         finally:
             another.close()
+
+    def test_duplicates_between_five_and_fifteen_hours_are_suppressed(self):
+        first, second = self.job(1, 10), self.job(3, 10)
+        now = time.time()
+        for hours in (5, 6, 10, 14.99, 15):
+            with self.subTest(hours=hours):
+                self.remember(first, "相同新闻", seen_at=now - hours * 3600)
+                with patch("news_dedupe.time.time", return_value=now):
+                    self.assertIsNotNone(self.store.news_deduper.find(second, "相同新闻"))
+        self.remember(first, "相同新闻", seen_at=now - 15 * 3600 - 1)
+        with patch("news_dedupe.time.time", return_value=now):
+            self.assertIsNone(self.store.news_deduper.find(second, "相同新闻"))
 
     def test_earliest_source_timestamp_wins_among_currently_queued_jobs(self):
         self.store.enqueue(1, "2", [10], 200)

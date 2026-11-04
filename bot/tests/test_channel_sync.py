@@ -9,10 +9,52 @@ from telethon import types, errors
 
 from channel_sync import JobStore, complete_album, deliver, enqueue_new_messages, prepare_news_sources, reconcile_messages, single_instance, split_telegram_text, worker
 from news_sources import NEWS_SOURCES, announcement_job_key
-from channel_sync_clean import clean_text, is_advertisement
+from channel_sync_clean import clean_text, is_advertisement, is_news_advertisement
+
+
+MISSED_NEWS_ADS = (
+    "🤩🤩🤩🤩\n🤩🤩🤩🤩🤩\n东南亚大事件联合担保🤩🤩(电子)\n"
+    "香港六合彩 · 独家盈利无上限！\n百家乐全网最高起步返水\n诚招代理合作：\n打码返佣",
+    "🫥🏆🏆🏆\n😀云购入口: https://example.com\n😀云购网址: https://example.com\n"
+    "一元云购主营商品：\n每消费1USDT即可获得1积分，积分可用于积分抽奖或者兑现成USDT\n"
+    "中奖后可选择实体发货或兑现成USDT进行提现。\n官方频道: @example\n官方客服: @service",
+    "在 Telegram 里找内容，先打开 SOSO 搜搜。\n\n频道、群组、帖子、贴纸都可以搜；"
+    "也可以从发现页继续浏览。\n🔗 本频道专属邀请链接 https://example.com",
+    "Telegram必备的搜索引擎，极搜帮你精准找到，想要的群组、频道、视频、音乐\n👉 t.me/example",
+    "#频道互推 #相似推荐\n----------------\n📢 @example\n🤝 · 获得曝光，赚邀请奖励",
+)
 
 
 class CleanTextTests(unittest.TestCase):
+    def test_reported_unlabelled_ads_and_cleaned_copies_are_blocked(self):
+        for text in MISSED_NEWS_ADS:
+            with self.subTest(text=text):
+                self.assertFalse(is_advertisement(text))
+                self.assertTrue(is_news_advertisement(text))
+                self.assertTrue(is_news_advertisement(clean_text(text)))
+
+    def test_news_promotional_detection_preserves_reports_and_unrelated_content(self):
+        for text in (
+            "#新闻：警方查处赌博推广\n平台以付费广告、首存赠送彩金诱导充值。",
+            "警方提醒警惕一元云购\n每消费1USDT即可获得1积分，积分抽奖；官方客服是假冒身份。",
+            "东南亚警方曝光联合担保骗局\n百家乐高额起步返水、诚招代理只是诈骗话术。",
+            "Telegram必备的搜索引擎，极搜被警方查处\n号称精准找到频道、群组。",
+            "本地搜救队找到了失踪人员", "Telegram发布搜索功能更新\n可搜索频道和群组。",
+            "#频道互推诈骗案件通报\n警惕所谓获得曝光、赚邀请奖励。",
+            "#新闻\n报道中提及：在 Telegram 里找内容，先打开 SOSO 搜搜。\n"
+            "本频道专属邀请链接被用于诈骗，涉及多个频道、群组。",
+            "#频道互推", "一元云购平台被调查", "", None,
+        ):
+            with self.subTest(text=text):
+                self.assertFalse(is_news_advertisement(text))
+
+    def test_news_filter_normalizes_invisible_and_fullwidth_characters_without_changing_shared_filter(self):
+        text = "\u200bＴｅｌｅｇｒａｍ必备的搜索引擎，极搜帮你精准找到群组、频道"
+        self.assertTrue(is_news_advertisement(text))
+        self.assertFalse(is_advertisement(text))
+        for text in ("#付费广告\n内容", "\u200b#付費廣告：内容"):
+            self.assertTrue(is_news_advertisement(text))
+
     def test_advertisement_labels_and_news_distinguished(self):
         for text in ["#付费广告\n推广内容", "**#付费广告**\n推广内容",
                      "\n 【商业广告】\n推广内容", "#付費廣告：推广内容", "#广告 推广内容"]:
@@ -62,6 +104,7 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.source = SimpleNamespace(id=1)
         self.target = SimpleNamespace(id=2)
         self.user = SimpleNamespace(
+            get_input_entity=AsyncMock(side_effect=lambda peer: peer),
             get_entity=AsyncMock(return_value=SimpleNamespace(noforwards=False)),
             get_messages=AsyncMock(), download_media=AsyncMock(),
         )
@@ -248,6 +291,11 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.store.progress(channels[0].id, "2", 20)
         self.store.advance(channels[0].id, "2", 25)
         sources, boundaries = await prepare_news_sources(self.user, self.target, self.store)
+        self.assertEqual(self.user.get_input_entity.await_count, len(NEWS_SOURCES))
+        self.assertEqual(
+            [call.args[0].channel_id for call in self.user.get_input_entity.await_args_list],
+            [ident for _, ident in NEWS_SOURCES],
+        )
         self.assertEqual(len(sources), 7)
         self.assertEqual((channels[-1].username, channels[-1].id), ("vhhhh", 2062055062))
         self.assertEqual(boundaries[channels[0].id], 20)
@@ -275,6 +323,33 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         channel = types.Channel(id=999, title="changed", photo=types.ChatPhotoEmpty(),
                                 date=datetime.now(timezone.utc), broadcast=True)
         self.user.get_entity.return_value = channel
+        with self.assertRaisesRegex(ValueError, "identity"):
+            await prepare_news_sources(self.user, self.target, self.store)
+        self.user.get_messages.assert_not_awaited()
+
+    async def test_stale_cached_news_username_is_rejected_even_with_matching_numeric_id(self):
+        channel = types.Channel(id=NEWS_SOURCES[0][1], title="changed", username="different",
+                                photo=types.ChatPhotoEmpty(), date=datetime.now(timezone.utc), broadcast=True)
+        self.user.get_entity.return_value = channel
+        with self.assertRaisesRegex(ValueError, "identity"):
+            await prepare_news_sources(self.user, self.target, self.store)
+        self.user.get_messages.assert_not_awaited()
+
+    async def test_news_sources_accept_active_alias_but_not_inactive_alias(self):
+        channels = [
+            types.Channel(id=ident, title=username, username=None,
+                          usernames=[types.Username(username=username.upper(), active=True)],
+                          photo=types.ChatPhotoEmpty(), date=datetime.now(timezone.utc), broadcast=True)
+            for username, ident in NEWS_SOURCES
+        ]
+        self.user.get_entity.side_effect = channels
+        self.user.get_messages.return_value = [SimpleNamespace(id=100)]
+        sources, _ = await prepare_news_sources(self.user, self.target, self.store)
+        self.assertEqual(len(sources), len(NEWS_SOURCES))
+        channels[0].usernames[0].active = False
+        self.user.get_entity.side_effect = None
+        self.user.get_entity.return_value = channels[0]
+        self.user.get_messages.reset_mock()
         with self.assertRaisesRegex(ValueError, "identity"):
             await prepare_news_sources(self.user, self.target, self.store)
         self.user.get_messages.assert_not_awaited()
@@ -386,6 +461,22 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         photo = types.MessageMediaPhoto()
         await self.publish([self.message(None, photo),
                             self.message("#付费广告\n首存活动", photo)], (10, 11))
+        self.user.download_media.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+        self.assertEqual(self.status(), "skipped")
+
+    async def test_unlabelled_promotional_media_skipped_before_download_or_deduplication(self):
+        await self.publish([self.message(MISSED_NEWS_ADS[0], types.MessageMediaPhoto())])
+        self.user.download_media.assert_not_awaited()
+        self.bot.send_message.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+        self.assertEqual(self.status(), "skipped")
+        self.assertEqual(self.store.connection.execute("SELECT COUNT(*) FROM news_fingerprints").fetchone()[0], 0)
+
+    async def test_unlabelled_promotion_in_album_excludes_entire_album(self):
+        photo = types.MessageMediaPhoto()
+        await self.publish([self.message(None, photo),
+                            self.message(MISSED_NEWS_ADS[4], photo)], (10, 11))
         self.user.download_media.assert_not_awaited()
         self.bot.send_file.assert_not_awaited()
         self.assertEqual(self.status(), "skipped")

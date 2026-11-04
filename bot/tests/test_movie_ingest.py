@@ -20,6 +20,10 @@ def message(ident=10, caption="《测试剧》第1集 #电视剧", document_id=1
             types.DocumentAttributeVideo(duration=123.5, w=1920, h=1080)]))
 
 
+async def resolve_test_channel(client, ident, username):
+    return await client.get_entity(f"https://t.me/{username}")
+
+
 class MovieIngestTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
@@ -244,7 +248,8 @@ class MovieIngestTests(unittest.IsolatedAsyncioTestCase):
             sleeps.append(seconds)
             if seconds == 21:
                 raise asyncio.CancelledError
-        with patch("movie_ingest.ensure_tables"), patch("movie_ingest.scan_owned", return_value=True), \
+        with patch("channel_sync.resolve_channel", side_effect=resolve_test_channel), \
+                patch("movie_ingest.ensure_tables"), patch("movie_ingest.scan_owned", return_value=True), \
                 patch("movie_ingest.scan_source", side_effect=scan), \
                 patch("movie_ingest.asyncio.sleep", side_effect=sleep), \
                 patch("movie_ingest.time.time", return_value=100):
@@ -459,7 +464,8 @@ class MovieIngestTests(unittest.IsolatedAsyncioTestCase):
         # Worker uses this filename and opens its own connection.
         self.store.close()
         self.path.rename(self.path.parent / "movie-import.sqlite3")
-        with patch("movie_ingest.ensure_tables"), patch("movie_ingest.time.time", return_value=100), \
+        with patch("channel_sync.resolve_channel", side_effect=resolve_test_channel), \
+                patch("movie_ingest.ensure_tables"), patch("movie_ingest.time.time", return_value=100), \
                 patch("movie_ingest.asyncio.sleep", side_effect=asyncio.CancelledError) as sleep:
             with self.assertRaises(asyncio.CancelledError):
                 await movie_worker(self.user, self.bot, self.path.parent)

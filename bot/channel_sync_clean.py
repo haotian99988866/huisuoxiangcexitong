@@ -1,4 +1,5 @@
 import re
+import unicodedata
 
 
 PROMOTION = re.compile(
@@ -26,6 +27,39 @@ ADVERTISEMENT = re.compile(
 def is_advertisement(text):
     """Only treat an explicit leading advertisement label as an opt-out."""
     return bool(ADVERTISEMENT.match((text or "").lstrip()))
+
+
+def is_news_advertisement(text):
+    """Recognize promotional templates, not isolated words in news reports."""
+    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
+    if is_advertisement(normalized):
+        return True
+    lines = [line.strip() for line in normalized.splitlines()
+             if re.search(r"[a-zA-Z0-9\u3400-\u9fff]", line)]
+    if not lines:
+        return False
+    heading = re.sub(r"^[^\w\u3400-\u9fff]+|^_+", "", lines[0])
+    if re.search(r"警方|警惕|警告|提醒|查处|查獲|查获|破获|曝光|被捕|诈骗|詐騙|通报|通報|报道|報道", heading):
+        return False
+    if (re.match(r"频道互推(?:\s|#|$)", heading)
+            and re.search(r"相似推荐|获得曝光|邀请奖励", normalized)):
+        return True
+    if (re.match(r"(?:在\s*Telegram\s*里找内容[,，]\s*先打开\s*SOSO\s*搜搜|"
+                 r"Telegram\s*必备的搜索引擎[,，]\s*极搜)", heading, re.IGNORECASE)
+            and re.search(r"频道|群组", normalized)
+            and re.search(r"专属邀请链接|精准找到", normalized)):
+        return True
+    if (re.match(r"云购(?:入口|网址)\s*[:：]", heading)
+            and "一元云购" in normalized
+            and re.search(r"积分抽奖|兑现成\s*USDT", normalized, re.IGNORECASE)
+            and re.search(r"官方客服|官方频道", normalized)):
+        return True
+    return bool(
+        re.match(r"[^。！？:：]{0,30}联合担保", heading)
+        and re.search(r"百家乐|六合彩|电子[|｜/、]棋牌", normalized)
+        and re.search(r"诚招代理|打码返佣|起步返水", normalized)
+    )
 
 
 def clean_text(text, entities=()):

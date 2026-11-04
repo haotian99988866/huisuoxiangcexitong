@@ -403,6 +403,7 @@ async def movie_worker(user, bot, directory, sources=SOURCES):
 
 
 async def _movie_worker(user, bot, directory, sources):
+    from channel_sync import resolve_channel
     stores = [MovieStore(store_path(directory, config), recover=True, source=config) for config in sources]
     contexts = {}
     turn = 0
@@ -425,8 +426,8 @@ async def _movie_worker(user, bot, directory, sources):
             config = store.source
             try:
                 if config.id not in contexts:
-                    candidate = await user.get_entity(f"https://t.me/{config.username}")
-                    owned = await user.get_entity(f"https://t.me/{config.target_username}")
+                    candidate = await resolve_channel(user, config.id, config.username)
+                    owned = await resolve_channel(user, config.target_id, config.target_username)
                     if candidate.id != config.id or owned.id != config.target_id:
                         raise ValueError("Movie source or target identity changed")
                     if getattr(candidate, "noforwards", False):
@@ -434,7 +435,7 @@ async def _movie_worker(user, bot, directory, sources):
                     permissions = await user.get_permissions(owned, await user.get_me())
                     if not permissions.is_admin or not permissions.post_messages:
                         raise ValueError("Movie forwarding account needs target posting permission")
-                    reader = await bot.get_entity(f"https://t.me/{config.target_username}")
+                    reader = await resolve_channel(bot, config.target_id, config.target_username)
                     if reader.id != config.target_id:
                         raise ValueError("Movie publisher target identity changed")
                     editor = await bot.get_permissions(reader, await bot.get_me())
@@ -485,7 +486,7 @@ async def _movie_worker(user, bot, directory, sources):
             store.close()
 
 
-async def run_source(directory, config):
+async def run_source(directory, config=None):
     from channel_sync import credentials
     from telethon import TelegramClient
     from telethon.sessions import MemorySession
@@ -503,6 +504,17 @@ async def run_source(directory, config):
             session = MemorySession()
             session.set_dc(*saved[:3])
             session.auth_key = AuthKey(saved[3])
+            conn = sqlite3.connect((directory / filename).as_uri() + "?mode=ro", uri=True)
+            try:
+                cached = conn.execute("SELECT id,hash,username,phone,name FROM entities").fetchall()
+            finally:
+                conn.close()
+            session.process_entities([
+                types.Channel(id=-ident - 1000000000000, access_hash=access_hash,
+                              title=name or "", username=username, broadcast=True,
+                              photo=types.ChatPhotoEmpty(), date=None)
+                for ident, access_hash, username, _, name in cached if ident < -1000000000000
+            ])
             client = TelegramClient(session, *credentials(), receive_updates=False, flood_sleep_threshold=0)
             clients.append(client)
             await client.connect()
@@ -512,7 +524,14 @@ async def run_source(directory, config):
         if (await user.get_me()).bot or str((await bot.get_me()).id) != os.environ.get(
                 "TELEGRAM_BOT_TOKEN", "").partition(":")[0]:
             raise ValueError("Reader or publisher identity does not match configuration")
-        await movie_worker(user, bot, directory, sources=(config,))
+        if config is not None:
+            await movie_worker(user, bot, directory, sources=(config,))
+        else:
+            from music_ingest import music_worker
+            async with asyncio.TaskGroup() as tasks:
+                tasks.create_task(music_worker(user, bot, directory))
+                tasks.create_task(movie_worker(user, bot, directory,
+                                               sources=tuple(item for item in SOURCES if not item.short_drama)))
     finally:
         for client in clients:
             await client.disconnect()
@@ -521,7 +540,7 @@ async def run_source(directory, config):
 def main():
     from channel_sync import state_directory
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("status", "enable", "disable", "run"))
+    parser.add_argument("action", choices=("status", "enable", "disable", "run", "run-media"))
     parser.add_argument("--source", choices=[item.username for item in SOURCES],
                         default=SOURCE_USERNAME, help="Authorized source; default preserves the original source")
     parser.add_argument("--start-message", type=int, help="Inclusive source history start; resets scan cursor")
@@ -529,12 +548,12 @@ def main():
     directory = state_directory()
     directory.mkdir(parents=True, exist_ok=True)
     config = next(item for item in SOURCES if item.username == args.source)
-    if args.action == "run":
+    if args.action in ("run", "run-media"):
         if args.start_message is not None:
             parser.error("Use enable --start-message before run")
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
         logging.getLogger("telethon").setLevel(logging.WARNING)
-        asyncio.run(run_source(directory, config))
+        asyncio.run(run_source(directory, config if args.action == "run" else None))
         return
     store = MovieStore(store_path(directory, config), source=config)
     try:
