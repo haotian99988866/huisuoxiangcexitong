@@ -9,6 +9,7 @@ import re
 import tempfile
 import time
 import unicodedata
+from channel_sync_clean import clean_news_text
 
 
 WINDOW_SECONDS = 15 * 60 * 60
@@ -17,7 +18,7 @@ SIMILARITY_THRESHOLD = 0.95
 
 
 def normalized_body(body):
-    return "".join(char for char in unicodedata.normalize("NFKC", body).casefold()
+    return "".join(char for char in unicodedata.normalize("NFKC", clean_news_text(body)).casefold()
                    if char.isalnum() or char in ".%+-")
 
 
@@ -70,15 +71,17 @@ class NewsDeduper:
             (job["target"], time.time() - WINDOW_SECONDS, job["source"], job["job_key"]),
         )
         for row in rows:
+            # Older persisted fingerprints have no line breaks or footer punctuation.
+            previous_body = row["body"].removesuffix("订阅东南亚大事件频道投稿澄清爆料")
             if normalized:
-                if not similar_body(normalized, row["body"]):
+                if not similar_body(normalized, previous_body):
                     continue
                 # Short captions alone must not merge unrelated pictures or videos.
-                if min(len(normalized), len(row["body"])) < MIN_SIMILAR_LENGTH and (
+                if min(len(normalized), len(previous_body)) < MIN_SIMILAR_LENGTH and (
                     media_hash != row["media_hash"]):
                     continue
                 return row
-            if not row["body"] and media_hash and media_hash == row["media_hash"]:
+            if not previous_body and media_hash and media_hash == row["media_hash"]:
                 return row
         return None
 
@@ -102,7 +105,6 @@ class NewsDeduper:
 
 async def seed_recent_news(bot, target, store, directory):
     """Fingerprint recent published jobs without republishing or changing their states."""
-    from channel_sync_clean import clean_text
     from db import get_conn
     from news_sources import announcement_job_key
     from telethon import types
@@ -140,7 +142,7 @@ async def seed_recent_news(bot, target, store, directory):
             published_at.tzinfo is None) else published_at.timestamp()
         if seen_at < cutoff:
             continue
-        body = "\n\n".join(clean_text(message.message, message.entities) for message in messages)
+        body = "\n\n".join(clean_news_text(message.message, message.entities) for message in messages)
         media_messages = [message for message in messages if message.media
                           and not isinstance(message.media, types.MessageMediaWebPage)]
         digest = None

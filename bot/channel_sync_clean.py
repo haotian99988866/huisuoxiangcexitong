@@ -42,6 +42,22 @@ def is_news_advertisement(text):
     heading = re.sub(r"^[^\w\u3400-\u9fff]+|^_+", "", lines[0])
     if re.search(r"警方|警惕|警告|提醒|查处|查獲|查获|破获|曝光|被捕|诈骗|詐騙|通报|通報|报道|報道", heading):
         return False
+    if (re.match(r"购买所有广告获得优惠", heading)
+            and re.search(r"绑定优惠券", normalized)
+            and re.search(r"官方机器人", normalized)
+            and re.search(r"广告同步展示", normalized)):
+        return True
+    if (re.match(r"(?:支持\s*\d+\s*倍验资|注册就送|新人首存)", heading)
+            and re.search(r"注册就送|首存.{0,20}赠送", normalized)
+            and re.search(r"六合彩|百家乐|娱乐城", normalized)
+            and re.search(r"返水|充值.{0,12}送|存款.{0,12}赠送", normalized)
+            and re.search(r"注册网址|官方客服", normalized)):
+        return True
+    if (re.match(r"NO\s*钱包", heading, re.IGNORECASE)
+            and re.search(r"雄厚实力护航", normalized)
+            and re.search(r"官网权威验证", normalized)
+            and re.search(r"免费能量赞助商", normalized)):
+        return True
     if (re.match(r"频道互推(?:\s|#|$)", heading)
             and re.search(r"相似推荐|获得曝光|邀请奖励", normalized)):
         return True
@@ -80,3 +96,20 @@ def clean_text(text, entities=()):
     text = re.sub(r"关注大事件频道\s*[➡️→:\s]*投稿\s*[:：]?", "", text)
     text = re.sub(r"[ \t]+", " ", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def clean_news_text(text, entities=()):
+    text = clean_text(text, entities)
+    while True:
+        previous = text
+        text = re.sub(
+            r"(?:^|\n)[^\w\n]*出海导航[^\w\n]*投稿招商[^\w]*"
+            r"#神盾联盟广告赞助商[^\w]*$",
+            "", text,
+        ).strip()
+        text = re.sub(
+            r"(?:^|\n)[^\w\n]*订阅东南亚大事件频道[^\w\n]*(?:\n[^\w\n]*)+投稿澄清爆料\s*[:：]?\s*$",
+            "", text,
+        ).strip()
+        if text == previous:
+            return text

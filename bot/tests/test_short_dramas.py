@@ -11,14 +11,14 @@ from telethon import types
 import api_server
 import movies
 from movie_ingest import (DRAMA_SOURCE, SOURCES, MovieStore, clean_movie_caption,
-                          process_job, resolve_album_caption, store_path, video_metadata)
+                          process_job, resolve_album_caption, scan_owned, store_path, video_metadata)
 
 
 def video(ident=10, caption="原创短剧《测试短剧》完整版", document_id=100):
     return SimpleNamespace(
         id=ident, message=caption, noforwards=False, date=datetime.now(timezone.utc),
         document=SimpleNamespace(id=document_id, attributes=[
-            types.DocumentAttributeVideo(duration=3983.4, w=1080, h=1920)]))
+            types.DocumentAttributeVideo(duration=3983.4, w=1080, h=1920)], size=5000))
 
 
 class ShortDramaCatalogTests(unittest.TestCase):
@@ -144,6 +144,39 @@ class ShortDramaIngestionTests(unittest.IsolatedAsyncioTestCase):
             send_file=AsyncMock(return_value=SimpleNamespace(id=88)))
         self.bot = SimpleNamespace(get_messages=AsyncMock(return_value=[video(88)]),
                                    edit_message=AsyncMock())
+        patcher = patch("short_drama_dedupe.largest", return_value=None)
+        self.largest = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    async def test_same_compilation_larger_or_equal_file_is_excluded_before_copy(self):
+        for size in (5000, 6000):
+            with self.subTest(size=size):
+                self.largest.return_value = {"message_id": 77, "file_size": size}
+                self.store.enqueue(size, True)
+                job = self.store.pending()
+                await process_job(self.user, self.bot, self.source, self.target, self.store, job)
+                row = self.store.connection.execute("SELECT * FROM jobs WHERE message=?", (size,)).fetchone()
+                self.assertEqual((row["status"], row["result_id"]), ("excluded", 77))
+        self.user.send_file.assert_not_awaited()
+
+    async def test_larger_new_file_is_copied_and_indexed_with_actual_bytes(self):
+        self.largest.return_value = {"message_id": 77, "file_size": 4000}
+        self.store.enqueue(10, True)
+        await process_job(self.user, self.bot, self.source, self.target, self.store, self.store.pending())
+        with patch("movie_ingest.save_movie", return_value=True) as save:
+            await process_job(self.user, self.bot, self.source, self.target, self.store, self.store.pending())
+        self.user.send_file.assert_awaited_once()
+        self.assertEqual(save.call_args.kwargs["file_size"], 5000)
+
+    async def test_existing_owned_channel_inventory_backfills_actual_file_sizes(self):
+        async def messages(*args, **kwargs):
+            yield video(88)
+        self.user.iter_messages = MagicMock(side_effect=messages)
+        with patch("movie_ingest.save_movie", return_value=True) as save:
+            self.assertTrue(await scan_owned(self.user, self.target, self.store))
+        self.assertEqual(save.call_args.kwargs["file_size"], 5000)
+        self.assertEqual(self.store.setting("drama_owned_cursor"), "88")
+        self.assertEqual(self.store.setting("owned_cursor"), "0")
 
     def test_compilation_title_keeps_version_and_strips_source_promotion(self):
         raw = "AI短剧《测试短剧》第1-5集纯享合集版\n简介\nhttps://t.me/source"

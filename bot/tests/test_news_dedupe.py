@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from telethon import types
 
 from channel_sync import JobStore, deliver
+from channel_sync_clean import clean_news_text, clean_text
 from news_dedupe import (
     MIN_SIMILAR_LENGTH, WINDOW_SECONDS, media_digest,
     normalized_body, seed_recent_news, similar_body,
@@ -16,6 +17,39 @@ from news_dedupe import (
 
 
 class MatchingTests(unittest.TestCase):
+    def test_sponsor_and_subscription_footers_are_removed_in_either_order(self):
+        body = "#网友反馈\n\n现场情况仍在调查，后续以官方通报为准。"
+        sponsor = ("🌐出海导航 📣投稿招商 💵\n————————————————\n"
+                   "#神盾联盟广告赞助商\n\n🤩🤩🤩🤩🤩🤩🤩🤩🤩\n\n🤩🤩🤩🤩 🤩🤩🤩🤩🤩🤩🤩🤩")
+        subscription = "👉 订阅东南亚大事件频道\u00a0 ↓\n\n投稿澄清爆料："
+        for footer in (sponsor, subscription, sponsor + "\n\n" + subscription,
+                       subscription + "\n\n" + sponsor, sponsor + "            " + subscription):
+            with self.subTest(footer=footer):
+                self.assertEqual(clean_news_text(body + "\n\n" + footer), body)
+                self.assertEqual(normalized_body(body + "\n\n" + footer), normalized_body(body))
+                self.assertEqual(clean_news_text(footer), "")
+        self.assertIn("神盾联盟广告赞助商", clean_text(body + "\n\n" + sponsor))
+
+    def test_sponsor_words_inside_reports_or_followed_by_news_are_preserved(self):
+        for body in (
+            "警方提醒：谨防“出海导航 投稿招商 #神盾联盟广告赞助商”相关诈骗。",
+            "🌐出海导航 📣投稿招商 💵\n#神盾联盟广告赞助商\n警方正在调查冒名宣传。",
+            "现场消息\n#神盾联盟广告赞助商",
+            "现场消息\n🌐出海导航 📣投稿招商 💵",
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(clean_news_text(body), body)
+
+    def test_known_subscription_footer_does_not_change_news_fingerprint(self):
+        body = "#网友反馈：西港“乐信小区”的警察刚刚已经撤了，从下午一直搞到现在，不过这几天估计还要继续查，住那边的兄弟都注意点！"
+        footer = "\n\n👉 订阅东南亚大事件频道\u00a0 ↓\n\n投稿澄清爆料："
+        self.assertEqual(normalized_body(body + footer), normalized_body(body))
+        self.assertEqual(clean_news_text(body + footer), body)
+        self.assertIn("订阅东南亚大事件频道", clean_text(body + footer))
+        inline = "警方提醒：不要相信“订阅东南亚大事件频道”及“投稿澄清爆料”的冒名消息。"
+        self.assertIn("订阅东南亚大事件频道", normalized_body(inline))
+        self.assertEqual(clean_news_text(inline), inline)
+
     def test_normalization_keeps_decimal_numbers_and_rates(self):
         self.assertEqual(normalized_body("ＡＢＣ　新闻\n正文"), "abc新闻正文")
         base = "现场调查情况通报警方正在调查事故原因请关注后续消息" * 5
@@ -113,6 +147,46 @@ class NewsDedupeTests(unittest.IsolatedAsyncioTestCase):
         self.bot.send_file.assert_awaited_once()
         self.assertEqual(self.store.connection.execute(
             "SELECT status FROM jobs WHERE source=3").fetchone()[0], "sent")
+
+    async def test_short_news_with_footer_and_same_album_is_skipped(self):
+        body = "#网友反馈：西港“乐信小区”的警察刚刚已经撤了，从下午一直搞到现在，不过这几天估计还要继续查，住那边的兄弟都注意点！"
+        footer = "\n\n👉 订阅东南亚大事件频道 ↓\n\n投稿澄清爆料："
+        file = self.directory / "same.jpg"
+        file.write_bytes(b"identical complete album")
+        first = self.job(1, 10)
+        self.remember(first, body, media_digest([file]))
+        second = self.job(3, 10)
+        self.user.get_messages.return_value = [self.message(body + footer, types.MessageMediaPhoto())]
+        self.user.download_media.return_value = str(file)
+        await deliver(self.user, self.bot, SimpleNamespace(id=3), self.target, self.store,
+                      second, self.directory)
+        self.bot.send_file.assert_not_awaited()
+        self.assertEqual(self.store.connection.execute(
+            "SELECT status FROM jobs WHERE source=3").fetchone()[0], "skipped")
+
+    def test_legacy_normalized_footer_matches_only_with_same_short_news_media(self):
+        first, second = self.job(1, 10), self.job(3, 10)
+        self.remember(first, "现场正在调查请留意后续通报", "same album")
+        with self.store.connection:
+            self.store.connection.execute(
+                "UPDATE news_fingerprints SET body=body || ?",
+                ("订阅东南亚大事件频道投稿澄清爆料",))
+        self.assertIsNotNone(self.store.news_deduper.find(second, "现场正在调查请留意后续通报", "same album"))
+        self.assertIsNone(self.store.news_deduper.find(second, "现场正在调查请留意后续通报", "other album"))
+        self.assertIsNone(self.store.news_deduper.find(second, "现场正在调查请留意后续通报"))
+
+    async def test_news_footer_is_removed_from_published_caption(self):
+        body = "当地警方正在调查，请留意后续通报。"
+        file = self.directory / "new.jpg"
+        file.write_bytes(b"new photo")
+        job = self.job(1, 10)
+        self.user.get_messages.return_value = [self.message(
+            body + "\n\n🌐出海导航 📣投稿招商 💵\n————————————————\n"
+            "#神盾联盟广告赞助商\n\n🤩🤩🤩\n\n"
+            "👉 订阅东南亚大事件频道 ↓\n\n投稿澄清爆料：", types.MessageMediaPhoto())]
+        self.user.download_media.return_value = str(file)
+        await deliver(self.user, self.bot, SimpleNamespace(id=1), self.target, self.store, job, self.directory)
+        self.assertEqual(self.bot.send_file.await_args.kwargs["caption"], body)
 
     def test_failed_claim_does_not_block_another_source_but_uncertain_claim_does(self):
         first, second = self.job(1, 10), self.job(3, 10)

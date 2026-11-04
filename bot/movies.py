@@ -63,6 +63,8 @@ def ensure_tables():
     try:
         with conn.cursor() as cursor:
             cursor.execute(CREATE_SQL)
+            from short_drama_dedupe import CREATE_SQL as DRAMA_VERSIONS_SQL
+            cursor.execute(DRAMA_VERSIONS_SQL)
         conn.commit()
     finally:
         conn.close()
@@ -105,7 +107,7 @@ def parse_caption(text):
 
 
 def save_movie(channel_id, message_id, caption, duration=None, thumb_file_id=None,
-               thumb_url=None, posted_at=None):
+               thumb_url=None, posted_at=None, file_size=None):
     parsed = parse_caption(caption)
     if not parsed:
         return False
@@ -114,6 +116,12 @@ def save_movie(channel_id, message_id, caption, duration=None, thumb_file_id=Non
     conn = get_conn()
     try:
         with conn.cursor() as cursor:
+            if str(channel_id) == DRAMA_CHANNEL_ID:
+                from short_drama_dedupe import register
+                if not register(cursor, message_id, caption, file_size):
+                    conn.commit()
+                    logger.info("Deleted short drama not reindexed message=%s", message_id)
+                    return True
             cursor.execute(
                 """
                 INSERT INTO movie_videos
@@ -167,6 +175,7 @@ def save_movie_message(message):
         duration=getattr(media, "duration", None),
         thumb_file_id=getattr(thumb, "file_id", None),
         posted_at=datetime.fromtimestamp(message.date),
+        file_size=getattr(media, "file_size", None),
     )
 
 
@@ -275,7 +284,8 @@ def short_drama_catalog(query=None, page=1, limit=24):
         raise ValueError("短剧页码不合法")
     if type(limit) is not int or not 1 <= limit <= 60:
         raise ValueError("短剧每页数量不合法")
-    conditions, params = ["channel_id = %s"], [DRAMA_CHANNEL_ID]
+    from short_drama_dedupe import VISIBLE_SQL
+    conditions, params = ["channel_id = %s", VISIBLE_SQL], [DRAMA_CHANNEL_ID]
     if query:
         conditions.append("(title LIKE %s OR tags LIKE %s)")
         params.extend([f"%{query}%", f"%{query}%"])

@@ -14,7 +14,7 @@ import tempfile
 from dotenv import load_dotenv
 from telethon import TelegramClient, events, errors, types, utils
 
-from channel_sync_clean import clean_text, is_news_advertisement
+from channel_sync_clean import clean_news_text, is_news_advertisement
 from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 from news_sources import NEWS_SOURCES, announcement_job_key
 from news_dedupe import NewsDeduper, MIN_SIMILAR_LENGTH, media_digest, normalized_body, seed_recent_news
@@ -312,7 +312,7 @@ async def deliver(user, bot, source, target, store, job, directory):
         store.update(job, "skipped", error="Advertisement label or promotional template; entire job excluded.")
         logger.info("Skipped advertisement job %s", job["job_key"])
         return
-    captions = [clean_text(message.message, message.entities) for message in messages]
+    captions = [clean_news_text(message.message, message.entities) for message in messages]
     media_messages = [message for message in messages if message.media
                       and not isinstance(message.media, types.MessageMediaWebPage)]
     if media_messages and any(

@@ -1,0 +1,10 @@
+.short-dramas-page > .account-module-header { border-bottom: 0; padding-bottom: 10px; margin-bottom: 0; }
+.short-dramas-page .announcement-fullscreen::after { display: none; }
+.short-drama-pagination { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 12px; margin-top: 24px; padding: 16px 0 4px; }
+.short-drama-pagination > button, .short-drama-page-picker select { min-width: 0; min-height: 44px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); padding: 8px; font: inherit; font-size: 14px; cursor: pointer; }
+.short-drama-pagination > button:not(:disabled) { border-color: var(--ink-accent); color: var(--ink-accent); font-weight: 600; }
+.short-drama-pagination > button:disabled { opacity: .4; cursor: default; }
+.short-drama-page-picker { display: flex; flex-direction: column; min-width: 0; gap: 5px; text-align: center; }
+.short-drama-page-picker select { width: 100%; }
+.short-drama-page-picker > span { color: var(--ink-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.short-drama-page-picker select:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 3px; }

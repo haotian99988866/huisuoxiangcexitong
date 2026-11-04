@@ -276,16 +276,27 @@ async def scan_source(user, source, store, historical):
 async def scan_owned(user, target, store):
     """Inventory existing channel copies before forwarding historical source files."""
     count = 0
+    cursor_key = "drama_owned_cursor" if store.source.short_drama else "owned_cursor"
     async for message in user.iter_messages(
-        target, min_id=int(store.setting("owned_cursor")), reverse=True, limit=100
+        target, min_id=int(store.setting(cursor_key)), reverse=True, limit=100
     ):
         count += 1
         document = getattr(message, "document", None)
+        metadata = video_metadata(message, store.source) if store.source.short_drama else None
+        if metadata:
+            saved = await asyncio.to_thread(
+                save_movie, f"-100{target.id}", message.id,
+                clean_movie_caption(message.message, store.source),
+                file_size=getattr(document, "size", None),
+                duration=metadata["duration"],
+                posted_at=message.date.astimezone(timezone.utc).replace(tzinfo=None))
+            if not saved:
+                raise ValueError("Existing short drama could not be indexed with its file size")
         with store.connection:
             if document and any(isinstance(attr, types.DocumentAttributeVideo) for attr in document.attributes):
                 store.connection.execute("INSERT OR IGNORE INTO owned VALUES (?,?)", (document.id, message.id))
             store.connection.execute(
-                "INSERT OR REPLACE INTO settings VALUES ('owned_cursor',?)", (str(message.id),))
+                "INSERT OR REPLACE INTO settings VALUES (?,?)", (cursor_key, str(message.id)))
     return count < 100
 
 
@@ -329,6 +340,7 @@ async def process_job(user, bot, source, target, store, job, other_stores=()):
         saved = await asyncio.to_thread(
             save_movie, f"-100{target.id}", message.id, caption,
             duration=metadata["duration"],
+            file_size=getattr(message.document, "size", None),
             posted_at=message.date.astimezone(timezone.utc).replace(tzinfo=None))
         if not saved:
             raise ValueError("Movie metadata was not indexed")
@@ -351,6 +363,18 @@ async def process_job(user, bot, source, target, store, job, other_stores=()):
         store.update(job, "skipped", "Missing, protected, advertisement or unsupported video/title")
         logger.warning("Movie ineligible; skipped message=%s", job["message"])
         return
+    if store.source.short_drama:
+        from short_drama_dedupe import largest
+        size = getattr(message.document, "size", None)
+        if type(size) is not int or size <= 0:
+            raise ValueError("Short drama file size unavailable; cannot deduplicate")
+        existing = await asyncio.to_thread(largest, clean_movie_caption(message.message, store.source))
+        if existing and existing["file_size"] >= size:
+            store.update(job, "excluded", "Same short-drama compilation already has an equal or larger file",
+                         result_id=existing["message_id"], document_id=metadata["document_id"])
+            logger.info("Short drama duplicate excluded source=%s message=%s bytes=%s kept=%s",
+                        source.id, message.id, size, existing["message_id"])
+            return
     duplicate = None
     for candidate in (store, *(item for item in other_stores
                               if item is not store and item.source.target_id == store.source.target_id)):
@@ -435,6 +459,8 @@ async def _movie_worker(user, bot, directory, sources):
                     permissions = await user.get_permissions(owned, await user.get_me())
                     if not permissions.is_admin or not permissions.post_messages:
                         raise ValueError("Movie forwarding account needs target posting permission")
+                    if config.short_drama and not permissions.delete_messages:
+                        raise ValueError("Short drama account needs target delete_messages permission for deduplication")
                     reader = await resolve_channel(bot, config.target_id, config.target_username)
                     if reader.id != config.target_id:
                         raise ValueError("Movie publisher target identity changed")
@@ -451,6 +477,9 @@ async def _movie_worker(user, bot, directory, sources):
                 if not await scan_owned(user, target, store):
                     await asyncio.sleep(3)
                     continue
+                if config.short_drama:
+                    from short_drama_dedupe import cleanup
+                    await cleanup(user, target, store)
                 await scan_source(user, source, store, historical=False)
                 await scan_source(user, source, store, historical=True)
                 await reconcile_recent(user, source, store)

@@ -7,6 +7,7 @@ import { rememberModuleScroll, useModuleScroll, useModuleState } from '../utils/
 import { API_BASE_URL, bindBackButton } from '../utils/twa'
 import { tenantHeaders } from '../utils/tenant'
 import './MovieList.css'
+import './ShortDramas.css'
 
 export default function ShortDramas() {
   const navigate = useNavigate()
@@ -17,6 +18,7 @@ export default function ShortDramas() {
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   const search = useRef(null)
+  const pageCount = Math.max(1, Math.ceil(data.total / 24))
   useModuleScroll('shortDramas', !loading)
   useEffect(() => bindBackButton(() => navigate('/services')), [navigate])
   const applySearch = value => setFilter(previous => previous.query === value
@@ -56,9 +58,9 @@ export default function ShortDramas() {
     rememberModuleScroll('shortDramas')
     setFilter(previous => ({ ...previous, page }))
   }
-  return <main className="movies-page">
-    <AccountHeader />
-    <form className="movie-search" role="search" onSubmit={event => {
+  return <main className="movies-page short-dramas-page">
+    <AccountHeader>
+      <form className="movie-search" role="search" onSubmit={event => {
       event.preventDefault(); applySearch(input.trim()); search.current?.blur()
     }}>
       <ModuleIcon name="search" />
@@ -66,7 +68,8 @@ export default function ShortDramas() {
         value={input} maxLength={50} enterKeyHint="search" onChange={event => setInput(event.target.value)} />
       {input && <button type="button" aria-label="清空短剧搜索" onClick={() => { setInput(''); applySearch('') }}>✕</button>}
       <button type="submit">搜索</button>
-    </form>
+      </form>
+    </AccountHeader>
     <div className="movie-section-heading"><h1>{filter.query ? `“${filter.query}”的搜索结果` : '最新短剧'}</h1>
       <span>{loading ? '读取中…' : error ? '加载失败' : `共 ${data.total} 部合集`}</span></div>
     {loading ? <div className="movie-grid movie-skeleton" role="status" aria-label="正在加载短剧">
@@ -84,9 +87,16 @@ export default function ShortDramas() {
             <span className="movie-card-badge">合集播放</span><span className="movie-card-play" aria-hidden="true">▷</span>
           </div><h2>{item.title}</h2><p>{durationText(item.duration) || '合集视频'} · Telegram 播放</p>
         </button>)}</div>}
-    {!loading && !error && (filter.page > 1 || data.has_more) && <nav className="movie-categories" aria-label="短剧分页">
+    {!loading && !error && (filter.page > 1 || data.has_more) && <nav className="short-drama-pagination" aria-label="短剧分页">
       <button type="button" disabled={filter.page === 1} onClick={() => changePage(filter.page - 1)}>上一页</button>
-      <span className="movie-back">第 {filter.page} 页</span>
+      <label className="short-drama-page-picker">
+        <select aria-label="选择短剧页码" value={filter.page} onChange={event => changePage(Number(event.target.value))}>
+          {Array.from({ length: Math.max(pageCount, filter.page) }, (_, index) => <option key={index + 1} value={index + 1}>
+            第 {index + 1} 页
+          </option>)}
+        </select>
+        <span>共 {pageCount} 页</span>
+      </label>
       <button type="button" disabled={!data.has_more} onClick={() => changePage(filter.page + 1)}>下一页</button>
     </nav>}
   </main>
