@@ -104,6 +104,9 @@ image_cache = ImageCache(os.path.join(
 video_cache = VideoCache(os.path.join(
     os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "ktv-video-cache"
 ))
+delivery_video_cache = VideoCache(os.path.join(
+    os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "delivery-video-cache"
+))
 
 from venue_pricing import dihao_category_for_photo as _dihao_category_for_photo
 
@@ -458,6 +461,24 @@ def attach_delivery_prices(rows, posts, price_tables):
     return posts
 
 
+def attach_delivery_archive_media(venue_id, rows, posts):
+    person_by_media = {row["id"]: row.get("person_id") for row in rows}
+    catalogs = {}
+    for post in posts:
+        people = {person_by_media.get(item["id"]) for item in post["media"]}
+        if len(people) != 1 or None in people:
+            continue
+        category = post.get("category") if venue_id == 10 else None
+        if category not in catalogs:
+            catalogs[category] = {
+                person["id"]: person["media"]
+                for person in delivery_archive(venue_id, category)["people"]
+            }
+        media = catalogs[category].get(next(iter(people)))
+        if media:
+            post["media"] = media
+
+
 def delivery_archive(venue_id, category=None):
     if type(venue_id) is not int or venue_id not in DELIVERY_VENUE_IDS:
         raise ValueError("请选择有效的外送分类")
@@ -523,8 +544,12 @@ def ktv_video(video_id):
             conn.close()
     if row is None:
         return jsonify({"error": "Video not found"}), 404
+    return cached_video_response(row["file_id"], video_cache)
+
+
+def cached_video_response(file_id, cache):
     try:
-        cached = video_cache.get(row["file_id"])
+        cached = cache.get(file_id)
         if cached is not None:
             response = send_file(
                 cached, mimetype=MEDIA_CONTENT_TYPES[cached.suffix],
@@ -536,8 +561,8 @@ def ktv_video(video_id):
             response.headers["X-Media-Cache"] = "HIT"
             return response
     except OSError:
-        logger.exception("Cannot serve cached KTV video %s; using Telegram stream", video_id)
-    response = app.make_response(_proxy_telegram_media(row["file_id"]))
+        logger.exception("Cannot serve cached video; using Telegram stream")
+    response = app.make_response(_proxy_telegram_media(file_id))
     response.headers["X-Media-Cache"] = "MISS"
     return response
 
@@ -550,16 +575,49 @@ def warm_ktv_video_cache():
             rows = cur.fetchall()
     finally:
         conn.close()
+    warm_video_rows(rows, video_cache, "KTV")
+
+
+def warm_delivery_video_cache():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT MAX(m.id) AS id, m.file_id
+                FROM delivery_media m
+                JOIN delivery_people p ON p.id=m.person_id
+                LEFT JOIN (
+                    SELECT person_id, MAX(created_at) AS latest_duty
+                    FROM delivery_media
+                    WHERE media_type='photo' AND archive_only=FALSE
+                    GROUP BY person_id
+                ) duty ON duty.person_id=p.id
+                WHERE m.media_type='video' AND p.deleted_at IS NULL
+                      AND p.merged_into_id IS NULL AND p.consent_status='granted'
+                GROUP BY m.file_id
+                ORDER BY MAX(duty.latest_duty) DESC, MAX(m.id) DESC
+                """
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    warm_video_rows(rows, delivery_video_cache, "Delivery")
+
+
+def warm_video_rows(rows, cache, label):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
-        logger.error("Cannot warm KTV videos: Telegram is not configured")
+        logger.error("Cannot warm %s videos: Telegram is not configured", label)
         return
     reserved = 0
     for row in rows:
         try:
-            cached = video_cache.get(row["file_id"])
+            cached = cache.get(row["file_id"])
             if cached is not None:
                 reserved += cached.stat().st_size
+                if reserved >= cache.max_bytes:
+                    break
                 continue
             with requests.get(
                 f"https://api.telegram.org/bot{token}/getFile",
@@ -571,32 +629,35 @@ def warm_ktv_video_cache():
             path, size = result.get("file_path"), result.get("file_size")
             if not payload.get("ok") or not path or not isinstance(size, int):
                 raise ValueError("Telegram did not return a video path and size")
-            if size <= 0 or size > video_cache.max_file_bytes:
+            if size <= 0 or size > cache.max_file_bytes:
                 raise ValueError("Video exceeds cache file size limit or has no size")
-            if reserved + size > video_cache.max_bytes:
-                logger.warning("KTV video cache budget reached; remaining videos use Telegram")
+            if reserved + size > cache.max_bytes:
+                logger.warning("%s video cache budget reached; remaining videos use Telegram", label)
                 break
             with requests.get(
                 f"https://api.telegram.org/file/bot{token}/{quote(path, safe='/')}",
                 stream=True, timeout=(5, 30),
             ) as upstream:
                 upstream.raise_for_status()
-                video_cache.store(
+                cache.store(
                     row["file_id"], upstream.iter_content(chunk_size=256 * 1024),
                     os.path.splitext(path)[1].lower(), size,
                 )
             reserved += size
-            logger.info("KTV video %s cached (%s bytes)", row["id"], size)
+            logger.info("%s video %s cached (%s bytes)", label, row["id"], size)
         except (requests.RequestException, ValueError, OSError) as exc:
-            logger.error("Cannot cache KTV video %s (%s); will retry", row["id"], type(exc).__name__)
+            logger.error("Cannot cache %s video %s (%s); will retry", label, row["id"], type(exc).__name__)
 
 
-def maintain_ktv_video_cache(stop):
+def maintain_ktv_video_cache(stop, *, delivery=False):
     while not stop.is_set():
         try:
-            warm_ktv_video_cache()
+            if delivery:
+                warm_delivery_video_cache()
+            else:
+                warm_ktv_video_cache()
         except pymysql.MySQLError:
-            logger.exception("Cannot query KTV videos for cache warmup; will retry")
+            logger.exception("Cannot query %s videos for cache warmup; will retry", "delivery" if delivery else "KTV")
         if stop.wait(60):
             break
 
@@ -668,7 +729,7 @@ def delivery_media(media_id):
         return jsonify({"error": "Media not found"}), 404
     if row["media_type"] == "photo":
         return _telegram_image(row["file_id"])
-    return _proxy_telegram_media(row["file_id"])
+    return cached_video_response(row["file_id"], delivery_video_cache)
 
 
 def _telegram_image(file_id):
@@ -1432,7 +1493,7 @@ def webhook():
                 if venue["id"] in DELIVERY_VENUE_IDS:
                     cur.execute(
                         """
-                        SELECT id, message_id, channel_id, media_group_id, media_type, caption, age, ocr_text,
+                        SELECT id, person_id, message_id, channel_id, media_group_id, media_type, caption, age, ocr_text,
                                image_hash
                         FROM delivery_media
                         WHERE venue_id = %s
@@ -1456,6 +1517,7 @@ def webhook():
                     venue["delivery_posts"] = (
                         filter_adult_posts(posts) if shift_name == "晚班" else []
                     )
+                    attach_delivery_archive_media(venue["id"], delivery_rows, venue["delivery_posts"])
                 if venue["id"] in SHIFT_VENUE_IDS:
                     cur.execute(
                         """
@@ -1796,6 +1858,10 @@ if __name__ == "__main__":
     threading.Thread(
         target=maintain_ktv_video_cache, args=(stop_cache,),
         name="ktv-cache", daemon=True,
+    ).start()
+    threading.Thread(
+        target=maintain_ktv_video_cache, args=(stop_cache,), kwargs={"delivery": True},
+        name="delivery-video-cache", daemon=True,
     ).start()
     try:
         serve(

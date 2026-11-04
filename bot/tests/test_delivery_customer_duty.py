@@ -59,6 +59,29 @@ class DeliveryCustomerDutyTests(unittest.TestCase):
         self.assertEqual(member(rows)["public_media"], [{"id": 2, "type": "photo"}])
         self.assertEqual(delivery.published_at(member(rows), START, END), START + timedelta(hours=2))
 
+    def test_republished_photo_preserves_adult_archive_album_videos(self):
+        rows = [media(4, image_hash="1234567890abcdef"),
+                media(3, kind="video", media_group_id="archive", archive_only=True),
+                media(2, kind="video", media_group_id="archive", archive_only=True),
+                media(1, image_hash="1234567890abcdef", media_group_id="archive", archive_only=True)]
+        profile = member(rows)
+        self.assertEqual(profile["public_media"], [
+            {"id": 4, "type": "photo"}, {"id": 2, "type": "video"}, {"id": 3, "type": "video"},
+        ])
+        self.assertEqual(delivery.published_at(profile, START, END), START + timedelta(hours=2))
+
+    def test_hidden_duplicate_album_videos_still_require_adult_age_and_category(self):
+        for age in (None, 17):
+            rows = [media(3, image_hash="1234567890abcdef"),
+                    media(2, kind="video", age=age, media_group_id="archive"),
+                    media(1, age=age, image_hash="1234567890abcdef", media_group_id="archive")]
+            self.assertEqual(public_person_media(rows), [{"id": 3, "type": "photo"}])
+        rows = [media(3, image_hash="1234567890abcdef"),
+                media(2, kind="video", media_group_id="archive"),
+                media(1, image_hash="1234567890abcdef", media_group_id="archive")]
+        self.assertEqual(public_person_media(rows, {3: "small", 2: "red", 1: "red"}, "small"),
+                         [{"id": 3, "type": "photo"}])
+
     def test_shared_adult_album_guard_applies_to_notifications(self):
         rows = [media(2, age=23, media_group_id="g", caption="album"),
                 media(1, age=17, media_group_id="g")]

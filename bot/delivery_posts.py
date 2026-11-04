@@ -12,7 +12,7 @@ def _message_link(row):
     return f"https://t.me/c/{numeric}/{row['message_id']}"
 
 
-def build_delivery_posts(rows, categories=None):
+def build_delivery_posts(rows, categories=None, *, deduplicate=True):
     """Captioned albums and mixed photo/video albums form one post."""
     categories = categories or {}
     rows = [row for row in rows if row["media_type"] != "text"]
@@ -57,7 +57,7 @@ def build_delivery_posts(rows, categories=None):
             "media": [media], "link": _message_link(row), "_ocr": row.get("ocr_text"),
             "_hashes": [row["image_hash"]] if row.get("image_hash") else [],
         })
-    return dedupe_posts(posts)
+    return dedupe_posts(posts) if deduplicate else posts
 
 
 def _post_key(post):
@@ -109,10 +109,21 @@ def filter_adult_posts(posts):
 
 
 def public_person_media(rows, categories=None, category=None):
-    posts = filter_adult_posts(build_delivery_posts(rows, categories))
+    albums = build_delivery_posts(rows, categories, deduplicate=False)
+    posts = filter_adult_posts(dedupe_posts([dict(post) for post in albums]))
     if category:
         posts = [post for post in posts if post.get("category") in (None, category)]
-    return [item for post in posts for item in post["media"]]
+    media = [item for post in posts for item in post["media"]]
+    seen = {item["id"] for item in media}
+    # A duplicate cover must not hide the original adult album's videos.
+    for album in filter_adult_posts(albums):
+        if category and album.get("category") not in (None, category):
+            continue
+        for item in album["media"]:
+            if item["type"] == "video" and item["id"] not in seen:
+                media.append(item)
+                seen.add(item["id"])
+    return media
 
 
 def attendance_publication(rows, media, start, end, shift):

@@ -154,6 +154,79 @@ class VideoCacheTest(unittest.TestCase):
             response.close()
             upstream.close.assert_called()
 
+    def test_delivery_cached_ranges_head_and_conditional_requests(self):
+        self.store()
+        with patch.object(api_server, "delivery_video_cache", self.cache), \
+                patch.object(api_server, "get_db_connection", return_value=self.connection([
+                    {"file_id": "file", "media_type": "video"}])), \
+                patch.object(api_server, "_proxy_telegram_media") as proxy:
+            client = api_server.app.test_client()
+            with client.get("/delivery-media/1", headers={"Range": "bytes=10-99"}) as response:
+                self.assertEqual(response.status_code, 206)
+                self.assertEqual(response.data, VIDEO[10:100])
+                self.assertEqual(response.headers["X-Media-Cache"], "HIT")
+                self.assertEqual(response.headers["Accept-Ranges"], "bytes")
+            with client.head("/delivery-media/1") as response:
+                self.assertEqual(response.data, b"")
+                self.assertEqual(int(response.headers["Content-Length"]), len(VIDEO))
+                etag = response.headers["ETag"]
+            with client.get("/delivery-media/1", headers={"If-None-Match": etag}) as response:
+                self.assertEqual(response.status_code, 304)
+            with client.get("/delivery-media/1", headers={"Range": "bytes=999999-"}) as response:
+                self.assertEqual(response.status_code, 416)
+            proxy.assert_not_called()
+
+    def test_delivery_cache_miss_keeps_stream_and_photos_keep_image_path(self):
+        with patch.object(api_server, "delivery_video_cache", self.cache), \
+                patch.object(api_server, "get_db_connection", return_value=self.connection([
+                    {"file_id": "new", "media_type": "video"}])), \
+                patch.object(api_server, "_proxy_telegram_media", return_value="stream") as proxy:
+            with api_server.app.test_client().get("/delivery-media/1") as response:
+                self.assertEqual(response.data, b"stream")
+                self.assertEqual(response.headers["X-Media-Cache"], "MISS")
+            proxy.assert_called_once_with("new")
+        with patch.object(api_server, "get_db_connection", return_value=self.connection([
+                    {"file_id": "photo", "media_type": "photo"}])), \
+                patch.object(api_server, "delivery_video_cache") as cache, \
+                patch.object(api_server, "_telegram_image", return_value="image"):
+            with api_server.app.test_client().get("/delivery-media/1") as response:
+                self.assertEqual(response.data, b"image")
+            cache.get.assert_not_called()
+
+    def test_delivery_warmup_uses_own_cache_and_valid_profiles(self):
+        conn = self.connection([{"id": 1, "file_id": "file"}])
+        self.store()
+        with patch.object(api_server, "delivery_video_cache", self.cache), \
+                patch.object(api_server, "get_db_connection", return_value=conn), \
+                patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": "test"}), \
+                patch.object(api_server.requests, "get") as download:
+            api_server.warm_delivery_video_cache()
+        download.assert_not_called()
+        query = conn.cursor.return_value.__enter__.return_value.execute.call_args.args[0]
+        self.assertIn("p.deleted_at IS NULL", query)
+        self.assertIn("p.consent_status='granted'", query)
+        self.assertIn("archive_only=FALSE", query)
+        self.assertIn("ORDER BY MAX(duty.latest_duty) DESC", query)
+
+    def test_warmup_downloads_and_respects_budget(self):
+        info = MagicMock()
+        info.__enter__.return_value.json.return_value = {
+            "ok": True, "result": {"file_path": "video.mp4", "file_size": len(VIDEO)}
+        }
+        upstream = MagicMock()
+        upstream.__enter__.return_value.iter_content.return_value = [VIDEO]
+        self.cache.max_bytes = len(VIDEO)
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": "test"}), \
+                patch.object(api_server.requests, "get", side_effect=[info, upstream]):
+            api_server.warm_video_rows([{"id": 1, "file_id": "first"}], self.cache, "Delivery")
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": "test"}), \
+                patch.object(api_server.requests, "get") as download:
+            api_server.warm_video_rows([
+                {"id": 1, "file_id": "first"}, {"id": 2, "file_id": "second"},
+            ], self.cache, "Delivery")
+            download.assert_not_called()
+        self.assertIsNone(self.cache.get("second"))
+
 
 if __name__ == "__main__":
     unittest.main()

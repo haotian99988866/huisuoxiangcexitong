@@ -107,7 +107,7 @@ export default function DeliveryArchive({ venue }) {
         <p className="staff-meta">{dutyLabel(selected)}</p>
         {selected.media.map(item => <div key={item.id}>
           {failedMedia.has(item.id) ? <p role="alert">媒体加载失败，请关闭后重试。</p> :
-            item.type === 'video' ? <video className="staff-detail-photo" controls playsInline preload="none"
+            item.type === 'video' ? <video className="staff-detail-photo" controls playsInline preload="metadata"
               src={mediaUrl(`${API_BASE_URL}/delivery-media/${item.id}`)}
               onError={() => setFailedMedia(current => new Set([...current, item.id]))} /> :
               <img className="staff-detail-photo" loading="lazy" alt={`档案 #${selected.id}`}
