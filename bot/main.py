@@ -971,6 +971,18 @@ def save_delivery_media(message):
         conn.commit()
     finally:
         conn.close()
+    try:
+        from delivery_staff import register_media
+        register_media(
+            venue_config["venue_id"],
+            str(message.chat.id),
+            message.message_id,
+        )
+    except (pymysql.MySQLError, ValueError):
+        logger.exception(
+            "Failed to attach delivery media to a personnel profile message_id=%s",
+            message.message_id,
+        )
 
 
 def save_delivery_text(message):
@@ -1094,6 +1106,8 @@ if __name__ == "__main__":
     ensure_movie_tables()
     ensure_music_tables()
     ensure_image_hash_columns()
+    from delivery_staff import ensure_tables as ensure_delivery_staff_tables
+    ensure_delivery_staff_tables()
     from staff_archive import ensure_tables as ensure_staff_tables, start_worker as start_staff_worker
     ensure_staff_tables()
     start_staff_worker()

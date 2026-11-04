@@ -10,7 +10,21 @@ export default defineConfig(({ mode }) => {
         || env.VITE_DEV_PROXY_TARGET
         || 'http://127.0.0.1:8000',
       changeOrigin: true,
-      rewrite: path => path.replace(/^\/api/, '')
+      rewrite: path => path.replace(/^\/api/, ''),
+      configure: proxy => {
+        proxy.on('proxyReq', (proxyReq, req) => {
+          const localHosts = /^(localhost|127\.0\.0\.1|\[::1\]):(4173|5173)$/
+          const localOrigin = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):(4173|5173)$/
+          if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress) ||
+              !localHosts.test(req.headers.host || '') ||
+              !localOrigin.test(req.headers.origin || '') ||
+              Object.keys(req.headers).some(name =>
+                name.startsWith('forwarded') || name.startsWith('x-forwarded-') ||
+                name.startsWith('cf-') || name === 'x-real-ip')) {
+            proxyReq.removeHeader('X-Local-Admin-Debug')
+          }
+        })
+      }
     }
   }
 

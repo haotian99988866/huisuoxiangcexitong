@@ -1,0 +1,106 @@
+.delivery-staff-detail label {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  font-weight: 600;
+}
+
+.delivery-staff-detail input,
+.delivery-staff-detail textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--line, #ded6ca);
+  border-radius: 10px;
+  background: var(--home-surface, #fff);
+  color: var(--ink-text, #28231d);
+  box-sizing: border-box;
+}
+
+.delivery-staff-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.delivery-staff-delete {
+  color: #b42318;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: transparent;
+  margin-top: 8px;
+}
+
+.delivery-staff-header-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.delivery-staff-detail .delivery-staff-header-actions button.delivery-staff-delete {
+  color: #b42318;
+  background: transparent;
+  min-height: 44px;
+  margin: 0;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+}
+
+.delivery-staff-detail-media {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.delivery-staff-detail-media img,
+.delivery-staff-detail-media video {
+  display: block;
+  width: 100%;
+  max-height: 65dvh;
+  border-radius: 8px;
+  background: #191714;
+  object-fit: contain;
+}
+
+.delivery-staff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.delivery-staff-actions button {
+  min-height: 38px;
+}
+
+.delivery-staff-submit p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.delivery-staff-submit-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.delivery-staff-submit-buttons button {
+  flex: 1;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--ink-line);
+  border-radius: 12px;
+  background: var(--ink-reading);
+  color: var(--ink-text);
+  font: inherit;
+}
+
+.delivery-staff-submit-buttons .delivery-staff-submit-primary {
+  background: var(--ink-accent);
+  border-color: var(--ink-accent);
+  color: #fff;
+}
+
+.delivery-staff-submit-buttons button:disabled {
+  opacity: .5;
+}

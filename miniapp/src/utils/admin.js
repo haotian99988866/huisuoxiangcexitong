@@ -1,20 +1,33 @@
 import { API_BASE_URL } from './twa'
 import { isTenantEntry } from './tenant'
 
-export async function requestAdmin(action, fields = {}) {
+export const isLocalAdminDebug = () => import.meta.env.VITE_LOCAL_ADMIN_DEBUG === '1' &&
+  window.location.protocol === 'http:' &&
+  ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname) &&
+  ['4173', '5173'].includes(window.location.port)
+
+export async function requestAdmin(action, fields = {}, options = {}) {
   if (isTenantEntry()) throw new Error('请从平台主入口进入管理台')
   const initData = window.Telegram?.WebApp?.initData
-  if (!initData) throw new Error('请从 Telegram 打开管理台，以验证管理员身份')
+  const localDebug = !initData && isLocalAdminDebug()
+  if (!initData && !localDebug) throw new Error('请从 Telegram 打开管理台，以验证管理员身份')
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20000)
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs || 20000)
   try {
-    const response = await fetch(`${API_BASE_URL}/webhook`, {
+    const payload = JSON.stringify({ ...fields, action, init_data: initData })
+    const form = options.file ? new FormData() : null
+    if (form) {
+      form.append('payload', payload)
+      form.append('media', options.file)
+    }
+    const response = await fetch(`${API_BASE_URL}${form ? '/admin-delivery-upload' : '/webhook'}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...fields, action, init_data: initData }),
+      headers: { ...(!form ? { 'Content-Type': 'application/json' } : {}), ...(localDebug ? { 'X-Local-Admin-Debug': '1' } : {}) },
+      body: form || payload,
       cache: 'no-store',
       signal: controller.signal,
     })
+    if (response.ok && options.blob) return await response.blob()
     const result = await response.json()
     if (!response.ok) {
       const error = new Error(result.error || '管理请求失败，请稍后重试')
@@ -23,7 +36,8 @@ export async function requestAdmin(action, fields = {}) {
     }
     return result
   } catch (failure) {
-    if (failure.name === 'AbortError') throw new Error('管理请求超时，请先刷新核对记录和实际余额，勿重复付款或入账')
+    if (failure.name === 'AbortError') throw new Error(options.timeoutMessage ||
+      '管理请求超时，请先刷新核对记录和实际余额，勿重复付款或入账')
     throw failure
   } finally { clearTimeout(timer) }
 }

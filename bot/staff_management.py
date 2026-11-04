@@ -135,7 +135,7 @@ def save(data, actor_id):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id,venue_id,ended_at FROM staff_members WHERE id=%s FOR UPDATE", (staff_id,))
+            cur.execute("SELECT id,venue_id,ended_at,deleted_at FROM staff_members WHERE id=%s FOR UPDATE", (staff_id,))
             member = cur.fetchone()
             if not member:
                 raise ValueError("人员档案不存在")
@@ -148,8 +148,8 @@ def save(data, actor_id):
                 if prior["request_hash"] != digest or prior["actor_id"] != actor_id:
                     raise RecordConflict("操作编号已用于其他内容，请刷新核对")
                 return {"ok": True, "replayed": True}
-            if member["ended_at"]:
-                raise RecordConflict("该工号已经换人，原订阅不会转给新人")
+            if member["ended_at"] or member.get("deleted_at"):
+                raise RecordConflict("档案已删除或该工号已经换人，原订阅不会转给新人")
             cur.execute("SELECT * FROM staff_management WHERE staff_id=%s FOR UPDATE", (staff_id,))
             previous = cur.fetchone()
             if revision != (previous["revision"] if previous else 0):
@@ -224,13 +224,13 @@ def deliver(bot):
             locked = bool(cur.fetchone()["acquired"])
             if not locked:
                 return
-            cur.execute("""SELECT s.*,m.venue_id,m.code,m.ended_at,m.blocked,v.name AS venue,
+            cur.execute("""SELECT s.*,m.venue_id,m.code,m.ended_at,m.deleted_at,m.blocked,v.name AS venue,
                 COALESCE(g.employment,'') AS employment FROM staff_duty_subscriptions s
                 JOIN staff_members m ON m.id=s.staff_id JOIN venues v ON v.id=m.venue_id
                 LEFT JOIN staff_management g ON g.staff_id=m.id WHERE s.enabled=1""")
             for subscription in cur.fetchall():
                 staff_id, admin_id = subscription["staff_id"], subscription["admin_id"]
-                if admin_id not in admin_ids() or subscription["ended_at"] or subscription["employment"] == "离职":
+                if admin_id not in admin_ids() or subscription["ended_at"] or subscription.get("deleted_at") or subscription["employment"] == "离职":
                     cur.execute("UPDATE staff_duty_subscriptions SET enabled=0 WHERE staff_id=%s AND admin_id=%s",
                                 (staff_id, admin_id))
                     continue
@@ -254,7 +254,7 @@ def deliver(bot):
                         ON DUPLICATE KEY UPDATE staff_id=VALUES(staff_id)""",
                                 (staff_id, admin_id, start.date(), shift, published, now))
             conn.commit()
-            cur.execute("""SELECT n.*,m.code,m.ended_at,m.blocked,v.name AS venue,s.enabled,
+            cur.execute("""SELECT n.*,m.code,m.ended_at,m.deleted_at,m.blocked,v.name AS venue,s.enabled,
                 COALESCE(g.employment,'') AS employment FROM staff_duty_notifications n
                 JOIN staff_members m ON m.id=n.staff_id JOIN venues v ON v.id=m.venue_id
                 LEFT JOIN staff_duty_subscriptions s ON s.staff_id=n.staff_id AND s.admin_id=n.admin_id
@@ -262,7 +262,7 @@ def deliver(bot):
                 WHERE n.status='pending' ORDER BY n.created_at LIMIT 20""")
             for job in cur.fetchall():
                 key = (job["staff_id"], job["admin_id"], job["duty_date"], job["shift"])
-                if job["admin_id"] not in admin_ids() or not job["enabled"] or job["ended_at"] or job["blocked"] or job["employment"] == "离职":
+                if job["admin_id"] not in admin_ids() or not job["enabled"] or job["ended_at"] or job.get("deleted_at") or job["blocked"] or job["employment"] == "离职":
                     cur.execute("""UPDATE staff_duty_notifications SET status='cancelled'
                         WHERE staff_id=%s AND admin_id=%s AND duty_date=%s AND shift=%s""", key)
                     conn.commit()

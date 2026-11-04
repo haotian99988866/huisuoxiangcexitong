@@ -54,9 +54,21 @@ def ensure_tables():
                     new_staff_id BIGINT NOT NULL, actor_id BIGINT NOT NULL,
                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB""",
+                """CREATE TABLE IF NOT EXISTS staff_archive_audit (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY, staff_id BIGINT NOT NULL,
+                    actor_id BIGINT NOT NULL, action VARCHAR(32) NOT NULL,
+                    description_length INT NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INDEX staff_archive_actions(staff_id,id)
+                ) ENGINE=InnoDB""",
             ):
                 cur.execute(query)
-            for name, definition in (("price_tags_json", "JSON NULL"), ("price_tags_at", "DATETIME NULL")):
+            for name, definition in (
+                ("price_tags_json", "JSON NULL"), ("price_tags_at", "DATETIME NULL"),
+                ("description", "TEXT NULL"),
+                ("description_revision", "INT NOT NULL DEFAULT 0"),
+                ("deleted_at", "DATETIME NULL"),
+            ):
                 cur.execute(f"SHOW COLUMNS FROM staff_members LIKE '{name}'")
                 if not cur.fetchone():
                     cur.execute(f"ALTER TABLE staff_members ADD COLUMN {name} {definition}")
@@ -233,7 +245,7 @@ def listing(data, admin=False):
                     (venue_id, start, end))
                 photo_duty_ids = [row["staff_id"] for row in cur.fetchall()]
                 duty_ids = list(dict.fromkeys([*duty_ids, *photo_duty_ids]))
-            where = "m.venue_id=%s AND m.ended_at IS NULL"
+            where = "m.venue_id=%s AND m.ended_at IS NULL AND m.deleted_at IS NULL"
             args = [venue_id]
             if not admin:
                 where += " AND m.blocked=0 AND (m.venue_id<>6 OR m.adult_confirmed=1)"
@@ -291,7 +303,9 @@ def detail(data, admin=False):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id,venue_id,code,ended_at,blocked,adult_confirmed FROM staff_members WHERE id=%s", (staff_id,))
+            private_fields = ",description,description_revision" if admin else ""
+            cur.execute("SELECT id,venue_id,code,ended_at,blocked,adult_confirmed" + private_fields +
+                        " FROM staff_members WHERE id=%s AND deleted_at IS NULL", (staff_id,))
             row = cur.fetchone()
             if not row or (not admin and (row["ended_at"] or row["blocked"]
                     or (row["venue_id"] == 6 and not row["adult_confirmed"]))):
@@ -299,6 +313,8 @@ def detail(data, admin=False):
             cur.execute("SELECT id,first_seen FROM staff_photos WHERE staff_id=%s ORDER BY last_seen DESC,id DESC", (staff_id,))
             row["photos"] = [{**p, "first_seen": str(p["first_seen"])} for p in cur.fetchall()]
             row["ended_at"] = str(row["ended_at"]) if row["ended_at"] else None
+            if admin:
+                row["description"] = row["description"] or ""
             return row
     finally:
         conn.close()
@@ -310,9 +326,69 @@ def photo(photo_id):
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT p.file_id,m.venue_id FROM staff_photos p JOIN staff_members m ON m.id=p.staff_id "
-                "WHERE p.id=%s AND m.ended_at IS NULL AND m.blocked=0 "
+                "WHERE p.id=%s AND m.ended_at IS NULL AND m.deleted_at IS NULL AND m.blocked=0 "
                 "AND (m.venue_id<>6 OR m.adult_confirmed=1)", (photo_id,))
             return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def update_archive(data, actor_id, *, delete=False):
+    from customer_records import RecordConflict
+    staff_id = data.get("staff_id")
+    if type(staff_id) is not int or not 0 < staff_id <= 9007199254740991:
+        raise ValueError("人员档案编号无效")
+    if data.get("confirmed") is not True:
+        raise ValueError("请核对并确认档案操作")
+    description = data.get("description")
+    revision = data.get("description_revision")
+    if not delete:
+        if not isinstance(description, str) or len(description) > 2000:
+            raise ValueError("说明须为不超过2000字的文字")
+        if type(revision) is not int or revision < 0:
+            raise ValueError("说明版本无效，请关闭后重新打开档案")
+        description = description.strip()
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id,ended_at,deleted_at,description_revision FROM staff_members "
+                        "WHERE id=%s FOR UPDATE", (staff_id,))
+            member = cur.fetchone()
+            if not member:
+                raise ValueError("人员档案不存在")
+            if delete and member["deleted_at"]:
+                conn.rollback()
+                return {"ok": True, "staff_id": staff_id}
+            if member["ended_at"] or member["deleted_at"]:
+                raise RecordConflict("档案已删除或工号已换人，请刷新核对")
+            if delete:
+                # Keep the identity interval and source links so synchronization cannot recreate it.
+                cur.execute("UPDATE staff_members SET deleted_at=%s,description=NULL,"
+                            "description_revision=description_revision+1 WHERE id=%s",
+                            (datetime.now(), staff_id))
+                cur.execute("UPDATE staff_duty_subscriptions SET enabled=0 WHERE staff_id=%s", (staff_id,))
+                cur.execute("UPDATE staff_customer_subscriptions SET enabled=0,revision=revision+1 "
+                            "WHERE staff_id=%s AND enabled=1", (staff_id,))
+                for table in ("staff_duty_notifications", "staff_customer_notifications"):
+                    cur.execute(f"UPDATE {table} SET status='cancelled' WHERE staff_id=%s AND status='pending'",
+                                (staff_id,))
+            else:
+                if revision != member["description_revision"]:
+                    raise RecordConflict("说明已被修改，请关闭后重新打开核对")
+                cur.execute("UPDATE staff_members SET description=%s,"
+                            "description_revision=description_revision+1 WHERE id=%s",
+                            (description, staff_id))
+            cur.execute("INSERT INTO staff_archive_audit(staff_id,actor_id,action,description_length) "
+                        "VALUES(%s,%s,%s,%s)", (
+                            staff_id, actor_id, "deleted" if delete else "description_saved",
+                            0 if delete else len(description)))
+        conn.commit()
+        return {"ok": True, "staff_id": staff_id} if delete else {
+            "ok": True, "staff_id": staff_id, "description": description,
+            "description_revision": revision + 1}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -340,7 +416,7 @@ def replace(data, actor_id):
                 return {"staff_id": existing["new_staff_id"]}
             cur.execute("SELECT * FROM staff_members WHERE id=%s FOR UPDATE", (staff_id,))
             old = cur.fetchone()
-            if not old or old["ended_at"]:
+            if not old or old["ended_at"] or old.get("deleted_at"):
                 raise ValueError("人员档案不存在或已停用，请刷新核对")
             now = datetime.now()
             cur.execute("UPDATE staff_members SET ended_at=%s WHERE id=%s", (now, staff_id))

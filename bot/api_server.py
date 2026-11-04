@@ -16,7 +16,7 @@ from flask_cors import CORS
 from PIL import Image, UnidentifiedImageError
 from waitress import serve
 from telebot import apihelper
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 MIN_AGE = 18
 from delivery_age import extract_work_no, parse_price_table, price_for_work_no
@@ -56,6 +56,7 @@ CORS(
     app,
     resources={
         r"/webhook": {"origins": cors_origins},
+        r"/admin-delivery-upload": {"origins": cors_origins},
         r"/member-deposit": {"origins": cors_origins},
         r"/admin-hotel-save": {"origins": cors_origins},
         r"/hotel-images/*": {"origins": cors_origins},
@@ -69,6 +70,32 @@ CORS(
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
+
+
+def _local_admin_debug(data):
+    if os.getenv("LOCAL_ADMIN_DEBUG") != "1" or data.get("init_data"):
+        return False
+    if os.getenv("API_HOST", "127.0.0.1") not in {"127.0.0.1", "::1", "localhost"}:
+        return False
+    if request.remote_addr not in {"127.0.0.1", "::1"}:
+        return False
+    if request.headers.get("X-Local-Admin-Debug") != "1":
+        return False
+    if any(name.lower().startswith(("forwarded", "x-forwarded-", "cf-"))
+           or name.lower() == "x-real-ip" for name in request.headers.keys()):
+        return False
+    if request.headers.get("X-Tenant") or request.args.get("tenant"):
+        return False
+    origin = request.headers.get("Origin", "")
+    return (
+        urlsplit(request.host_url).hostname in {"localhost", "127.0.0.1", "::1"}
+        and origin in {
+            "http://localhost:4173", "http://127.0.0.1:4173",
+            "http://localhost:5173", "http://127.0.0.1:5173",
+        }
+    )
+
+
 image_cache = ImageCache(os.path.join(
     os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "image-cache"
 ))
@@ -93,6 +120,8 @@ def get_db_connection():
 @app.before_request
 def tenant_context():
     g.tenant = None
+    if request.path == "/admin-delivery-upload":
+        request.max_content_length = 21 * 1024 * 1024
     if request.path in {"/member-deposit", "/admin-hotel-save"}:
         request.max_content_length = 6 * 1024 * 1024
     if request.method == "OPTIONS":
@@ -101,8 +130,8 @@ def tenant_context():
     if header is not None and query is not None and header != query:
         return jsonify({"error": "租户入口参数冲突"}), 400
     slug = header if header is not None else query
-    if slug is not None and request.path in {"/admin-hotel-save"}:
-        return jsonify({"error": "租户入口不开放酒店管理"}), 403
+    if slug is not None and request.path in {"/admin-hotel-save", "/admin-delivery-upload"}:
+        return jsonify({"error": "租户入口不开放后台上传管理"}), 403
     if slug is not None and request.endpoint == "hotel_image":
         return jsonify({"error": "租户入口暂未开放酒店推荐"}), 403
     if slug is not None and request.path == "/member-deposit":
@@ -121,7 +150,8 @@ def tenant_context():
         if not isinstance(body, dict):
             return jsonify({"error": "Request body must be a JSON object"}), 400
         allowed = {"tenant_config", "get_venues", "get_venue_detail", "get_technicians",
-                   "get_movies", "get_movie_series", "get_staff", "get_staff_detail"}
+                   "get_movies", "get_movie_series", "get_staff", "get_staff_detail",
+                   "get_delivery_archive"}
         if g.tenant.get("announcements_enabled"):
             allowed.update({"get_announcements", "get_announcement"})
         if not isinstance(body.get("action"), str) or body["action"] not in allowed:
@@ -133,7 +163,7 @@ def tenant_context():
                 return jsonify({"error": "A valid venue id is required"}), 400
             if venue_id not in g.tenant["venue_ids"]:
                 return jsonify({"error": "此入口未开放该会所"}), 403
-        if body.get("action") == "get_staff" and body.get("venue_id") not in g.tenant["venue_ids"]:
+        if body.get("action") in {"get_staff", "get_delivery_archive"} and body.get("venue_id") not in g.tenant["venue_ids"]:
             return jsonify({"error": "此入口未开放该会所档案"}), 403
     elif request.endpoint == "announcement_media" and not g.tenant.get("announcements_enabled"):
         return jsonify({"error": "此入口未开放公告"}), 403
@@ -180,9 +210,9 @@ def tenant_cache_policy(response):
     music_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("music_")
     payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_", "phone_", "customer_"))
     staff_request = isinstance(body, dict) and body.get("action") in {
-        "get_staff", "get_staff_detail", "staff_customer_status", "staff_customer_subscribe"}
+        "get_staff", "get_staff_detail", "get_delivery_archive", "staff_customer_status", "staff_customer_subscribe"}
     hotel_request = isinstance(body, dict) and body.get("action") == "get_hotels"
-    if request.path in {"/member-deposit", "/admin-hotel-save"} or hotel_request or request.endpoint == "hotel_image" or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
+    if request.path in {"/member-deposit", "/admin-hotel-save", "/admin-delivery-upload"} or hotel_request or request.endpoint == "hotel_image" or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
     return response
@@ -544,6 +574,59 @@ def filter_adult_posts(posts):
     ]
 
 
+def delivery_archive(venue_id, category=None):
+    if type(venue_id) is not int or venue_id not in DELIVERY_VENUE_IDS:
+        raise ValueError("请选择有效的外送分类")
+    if category not in (None, "small", "red") or (category is not None and venue_id != 10):
+        raise ValueError("外送分类无效")
+    start, end, shift = current_shift_window()
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT m.id, m.person_id, m.message_id, m.channel_id,
+                       m.media_group_id, m.media_type, m.caption, m.age,
+                       m.ocr_text, m.image_hash, m.created_at
+                FROM delivery_media m
+                LEFT JOIN delivery_people p ON p.id=m.person_id
+                WHERE m.venue_id=%s AND (
+                    m.media_type='text' OR
+                    (p.deleted_at IS NULL AND p.merged_into_id IS NULL
+                     AND p.consent_status='granted' AND p.id IS NOT NULL))
+                ORDER BY m.message_id DESC
+                """, (venue_id,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    categories = classify_apple_rows(rows) if venue_id == 10 else {}
+    grouped = {}
+    for row in rows:
+        if row["media_type"] in {"photo", "video"}:
+            grouped.setdefault(row["person_id"], []).append(row)
+    people = []
+    for person_id, media_rows in grouped.items():
+        posts = filter_adult_posts(build_delivery_posts(media_rows, categories))
+        if category:
+            posts = [post for post in posts if post.get("category") in (None, category)]
+        media = [item for post in posts for item in post["media"]]
+        if not media:
+            continue
+        visible_ids = {item["id"] for item in media}
+        on_duty = shift == "晚班" and any(
+            row["id"] in visible_ids and row["media_type"] == "photo"
+            and start <= row["created_at"] < end for row in media_rows
+        )
+        people.append({
+            "id": person_id, "media": media, "on_duty": on_duty,
+            "attendance_overlay": "今晚出勤" if on_duty else
+            "本班未见照片" if shift == "晚班" else "外送仅晚班",
+        })
+    return {"venue_id": venue_id, "people": people, "shift": shift,
+            "shift_date": start.date().isoformat()}
+
+
 @app.get("/ktv-videos/<int:video_id>")
 def ktv_video(video_id):
     conn = None
@@ -854,6 +937,8 @@ def hotel_image(hotel_id):
 
 @app.errorhandler(413)
 def upload_too_large(error):
+    if request.path == "/admin-delivery-upload":
+        return jsonify({"error": "上传内容过大，请选择不超过20MB的视频或5MB的照片"}), 413
     if request.path == "/admin-hotel-save":
         return jsonify({"error": "上传内容过大，请选择不超过5MB的门头照片"}), 413
     return error
@@ -862,16 +947,18 @@ def upload_too_large(error):
 @app.post("/webhook")
 @app.post("/member-deposit")
 @app.post("/admin-hotel-save")
+@app.post("/admin-delivery-upload")
 def webhook():
     proof_upload = request.path == "/member-deposit"
     hotel_upload = request.path == "/admin-hotel-save"
-    if hotel_upload:
+    delivery_upload = request.path == "/admin-delivery-upload"
+    if hotel_upload or delivery_upload:
         try:
             data = json.loads(request.form.get("payload", ""))
         except (ValueError, TypeError):
-            return jsonify({"error": "酒店资料格式无效"}), 400
+            return jsonify({"error": "上传资料格式无效"}), 400
         if isinstance(data, dict):
-            data["action"] = "admin_hotel_save"
+            data["action"] = "admin_delivery_staff_upload" if delivery_upload else "admin_hotel_save"
     else:
         data = {**request.form, "action": "member_deposit"} if proof_upload else request.get_json(silent=True)
     if not isinstance(data, dict):
@@ -886,23 +973,35 @@ def webhook():
                   "admin_operations_health",
                   "admin_stars", "admin_stars_invoice", "admin_analytics", "admin_analytics_customer",
                   "admin_staff", "admin_staff_replace", "admin_staff_management", "admin_staff_management_save",
+                  "admin_staff_detail", "admin_staff_description", "admin_staff_delete",
                   "admin_customers", "admin_customer_detail",
                   "admin_customer_save", "admin_customer_create", "admin_customer_bind",
+                  "admin_delivery_staff", "admin_delivery_staff_consent",
+                  "admin_delivery_staff_save", "admin_delivery_staff_merge",
+                  "admin_delivery_staff_match",
+                  "admin_delivery_staff_description", "admin_delivery_staff_upload",
+                  "admin_delivery_staff_attachment",
+                  "admin_delivery_staff_delete", "admin_delivery_staff_attachment_delete",
                   "admin_consumption_save", "admin_consumption_void"}:
         from admin_console import authenticate, allowed_admin, dashboard, is_tenant_session, save_from_request
         from tenants import TenantConflict
         init_data = data.get("init_data")
-        user = authenticate(init_data, os.getenv("TELEGRAM_BOT_TOKEN"))
+        local_debug = _local_admin_debug(data)
+        user = {"id": -1, "first_name": "Local development"} if local_debug else authenticate(
+            init_data, os.getenv("TELEGRAM_BOT_TOKEN")
+        )
         if user is None:
             response = jsonify({"error": "请从 Telegram 重新打开主入口，以验证管理员身份"})
             if action == "admin_operations_health":
                 response.headers["Cache-Control"] = "private, no-store"
             return response, 401
-        if not allowed_admin(user) or is_tenant_session(init_data):
+        if not local_debug and (not allowed_admin(user) or is_tenant_session(init_data)):
             response = jsonify({"error": "仅平台管理员可从主入口访问管理台"})
             if action == "admin_operations_health":
                 response.headers["Cache-Control"] = "private, no-store"
             return response, 403
+        if local_debug:
+            logger.warning("Local admin debug request: %s (audit actor -1)", action)
         try:
             if action == "admin_operations_health":
                 from operations_health import snapshot as operations_health
@@ -944,14 +1043,96 @@ def webhook():
                     return jsonify(result)
                 except RecordConflict as exc:
                     return jsonify({"error": str(exc)}), 409
-            if action in {"admin_staff", "admin_staff_replace"}:
-                from staff_archive import listing as staff_listing, replace as replace_staff
+            if action in {"admin_staff", "admin_staff_replace", "admin_staff_detail",
+                          "admin_staff_description", "admin_staff_delete"}:
+                from staff_archive import listing as staff_listing, replace as replace_staff, detail as staff_detail, update_archive
+                from customer_records import RecordConflict
                 try:
-                    return jsonify(staff_listing(data, admin=True) if action == "admin_staff"
-                                   else replace_staff(data, user["id"]))
+                    if action == "admin_staff":
+                        return jsonify(staff_listing(data, admin=True))
+                    if action == "admin_staff_detail":
+                        result = staff_detail(data, admin=True)
+                        if result is None:
+                            return jsonify({"error": "人员档案不存在或已删除"}), 404
+                        return jsonify(result)
+                    if action in {"admin_staff_description", "admin_staff_delete"}:
+                        return jsonify(update_archive(data, user["id"], delete=action == "admin_staff_delete"))
+                    return jsonify(replace_staff(data, user["id"]))
+                except RecordConflict as exc:
+                    return jsonify({"error": str(exc)}), 409
                 except RuntimeError:
                     logger.exception("Staff archive change unavailable")
                     return jsonify({"error": "档案更新暂不可用，请刷新核对后重试"}), 503
+            if action in {
+                "admin_delivery_staff", "admin_delivery_staff_consent",
+                "admin_delivery_staff_save", "admin_delivery_staff_merge",
+                "admin_delivery_staff_match",
+                "admin_delivery_staff_description", "admin_delivery_staff_upload",
+                "admin_delivery_staff_attachment",
+                "admin_delivery_staff_delete", "admin_delivery_staff_attachment_delete",
+            }:
+                import delivery_staff
+                try:
+                    if action == "admin_delivery_staff":
+                        return jsonify(delivery_staff.admin_listing(data.get("venue_id")))
+                    if action in {"admin_delivery_staff_delete", "admin_delivery_staff_attachment_delete"}:
+                        if action == "admin_delivery_staff_attachment_delete" and data.get("attachment_id") is None:
+                            raise ValueError("请选择需要删除的补充媒体")
+                        return jsonify(delivery_staff.delete_archive_content(
+                            data.get("person_id"),
+                            data.get("attachment_id") if action == "admin_delivery_staff_attachment_delete" else None,
+                            data.get("confirmed"), user["id"],
+                        ))
+                    if action == "admin_delivery_staff_description":
+                        return jsonify(delivery_staff.save_description(
+                            data.get("person_id"), data.get("description"), user["id"]
+                        ))
+                    if action == "admin_delivery_staff_upload":
+                        if not delivery_upload:
+                            raise ValueError("请使用媒体上传入口")
+                        uploaded = request.files.get("media")
+                        if uploaded is None:
+                            raise ValueError("请选择媒体文件")
+                        return jsonify(delivery_staff.add_attachment(
+                            data.get("person_id"), uploaded.read(delivery_staff.MAX_MEDIA_BYTES + 1),
+                            uploaded.filename, user["id"],
+                            description=data.get("description"),
+                        ))
+                    if action == "admin_delivery_staff_attachment":
+                        item = delivery_staff.attachment(data.get("attachment_id"))
+                        if item is None:
+                            return jsonify({"error": "媒体不存在或档案已合并"}), 404
+                        response = Response(item["content"], mimetype=item["content_type"])
+                        response.headers["X-Content-Type-Options"] = "nosniff"
+                        return response
+                    if action == "admin_delivery_staff_consent":
+                        return jsonify(delivery_staff.set_consent(
+                            data.get("person_id"), data.get("granted"), user["id"]
+                        ))
+                    if action == "admin_delivery_staff_save":
+                        return jsonify(delivery_staff.update_profile(
+                            data.get("person_id"), data.get("display_name"), user["id"]
+                        ))
+                    if action == "admin_delivery_staff_merge":
+                        return jsonify(delivery_staff.merge_people(
+                            data.get("source_id"), data.get("target_id"), user["id"]
+                        ))
+                    return jsonify(delivery_staff.match_candidates(
+                        data.get("person_id"), delivery_staff.download_telegram_media
+                    ))
+                except ValueError as exc:
+                    return jsonify({"error": str(exc)}), 400
+                except FileNotFoundError as exc:
+                    return jsonify({"error": str(exc)}), 503
+                except requests.RequestException:
+                    logger.exception("Telegram media download failed during local face matching")
+                    return jsonify({"error": "无法下载外送媒体，请稍后重试"}), 502
+                except pymysql.MySQLError:
+                    logger.exception("Delivery personnel database operation failed")
+                    return jsonify({"error": "外送人员资料暂不可用"}), 503
+                except (RuntimeError, OSError):
+                    logger.exception("Local delivery face matching failed")
+                    return jsonify({"error": "本地人脸比对暂不可用"}), 503
             if action in {"admin_analytics", "admin_analytics_customer"}:
                 from customer_analytics import dashboard as analytics_dashboard, customer_detail
                 response = jsonify(analytics_dashboard(data) if action == "admin_analytics" else customer_detail(data))
@@ -1056,6 +1237,14 @@ def webhook():
         except pymysql.MySQLError:
             logger.exception("Customer duty subscription unavailable")
             return jsonify({"error": "出勤订阅暂不可用，请稍后核对"}), 503
+    if action == "get_delivery_archive":
+        try:
+            return jsonify(delivery_archive(data.get("venue_id"), data.get("category")))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except pymysql.MySQLError:
+            logger.exception("Delivery archive unavailable")
+            return jsonify({"error": "外送人员档案暂不可用，请稍后重试"}), 503
     if action in {"get_staff", "get_staff_detail"}:
         from staff_archive import listing as staff_listing, detail as staff_detail
         try:
@@ -1708,6 +1897,8 @@ if __name__ == "__main__":
     ensure_staff_management_tables()
     from staff_customer_duty import ensure_tables as ensure_customer_duty_tables
     ensure_customer_duty_tables()
+    from delivery_staff import ensure_tables as ensure_delivery_staff_tables
+    ensure_delivery_staff_tables()
     from customer_records import ensure_tables as ensure_customer_record_tables
     ensure_customer_record_tables()
     host = os.getenv("API_HOST", "127.0.0.1")
@@ -1719,6 +1910,10 @@ if __name__ == "__main__":
         name="ktv-cache", daemon=True,
     ).start()
     try:
-        serve(app, host=host, port=port, threads=16)
+        serve(
+            app, host=host, port=port, threads=16,
+            # Keep forwarding headers visible so local debug can reject them.
+            clear_untrusted_proxy_headers=os.getenv("LOCAL_ADMIN_DEBUG") != "1",
+        )
     finally:
         stop_cache.set()

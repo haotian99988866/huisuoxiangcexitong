@@ -25,4 +25,11 @@
 .staff-customer-actions .staff-customer-primary { background: var(--ink-accent); border-color: var(--ink-accent); color: #fff; }
 .staff-customer-actions button:disabled { opacity: .5; cursor: default; }
 .staff-admin-select { width: 100%; min-height: 44px; margin-bottom: 16px; padding: 10px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); }
+.staff-admin-header-actions { display: flex; justify-content: flex-end; }
+.ink-app .staff-admin-detail .staff-admin-header-actions button.staff-admin-delete { width: auto; min-height: 44px; margin: 0; border: 0; background: none; color: #b42318; }
+.staff-admin-description { display: grid; gap: 8px; margin-top: 16px; }
+.staff-admin-description textarea { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); font: inherit; resize: vertical; }
+.staff-admin-footer { display: flex; gap: 10px; }
+.staff-admin-footer button { flex: 1; min-height: 44px; }
+.staff-admin-detail button:disabled { opacity: .5; cursor: default; }
 @media (max-width: 380px) { .staff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

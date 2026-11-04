@@ -33,6 +33,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [customerDuty, setCustomerDuty] = useState(null)
+  const [description, setDescription] = useState('')
   useAnalyticsScreen(selected ? 'technician_detail' : null)
 
   useEffect(() => {
@@ -67,6 +68,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
     setDetail(null)
     setCustomerDuty(null)
     setDetailError('')
+    setDescription('')
     setImageIndex(0)
     setFailedImages(new Set())
     if (!selected) return
@@ -74,8 +76,15 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 15000)
     setDetailLoading(true)
-    requestStaff('get_staff_detail', { staff_id: selected.id }, controller.signal)
-      .then(result => { if (active) setDetail(result) })
+    const request = admin
+      ? requestAdmin('admin_staff_detail', { staff_id: selected.id })
+      : requestStaff('get_staff_detail', { staff_id: selected.id }, controller.signal)
+    request.then(result => {
+      if (active) {
+        setDetail(result)
+        if (admin) setDescription(result.description)
+      }
+    })
       .catch(failure => {
         if (active) {
           console.error('[Staff detail]', failure)
@@ -86,7 +95,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
         if (active) setDetailLoading(false)
       })
     return () => { active = false; clearTimeout(timer); controller.abort() }
-  }, [selected])
+  }, [selected, admin])
 
   const failImage = id => setFailedImages(current => new Set([...current, id]))
   const changePerson = async () => {
@@ -106,6 +115,46 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
   }
   const photo = detail?.photos[imageIndex]
   const ordinaryMassage = venue.id === 1
+  const changed = admin && detail && description !== detail.description
+  const closeDetail = () => {
+    if (busy) return
+    if (changed && !window.confirm('说明尚未提交，确定放弃修改并关闭吗？')) return
+    setSelected(null)
+  }
+  const saveDescription = async () => {
+    if (busy || !changed || !window.confirm('确认提交本次说明修改？说明仅后台管理员可见。')) return
+    setBusy(true)
+    setDetailError('')
+    setNotice('')
+    try {
+      const result = await requestAdmin('admin_staff_description', {
+        staff_id: selected.id, description, description_revision: detail.description_revision, confirmed: true,
+      })
+      setDetail(current => ({ ...current, description: result.description, description_revision: result.description_revision }))
+      setDescription(result.description)
+      setNotice('说明已保存，仅后台管理员可见。')
+    } catch (failure) {
+      console.error('[Staff description]', failure)
+      setDetailError(failure.message)
+    } finally { setBusy(false) }
+  }
+  const deleteArchive = async () => {
+    if (busy || !detail || !window.confirm(
+      `确认删除工号 ${selected.code} 的档案 #${selected.id}？后台和客人端将隐藏该档案，说明会清除；频道消息和历史出勤保留。此操作不可撤销。`,
+    )) return
+    setBusy(true)
+    setDetailError('')
+    setNotice('')
+    try {
+      await requestAdmin('admin_staff_delete', { staff_id: selected.id, confirmed: true })
+      setSelected(null)
+      setNotice('档案已删除，后台和客人端均已隐藏，频道消息和历史出勤保留。')
+      setAttempt(value => value + 1)
+    } catch (failure) {
+      console.error('[Staff deletion]', failure)
+      setDetailError(failure.message)
+    } finally { setBusy(false) }
+  }
 
   return <section className="staff-gallery" aria-label={`${venue.name}人员档案`}>
     <div className="staff-heading">
@@ -143,11 +192,19 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
         </article>)}
       </div>
     </>}
-    {selected && <MusicDialog className={ordinaryMassage ? 'staff-sheet' : 'account-sheet staff-sheet'}
+    {selected && <MusicDialog className={admin ? 'account-sheet staff-sheet staff-admin-detail' : ordinaryMassage ? 'staff-sheet' : 'account-sheet staff-sheet'}
       title={ordinaryMassage ? `工号 ${selected.code}` : `${venue.name} · 工号 ${selected.code}`}
-      scrollBody={ordinaryMassage} onClose={() => setSelected(null)}
-      footer={ordinaryMassage ? <StaffCustomerActions key={selected.id} staffId={selected.id} onState={setCustomerDuty} /> : undefined}>
-      {ordinaryMassage ? <><p className="staff-detail-duty">{customerDuty ? customerDuty.published_at
+      scrollBody={admin || ordinaryMassage} onClose={closeDetail}
+      headerContent={admin ? <div className="staff-admin-header-actions">
+        <button type="button" className="staff-admin-delete" disabled={busy || !detail || detailLoading}
+          onClick={deleteArchive}>删除档案</button>
+      </div> : undefined}
+      footer={admin ? <div className="staff-admin-footer">
+        <button type="button" disabled={busy || !changed} onClick={() => setDescription(detail.description)}>取消修改</button>
+        <button type="button" disabled={busy || !changed || description.length > 2000}
+          onClick={saveDescription}>{busy ? '处理中…' : '确认并提交'}</button>
+      </div> : ordinaryMassage ? <StaffCustomerActions key={selected.id} staffId={selected.id} onState={setCustomerDuty} /> : undefined}>
+      {ordinaryMassage && !admin ? <><p className="staff-detail-duty">{customerDuty ? customerDuty.published_at
         ? `${customerDuty.shift}出勤已发布` : '本班次尚未发布出勤' : '正在核对本班次出勤…'}</p>
       {customerDuty?.published_at && <p className="staff-meta">发布时间：{customerDuty.published_at}</p>}
       <p className="staff-meta">仅提供正规按摩信息。未发布不代表实际休息或离职，已发布不代表实时在岗。</p></> : <>
@@ -173,7 +230,14 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
           <button type="button" disabled={imageIndex + 1 === detail.photos.length} onClick={() => setImageIndex(value => value + 1)}>下一张</button>
         </div>}
       </>}
-      {!ordinaryMassage && <button type="button" onClick={() => openTelegramLink(bookingUrl({
+      {admin && detail && <div className="staff-admin-description">
+        <label htmlFor={`staff-description-${selected.id}`}>添加说明（仅后台可见）</label>
+        <textarea id={`staff-description-${selected.id}`} value={description} maxLength={2000}
+          disabled={busy} rows={5} onChange={event => setDescription(event.target.value)} />
+        <p className="staff-meta">{description.length}/2000{changed ? ' · 尚未提交' : ''}</p>
+        {notice && <p className="membership-notice" role="status">{notice}</p>}
+      </div>}
+      {!admin && !ordinaryMassage && <button type="button" onClick={() => openTelegramLink(bookingUrl({
         title: `你好，我想咨询${venue.name} · 工号${selected.code}`,
         details: [`人员档案编号：${selected.id}`],
         links: photo ? [new URL(mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`), window.location.origin).href] : [],

@@ -62,7 +62,7 @@ def published_at(cur, member, start, end, after=None):
 
 
 def eligible(member):
-    return (member["venue_id"] == 1 and not member["ended_at"] and not member["blocked"]
+    return (member["venue_id"] == 1 and not member["ended_at"] and not member.get("deleted_at") and not member["blocked"]
             and (member["venue_id"] != 6 or member["adult_confirmed"])
             and member["employment"] != "离职" and bool(member["authorized"]))
 
@@ -101,7 +101,7 @@ def status(data, user_id=None):
     try:
         with conn.cursor() as cur:
             member = member_row(cur, staff_id)
-            if member["ended_at"] or member["blocked"] or (member["venue_id"] == 6 and not member["adult_confirmed"]):
+            if member["ended_at"] or member.get("deleted_at") or member["blocked"] or (member["venue_id"] == 6 and not member["adult_confirmed"]):
                 raise ValueError("人员档案已停用或暂不展示")
             return state(cur, member, user_id)
     finally:

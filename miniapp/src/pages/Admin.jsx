@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { bindBackButton } from '../utils/twa'
 import AccountHeader from '../components/AccountHeader'
-import { localDateInput, requestAdmin, tenantLink, utcExpiry } from '../utils/admin'
+import { isLocalAdminDebug, localDateInput, requestAdmin, tenantLink, utcExpiry } from '../utils/admin'
 import DepositReview from '../components/DepositReview'
 import CreditedCustomers from '../components/CreditedCustomers'
 import HotelAdmin from '../components/HotelAdmin'
@@ -173,6 +173,9 @@ export default function Admin() {
         </label>
       </nav>}
       </AccountHeader>
+      {isLocalAdminDebug() && <p role="status" className="admin-notice">
+        本机开发调试已启用：无 Telegram 身份时使用调试账号，修改会写入当前数据库，请勿操作真实充值或客户记录。
+      </p>}
       {error && <p role="alert" className="admin-error">{error}
         <button type="button" disabled={loading || saving} onClick={refresh}>重新读取</button></p>}
       {notice && <p role="status" className="admin-notice">{notice}</p>}

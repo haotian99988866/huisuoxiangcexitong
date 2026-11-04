@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
+import io
 import os
 import time
 from urllib.parse import urlencode
@@ -53,6 +54,57 @@ class AdminConsoleTests(unittest.TestCase):
         cur.fetchone.return_value = row
         return conn, cur
 
+    def test_local_debug_requires_explicit_flag_and_local_unforwarded_origin(self):
+        headers = {"Origin": "http://127.0.0.1:4173", "X-Local-Admin-Debug": "1"}
+        cases = [
+            ({}, {}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {}, {}, True),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {"Origin": "https://example.com"}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {"Origin": ""}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {"X-Local-Admin-Debug": ""}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {"X-Forwarded-For": "127.0.0.1"}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {"Forwarded": "for=127.0.0.1"}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {"CF-Connecting-IP": "127.0.0.1"}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {"X-Real-IP": "127.0.0.1"}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {"X-Tenant": "test-shop"}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1", "API_HOST": "0.0.0.0"}, {}, {}, False),
+            ({"LOCAL_ADMIN_DEBUG": "1"}, {}, {"REMOTE_ADDR": "192.0.2.1"}, False),
+        ]
+        for env, extra_headers, environ, expected in cases:
+            with self.subTest(env=env, headers=extra_headers, environ=environ), \
+                    patch.dict(os.environ, {"LOCAL_ADMIN_DEBUG": "0", "API_HOST": "127.0.0.1", **env}), \
+                    api_server.app.test_request_context(
+                        "/webhook", base_url="http://127.0.0.1:8000",
+                        headers={**headers, **extra_headers},
+                        environ_base={"REMOTE_ADDR": "127.0.0.1", **environ},
+                    ):
+                self.assertEqual(api_server._local_admin_debug({}), expected)
+
+    def test_local_debug_does_not_override_identity_or_public_host(self):
+        with patch.dict(os.environ, {"LOCAL_ADMIN_DEBUG": "1", "API_HOST": "127.0.0.1"}):
+            for url, data in [
+                ("http://example.com", {}),
+                ("http://127.0.0.1:8000", {"init_data": signed(999)}),
+                ("http://127.0.0.1:8000", {"init_data": "bad"}),
+            ]:
+                with self.subTest(url=url, data=data), api_server.app.test_request_context(
+                    "/webhook", base_url=url,
+                    headers={"Origin": "http://127.0.0.1:4173", "X-Local-Admin-Debug": "1"},
+                    environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                ):
+                    self.assertFalse(api_server._local_admin_debug(data))
+
+    def test_local_debug_route_uses_explicit_audit_actor(self):
+        with patch.dict(os.environ, {"LOCAL_ADMIN_DEBUG": "1", "API_HOST": "127.0.0.1"}), \
+                patch.object(admin_console, "save_from_request") as save:
+            response = self.client.post(
+                "/webhook", base_url="http://127.0.0.1:8000",
+                headers={"Origin": "http://127.0.0.1:4173", "X-Local-Admin-Debug": "1"},
+                json={"action": "admin_tenant_save"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(save.call_args.args[1], -1)
+
     def test_unsigned_invalid_nonadmin_and_tenant_sessions_are_denied_before_database(self):
         cases = [("", 401), ("bad", 401), (signed(999), 403),
                  (signed(start_param="tenant_test-shop"), 403),
@@ -89,6 +141,77 @@ class AdminConsoleTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["counts"]["total"], 1)
         self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+
+    def test_staff_archive_management_requires_admin_and_uses_private_responses(self):
+        with patch("staff_archive.detail", return_value={"id": 12, "description": "internal"}) as detail, \
+                patch("staff_archive.update_archive", return_value={"ok": True}) as update:
+            for action in ("admin_staff_detail", "admin_staff_description", "admin_staff_delete"):
+                for init_data, status in (("", 401), (signed(999), 403),
+                                          (signed(start_param="tenant_test-shop"), 403)):
+                    response = self.post(action, init_data, staff_id=12)
+                    self.assertEqual(response.status_code, status)
+                detail.assert_not_called()
+                update.assert_not_called()
+                response = self.post(action, staff_id=12, confirmed=True)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+                if action == "admin_staff_detail":
+                    detail.assert_called_once_with(unittest.mock.ANY, admin=True)
+                else:
+                    self.assertEqual(update.call_args.args[1], 123)
+                    self.assertEqual(update.call_args.kwargs["delete"], action == "admin_staff_delete")
+                detail.reset_mock()
+                update.reset_mock()
+
+    def test_staff_description_conflict_and_deleted_detail_have_explicit_status(self):
+        from customer_records import RecordConflict
+        with patch("staff_archive.update_archive", side_effect=RecordConflict("stale revision")):
+            response = self.post("admin_staff_description", staff_id=12)
+            self.assertEqual(response.status_code, 409)
+        with patch("staff_archive.detail", return_value=None):
+            response = self.post("admin_staff_detail", staff_id=12)
+            self.assertEqual(response.status_code, 404)
+
+    def test_delivery_private_attachments_require_admin_and_upload_endpoint(self):
+        import delivery_staff
+        with patch.object(delivery_staff, "attachment", return_value={
+            "content": b"private-image", "content_type": "image/jpeg",
+        }) as read:
+            self.assertEqual(self.post("admin_delivery_staff_attachment", "", attachment_id=1).status_code, 401)
+            self.assertEqual(self.post("admin_delivery_staff_attachment", signed(999), attachment_id=1).status_code, 403)
+            read.assert_not_called()
+            response = self.post("admin_delivery_staff_attachment", attachment_id=1)
+            self.assertEqual(response.data, b"private-image")
+            self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+        with patch.object(delivery_staff, "add_attachment", return_value={"attachment_id": 1}) as add:
+            for identity, expected in [("", 401), (signed(999), 403), (signed(), 200)]:
+                response = self.client.post("/admin-delivery-upload", data={
+                    "payload": json.dumps({"person_id": 7, "init_data": identity}),
+                    "media": (io.BytesIO(b"image-bytes"), "x.png"),
+                })
+                self.assertEqual(response.status_code, expected)
+            add.assert_called_once_with(7, b"image-bytes", "x.png", 123, description=None)
+            self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+            self.assertEqual(self.post("admin_delivery_staff_upload", person_id=7).status_code, 400)
+        response = self.client.post("/admin-delivery-upload?tenant=test-shop", data={})
+        self.assertEqual(response.status_code, 403)
+
+    def test_delivery_deletion_requires_admin_and_confirmation(self):
+        import delivery_staff
+        with patch.object(delivery_staff, "delete_archive_content", return_value={"deleted": True}) as delete:
+            for action in ("admin_delivery_staff_delete", "admin_delivery_staff_attachment_delete"):
+                for identity, expected in [("", 401), (signed(999), 403)]:
+                    self.assertEqual(self.post(action, identity, person_id=7, attachment_id=9,
+                                               confirmed=True).status_code, expected)
+            delete.assert_not_called()
+            self.assertEqual(self.post("admin_delivery_staff_delete", person_id=7, confirmed=True).status_code, 200)
+            delete.assert_called_once_with(7, None, True, 123)
+            delete.reset_mock()
+            self.assertEqual(self.post("admin_delivery_staff_attachment_delete", person_id=7, confirmed=True).status_code, 400)
+            delete.assert_not_called()
+            self.assertEqual(self.post("admin_delivery_staff_attachment_delete", person_id=7,
+                                       attachment_id=9, confirmed=True).status_code, 200)
+            delete.assert_called_once_with(7, 9, True, 123)
 
     def test_actor_comes_from_signature_and_conflicts_are_explicit(self):
         with patch.object(admin_console, "save_from_request") as save:

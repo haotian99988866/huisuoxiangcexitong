@@ -5,6 +5,7 @@ import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Annou
 import ModuleTabs from '../components/ModuleTabs'
 import ModuleIcon from '../components/ModuleIcon'
 import StaffGallery from '../components/StaffGallery'
+import DeliveryArchive from '../components/DeliveryArchive'
 import venuePrices from '../../../shared/venue-prices.json'
 import CopyBooking from '../components/CopyBooking'
 import { useAnalyticsScreen } from '../utils/analytics'
@@ -414,12 +415,13 @@ export default function VenueList() {
     ? roomyTechnicianGridStyle
     : technicianGridStyle
   const currentShift = selectedVenue?.current_shift || null
-  const hasStaffArchive = [1, 2, 4, 5, 6].includes(selectedVenue?.id)
-  const attendanceViewLabel = currentShift === '晚班' ? '今晚出勤' : '今日出勤'
+  const isDelivery = DELIVERY_VENUE_IDS.has(selectedVenue?.id)
+  const hasStaffArchive = [1, 2, 4, 5, 6].includes(selectedVenue?.id) || isDelivery
+  const attendanceViewLabel = isDelivery ? '晚班出勤' : currentShift === '晚班' ? '今晚出勤' : '今日出勤'
   useEffect(() => {
     setShowStaffArchive(false)
     setSelectedTechnicianCode('')
-  }, [selectedVenue?.id])
+  }, [selectedVenue?.id, selectedVenue?.categoryKey])
   const isDeliveryDayShift = deliveryCategories.length > 0 && currentShift === '白班'
   const dutyShiftToday = currentShift || selectedVenue?.duty_shift_today
   const dutyLabel = currentShift ? `${currentShift}出勤` : '今日出勤'
@@ -910,7 +912,9 @@ export default function VenueList() {
       ) : (
         <div id="venue-personnel-content">
           {hasStaffArchive && showStaffArchive
-            ? <StaffGallery key={selectedVenue.id} venue={selectedVenue} />
+            ? isDelivery
+              ? <DeliveryArchive key={deliveryCategoryKey(selectedVenue)} venue={selectedVenue} />
+              : <StaffGallery key={selectedVenue.id} venue={selectedVenue} />
             : <>
           {/* 今日在岗技师 / 未发布提示 */}
           {isDeliveryDayShift ? (
