@@ -941,12 +941,14 @@ def save_delivery_media(message):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            from delivery_staff import archive_build_mode
+            archive_only = archive_build_mode(cur)
             cur.execute(
                 """
                 INSERT INTO delivery_media
                     (venue_id, channel_id, message_id, media_group_id,
-                     media_type, file_id, caption, ocr_text, age, image_hash)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     media_type, file_id, caption, ocr_text, age, image_hash, archive_only)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     file_id = VALUES(file_id),
                     media_group_id = VALUES(media_group_id),
@@ -966,6 +968,7 @@ def save_delivery_media(message):
                     ocr_text,
                     age,
                     image_hash,
+                    archive_only,
                 ),
             )
         conn.commit()
@@ -995,11 +998,13 @@ def save_delivery_text(message):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            from delivery_staff import archive_build_mode
+            archive_only = archive_build_mode(cur)
             cur.execute(
                 """
                 INSERT INTO delivery_media
-                    (venue_id, channel_id, message_id, media_type, file_id, caption)
-                VALUES (%s, %s, %s, 'text', '', %s)
+                    (venue_id, channel_id, message_id, media_type, file_id, caption, archive_only)
+                VALUES (%s, %s, %s, 'text', '', %s, %s)
                 ON DUPLICATE KEY UPDATE caption = VALUES(caption)
                 """,
                 (
@@ -1007,6 +1012,7 @@ def save_delivery_text(message):
                     str(message.chat.id),
                     message.message_id,
                     message.text,
+                    archive_only,
                 ),
             )
         conn.commit()
@@ -1115,6 +1121,7 @@ if __name__ == "__main__":
     ensure_staff_management_tables()
     from staff_customer_duty import ensure_tables as ensure_customer_duty_tables
     ensure_customer_duty_tables()
+    ensure_customer_duty_tables(delivery=True)
     start_staff_management_worker(bot)
     from announcements import ensure_tables as ensure_announcement_tables
     from tenants import ensure_tables as ensure_tenant_tables

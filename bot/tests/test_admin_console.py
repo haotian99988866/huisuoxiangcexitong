@@ -172,6 +172,85 @@ class AdminConsoleTests(unittest.TestCase):
             response = self.post("admin_staff_detail", staff_id=12)
             self.assertEqual(response.status_code, 404)
 
+    def test_delivery_customer_subscriptions_require_customer_identity_not_admin_debug(self):
+        with patch("delivery_customer_duty.catalog_status", return_value={"states": {}}) as status, \
+                patch("staff_customer_duty.save", return_value={"subscribed": True}) as save:
+            for action in ("delivery_customer_status", "delivery_customer_subscribe"):
+                for init_data, expected in (("", 401), ("bad", 401),
+                                            (signed(start_param="tenant_test-shop"), 403)):
+                    response = self.post(action, init_data, venue_id=7, person_id=12)
+                    self.assertEqual(response.status_code, expected)
+                    self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+                with patch.dict(os.environ, {"LOCAL_ADMIN_DEBUG": "1", "API_HOST": "127.0.0.1"}):
+                    response = self.client.post(
+                        "/webhook", base_url="http://127.0.0.1:8000",
+                        headers={"Origin": "http://127.0.0.1:4173", "X-Local-Admin-Debug": "1"},
+                        json={"action": action, "venue_id": 7, "person_id": 12},
+                    )
+                    self.assertEqual(response.status_code, 401)
+                status.assert_not_called()
+                save.assert_not_called()
+                response = self.post(action, signed(999), venue_id=7, person_id=12)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+                if action == "delivery_customer_status":
+                    status.assert_called_once_with(7, 999)
+                else:
+                    self.assertEqual(save.call_args.args[1], 999)
+                    self.assertEqual(save.call_args.kwargs, {"delivery": True})
+                status.reset_mock()
+                save.reset_mock()
+
+    def test_delivery_subscription_tenant_headers_and_conflicts_are_explicit(self):
+        from customer_records import RecordConflict
+        with patch.object(api_server, "load_tenant", return_value={"venue_ids": [7]}), \
+                patch("staff_customer_duty.save") as save:
+            response = self.client.post("/webhook", headers={"X-Tenant": "test-shop"}, json={
+                "action": "delivery_customer_subscribe", "init_data": signed(), "person_id": 12,
+            })
+            self.assertEqual(response.status_code, 403)
+            save.assert_not_called()
+        with patch("staff_customer_duty.save", side_effect=RecordConflict("stale revision")):
+            self.assertEqual(self.post("delivery_customer_subscribe", person_id=12).status_code, 409)
+
+    def test_staff_catalog_and_subscription_require_customer_identity(self):
+        with patch("staff_customer_duty.catalog_status", return_value={"states": {}}) as catalog, \
+                patch("staff_customer_duty.save", return_value={"subscribed": True}) as save, \
+                patch("staff_customer_duty.status", return_value={"subscribed": False}) as status:
+            for action in ("staff_customer_catalog", "staff_customer_status", "staff_customer_subscribe"):
+                for init_data, expected in (("", 401), ("bad", 401),
+                                            (signed(start_param="tenant_test-shop"), 403)):
+                    response = self.post(action, init_data, venue_id=2, staff_id=12)
+                    self.assertEqual(response.status_code, expected)
+                    self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+                with patch.dict(os.environ, {"LOCAL_ADMIN_DEBUG": "1", "API_HOST": "127.0.0.1"}):
+                    response = self.client.post(
+                        "/webhook", base_url="http://127.0.0.1:8000",
+                        headers={"Origin": "http://127.0.0.1:4173", "X-Local-Admin-Debug": "1"},
+                        json={"action": action, "venue_id": 2, "staff_id": 12},
+                    )
+                    self.assertEqual(response.status_code, 401)
+                catalog.assert_not_called()
+                save.assert_not_called()
+                status.assert_not_called()
+                response = self.post(action, signed(999), venue_id=2, staff_id=12)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+                if action == "staff_customer_catalog":
+                    catalog.assert_called_once_with(2, 999)
+                else:
+                    handler = status if action == "staff_customer_status" else save
+                    self.assertEqual(handler.call_args.args[1], 999)
+                catalog.reset_mock()
+                save.reset_mock()
+                status.reset_mock()
+            with patch.object(api_server, "load_tenant", return_value={"venue_ids": [2]}):
+                response = self.client.post("/webhook", headers={"X-Tenant": "test-shop"}, json={
+                    "action": "staff_customer_catalog", "init_data": signed(), "venue_id": 2,
+                })
+                self.assertEqual(response.status_code, 403)
+                catalog.assert_not_called()
+
     def test_delivery_private_attachments_require_admin_and_upload_endpoint(self):
         import delivery_staff
         with patch.object(delivery_staff, "attachment", return_value={

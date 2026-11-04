@@ -31,9 +31,10 @@ def cleanup_expired_data(retention_hours=RETENTION_HOURS):
     try:
         with conn.cursor() as cursor:
             for table in CLEANUP_TABLES:
+                archive_guard = " AND person_id IS NULL" if table == "delivery_media" else ""
                 cursor.execute(
                     f"DELETE FROM {table} "
-                    "WHERE created_at < DATE_SUB(NOW(), INTERVAL %s HOUR)",
+                    "WHERE created_at < DATE_SUB(NOW(), INTERVAL %s HOUR)" + archive_guard,
                     (retention_hours,),
                 )
                 deleted[table] = cursor.rowcount

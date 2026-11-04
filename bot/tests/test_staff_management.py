@@ -65,7 +65,37 @@ class StaffManagementTests(unittest.TestCase):
                 management.save(self.payload(subscribed=True, authorized=True), 1)
         conn.commit.assert_not_called()
 
+    def test_legacy_customer_authorization_does_not_cancel_public_customer_subscriptions(self):
+        conn = MagicMock()
+        cursor = conn.cursor.return_value.__enter__.return_value
+        cursor.fetchone.side_effect = [
+            {"id": 1, "venue_id": 1, "ended_at": None, "deleted_at": None},
+            None, None, None, None,
+        ]
+        with patch.object(management, "_admin"), patch.object(management, "get_conn", return_value=conn):
+            management.save(self.payload(customer_authorized=False), 1)
+        queries = [call.args[0] for call in cursor.execute.call_args_list]
+        self.assertTrue(any("INSERT INTO staff_customer_permissions" in query for query in queries))
+        self.assertFalse(any("UPDATE staff_customer_subscriptions" in query
+                             or "UPDATE staff_customer_notifications" in query for query in queries))
+        conn.commit.assert_called_once()
+
     def test_admin_check_rejects_public_user(self):
         with patch.object(management, "admin_ids", return_value={1}):
             with self.assertRaises(ValueError):
                 management._admin(2)
+
+    def test_delivery_worker_is_not_starved_by_internal_staff_failure(self):
+        bot = MagicMock()
+        with patch.object(management.threading, "Thread") as thread, \
+                patch.object(management.threading, "Event") as event, \
+                patch.object(management, "deliver", side_effect=RuntimeError("staff offline")), \
+                patch("staff_customer_duty.deliver") as deliver_customer, \
+                patch.object(management.logger, "exception") as log:
+            event.return_value.wait.side_effect = StopIteration
+            management.start_worker(bot)
+            run = thread.call_args.kwargs["target"]
+            with self.assertRaises(StopIteration):
+                run()
+        deliver_customer.assert_called_once_with(bot, delivery=True)
+        log.assert_called_once()

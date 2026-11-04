@@ -18,7 +18,9 @@ from waitress import serve
 from telebot import apihelper
 from urllib.parse import quote, urlsplit
 
-MIN_AGE = 18
+from delivery_posts import (
+    build_delivery_posts, filter_adult_posts, public_person_media, attendance_publication,
+)
 from delivery_age import extract_work_no, parse_price_table, price_for_work_no
 from image_hash import ImageDeduper, ensure_columns as ensure_image_hash_columns
 from image_cache import ImageCache
@@ -210,7 +212,8 @@ def tenant_cache_policy(response):
     music_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith("music_")
     payment_request = isinstance(body, dict) and isinstance(body.get("action"), str) and body["action"].startswith(("member_", "wallet_", "phone_", "customer_"))
     staff_request = isinstance(body, dict) and body.get("action") in {
-        "get_staff", "get_staff_detail", "get_delivery_archive", "staff_customer_status", "staff_customer_subscribe"}
+        "get_staff", "get_staff_detail", "get_delivery_archive", "staff_customer_status", "staff_customer_subscribe", "staff_customer_catalog",
+        "delivery_customer_status", "delivery_customer_subscribe"}
     hotel_request = isinstance(body, dict) and body.get("action") == "get_hotels"
     if request.path in {"/member-deposit", "/admin-hotel-save", "/admin-delivery-upload"} or hotel_request or request.endpoint == "hotel_image" or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
@@ -424,80 +427,6 @@ def _classify_and_markers(rows):
     return categories, markers
 
 
-def _message_link(row):
-    channel_id = str(row.get("channel_id") or "")
-    if not channel_id or not row.get("message_id"):
-        return None
-    numeric = channel_id[4:] if channel_id.startswith("-100") else channel_id.lstrip("-")
-    return f"https://t.me/c/{numeric}/{row['message_id']}"
-
-
-def build_delivery_posts(rows, categories=None):
-    """rows 按 message_id 倒序。带文字说明或图片+视频的相册合并成一条，其余每个媒体单独一条。"""
-    categories = categories or {}
-    rows = [row for row in rows if row["media_type"] != "text"]
-    group_captions = {}
-    group_types = {}
-    for row in rows:
-        group_id = row["media_group_id"]
-        if not group_id:
-            continue
-        group_types.setdefault(group_id, set()).add(row["media_type"])
-        caption = (row["caption"] or "").strip()
-        if caption and not group_captions.get(group_id):
-            group_captions[group_id] = caption
-    # 图片和视频一起发送视为同一个人，即使没有文字也合并成一条
-    for group_id, types in group_types.items():
-        if "video" in types and "photo" in types:
-            group_captions.setdefault(group_id, "")
-
-    posts = []
-    grouped = {}
-    for row in rows:
-        media = {"id": row["id"], "type": row["media_type"]}
-        group_id = row["media_group_id"]
-        if group_id in group_captions:
-            post = grouped.get(group_id)
-            if post is None:
-                post = {
-                    "id": f"g{row['id']}",
-                    "description": group_captions[group_id],
-                    "category": categories.get(row["id"]),
-                    "age": None,
-                    "media": [],
-                    "_hashes": [],
-                }
-                grouped[group_id] = post
-                posts.append(post)
-            post["media"].insert(0, media)
-            post["link"] = _message_link(row) or post.get("link")
-            if row.get("image_hash"):
-                post["_hashes"].append(row["image_hash"])
-            post["age"] = _min_age(post["age"], row.get("age"))
-            continue
-        posts.append(
-            {
-                "id": f"m{row['id']}",
-                "description": (row["caption"] or "").strip(),
-                "category": categories.get(row["id"]),
-                "age": row.get("age"),
-                "media": [media],
-                "link": _message_link(row),
-                "_ocr": row.get("ocr_text"),
-                "_hashes": [row["image_hash"]] if row.get("image_hash") else [],
-            }
-        )
-    return dedupe_posts(posts)
-
-
-def _post_key(post):
-    text = "".join((post.get("description") or "").split())
-    if text:
-        return ("d", text, len(post["media"]))
-    ocr = "".join((post.get("_ocr") or "").split())
-    return ("o", ocr, len(post["media"])) if len(ocr) >= 12 else None
-
-
 def _dedupe_photos_by_hash(photos):
     """相同图片(指纹相近)只留最早一张;无指纹的保留。"""
     images = ImageDeduper()
@@ -508,43 +437,6 @@ def _dedupe_photos_by_hash(photos):
             continue
         kept.append(photo)
     return kept
-
-
-def dedupe_posts(posts):
-    """内容相同的帖子只留最新一条(rows 为倒序,先出现的最新)。先比图片指纹,再比文字。"""
-    seen = {}
-    images = ImageDeduper()
-    kept_by_id = {}
-    unique = []
-    for post in posts:
-        own = id(post)
-        original = None
-        for image_hash in post.get("_hashes", []):
-            key = images.key_for(image_hash, own)
-            if key != own:
-                original = kept_by_id.get(key)
-        key = _post_key(post)
-        if original is None and key is not None:
-            original = seen.get(key)
-            if original is None:
-                seen[key] = post
-        post.pop("_ocr", None)
-        post.pop("_hashes", None)
-        if original is not None:
-            if original.get("age") is None:
-                original["age"] = post.get("age")
-            continue
-        kept_by_id[own] = post
-        unique.append(post)
-    return unique
-
-
-def _min_age(current, new):
-    if current is None:
-        return new
-    if new is None:
-        return current
-    return min(current, new)
 
 
 def attach_delivery_prices(rows, posts, price_tables):
@@ -566,14 +458,6 @@ def attach_delivery_prices(rows, posts, price_tables):
     return posts
 
 
-def filter_adult_posts(posts):
-    """只保留识别出年龄且满 18 周岁的内容；年龄未知或不满 18 的一律不展示。"""
-    return [
-        post for post in posts
-        if post.get("age") is not None and post["age"] >= MIN_AGE
-    ]
-
-
 def delivery_archive(venue_id, category=None):
     if type(venue_id) is not int or venue_id not in DELIVERY_VENUE_IDS:
         raise ValueError("请选择有效的外送分类")
@@ -587,7 +471,7 @@ def delivery_archive(venue_id, category=None):
                 """
                 SELECT m.id, m.person_id, m.message_id, m.channel_id,
                        m.media_group_id, m.media_type, m.caption, m.age,
-                       m.ocr_text, m.image_hash, m.created_at
+                       m.ocr_text, m.image_hash, m.created_at, m.archive_only
                 FROM delivery_media m
                 LEFT JOIN delivery_people p ON p.id=m.person_id
                 WHERE m.venue_id=%s AND (
@@ -607,17 +491,10 @@ def delivery_archive(venue_id, category=None):
             grouped.setdefault(row["person_id"], []).append(row)
     people = []
     for person_id, media_rows in grouped.items():
-        posts = filter_adult_posts(build_delivery_posts(media_rows, categories))
-        if category:
-            posts = [post for post in posts if post.get("category") in (None, category)]
-        media = [item for post in posts for item in post["media"]]
+        media = public_person_media(media_rows, categories, category)
         if not media:
             continue
-        visible_ids = {item["id"] for item in media}
-        on_duty = shift == "晚班" and any(
-            row["id"] in visible_ids and row["media_type"] == "photo"
-            and start <= row["created_at"] < end for row in media_rows
-        )
+        on_duty = attendance_publication(media_rows, media, start, end, shift) is not None
         people.append({
             "id": person_id, "media": media, "on_duty": on_duty,
             "attendance_overlay": "今晚出勤" if on_duty else
@@ -1218,7 +1095,8 @@ def webhook():
         except pymysql.MySQLError:
             logger.exception("Announcement service unavailable")
             return jsonify({"error": "公告暂不可用，请稍后重试"}), 503
-    if action in {"staff_customer_status", "staff_customer_subscribe"}:
+    if action in {"staff_customer_status", "staff_customer_subscribe", "staff_customer_catalog",
+                  "delivery_customer_status", "delivery_customer_subscribe"}:
         from admin_console import authenticate, is_tenant_session
         from staff_customer_duty import status as customer_duty_status, save as customer_duty_save
         from customer_records import RecordConflict
@@ -1228,6 +1106,14 @@ def webhook():
         if is_tenant_session(data["init_data"]):
             return jsonify({"error": "请从主入口管理个人订阅"}), 403
         try:
+            if action == "staff_customer_catalog":
+                from staff_customer_duty import catalog_status
+                return jsonify(catalog_status(data.get("venue_id"), user["id"]))
+            if action == "delivery_customer_status":
+                from delivery_customer_duty import catalog_status
+                return jsonify(catalog_status(data.get("venue_id"), user["id"]))
+            if action == "delivery_customer_subscribe":
+                return jsonify(customer_duty_save(data, user["id"], delivery=True))
             return jsonify(customer_duty_status(data, user["id"]) if action == "staff_customer_status"
                            else customer_duty_save(data, user["id"]))
         except RecordConflict as exc:
@@ -1550,6 +1436,7 @@ def webhook():
                                image_hash
                         FROM delivery_media
                         WHERE venue_id = %s
+                              AND archive_only=FALSE
                               AND created_at >= %s AND created_at < %s
                         ORDER BY message_id DESC
                         LIMIT 200
@@ -1899,6 +1786,7 @@ if __name__ == "__main__":
     ensure_customer_duty_tables()
     from delivery_staff import ensure_tables as ensure_delivery_staff_tables
     ensure_delivery_staff_tables()
+    ensure_customer_duty_tables(delivery=True)
     from customer_records import ensure_tables as ensure_customer_record_tables
     ensure_customer_record_tables()
     host = os.getenv("API_HOST", "127.0.0.1")

@@ -16,6 +16,7 @@
 .staff-card-info strong { font-size: 13px; overflow-wrap: anywhere; }
 .staff-card-info small { font-size: 11px; color: var(--ink-muted); }
 .staff-gallery .staff-replace { width: 100%; border: 0; border-top: 1px solid var(--ink-line); background: none; font-size: 11px; color: var(--ink-accent); }
+.staff-gallery .delivery-subscribe { padding: 8px 4px; }
 .staff-gallery button:disabled { opacity: .5; cursor: default; }
 .staff-gallery button:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 2px; }
 .staff-detail-photo { display: block; width: 100%; max-height: 65dvh; object-fit: contain; border-radius: 12px; }
@@ -24,6 +25,10 @@
 .staff-customer-actions button { min-height: 44px; width: 100%; padding: 10px 14px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); font: inherit; cursor: pointer; }
 .staff-customer-actions .staff-customer-primary { background: var(--ink-accent); border-color: var(--ink-accent); color: #fff; }
 .staff-customer-actions button:disabled { opacity: .5; cursor: default; }
+.staff-customer-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+.ink-app .staff-sheet .staff-customer-buttons > button { flex: 1 1 130px; width: auto; min-width: 0; min-height: 46px; margin: 0; padding: 11px 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.ink-app .staff-sheet .staff-customer-buttons > .staff-customer-primary { background: var(--ink-accent); border-color: var(--ink-accent); color: #fff; }
+.staff-customer-buttons > button:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 2px; }
 .staff-admin-select { width: 100%; min-height: 44px; margin-bottom: 16px; padding: 10px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); color: var(--ink-text); }
 .staff-admin-header-actions { display: flex; justify-content: flex-end; }
 .ink-app .staff-admin-detail .staff-admin-header-actions button.staff-admin-delete { width: auto; min-height: 44px; margin: 0; border: 0; background: none; color: #b42318; }

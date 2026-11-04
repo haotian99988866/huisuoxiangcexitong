@@ -334,6 +334,12 @@ def ensure_tables():
                 VALUES (1, 0)
                 """
             )
+            cur.execute("SHOW COLUMNS FROM delivery_people_state LIKE 'archive_build_mode'")
+            if cur.fetchone() is None:
+                cur.execute("ALTER TABLE delivery_people_state ADD COLUMN archive_build_mode BOOLEAN NOT NULL DEFAULT FALSE")
+            cur.execute("SHOW COLUMNS FROM delivery_media LIKE 'archive_only'")
+            if cur.fetchone() is None:
+                cur.execute("ALTER TABLE delivery_media ADD COLUMN archive_only BOOLEAN NOT NULL DEFAULT FALSE")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS delivery_person_notes (
@@ -518,6 +524,32 @@ def _unique_profile_media(media_rows):
     return kept
 
 
+def archive_build_mode(cur):
+    cur.execute("SELECT archive_build_mode FROM delivery_people_state WHERE id=1 FOR SHARE")
+    state = cur.fetchone()
+    if state is None:
+        raise RuntimeError("Delivery ingestion state is missing")
+    return bool(state["archive_build_mode"])
+
+
+def set_archive_build_mode(enabled):
+    if type(enabled) is not bool:
+        raise ValueError("Archive build mode must be boolean")
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM delivery_people_state WHERE id=1 FOR UPDATE")
+            if cur.fetchone() is None:
+                raise RuntimeError("Delivery ingestion state is missing")
+            cur.execute("UPDATE delivery_people_state SET archive_build_mode=%s WHERE id=1", (enabled,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def register_media(venue_id, channel_id, message_id):
     if venue_id not in DELIVERY_VENUE_IDS:
         raise ValueError("Delivery venue id is invalid")
@@ -639,7 +671,7 @@ def admin_listing(venue_id):
                 placeholders = ",".join(["%s"] * len(active))
                 cur.execute(
                     f"""
-                    SELECT id, person_id, media_type, caption, created_at, image_hash
+                    SELECT id, person_id, media_type, caption, created_at, image_hash, archive_only
                     FROM delivery_media
                     WHERE person_id IN ({placeholders})
                     ORDER BY created_at DESC, id DESC
@@ -652,6 +684,7 @@ def admin_listing(venue_id):
                 all_media = media_by_person.get(person["id"], [])
                 person["on_duty"] = shift == "晚班" and any(
                     item["media_type"] == "photo"
+                    and not item.get("archive_only", False)
                     and shift_start <= item["created_at"] < shift_end
                     for item in all_media
                 )
@@ -707,6 +740,7 @@ def public_people(cur, venue_id, shift_start, shift_end):
         WHERE p.venue_id=%s AND p.merged_into_id IS NULL AND p.deleted_at IS NULL
               AND p.consent_status='granted'
               AND today.created_at >= %s AND today.created_at < %s
+              AND today.archive_only=FALSE AND today.media_type='photo'
         ORDER BY p.id DESC
         """,
         (venue_id, shift_start, shift_end),
@@ -1200,8 +1234,19 @@ def match_candidates(person_id, fetch_media):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Manage local delivery face-matching models")
-    parser.add_argument("command", choices=["download-models"])
+    parser.add_argument("command", choices=["download-models", "archive-build-start", "archive-build-finish", "archive-build-status"])
     args = parser.parse_args()
     if args.command == "download-models":
         download_models()
         print(f"Local face models saved under {_model_directory()}")
+    else:
+        ensure_tables()
+        if args.command != "archive-build-status":
+            set_archive_build_mode(args.command == "archive-build-start")
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                enabled = archive_build_mode(cur)
+            print(f"Delivery archive build mode: {'ON (no attendance or reminders)' if enabled else 'OFF (normal attendance)'}")
+        finally:
+            conn.close()

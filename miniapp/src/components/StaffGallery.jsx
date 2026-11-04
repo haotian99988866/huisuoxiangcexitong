@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import MusicDialog from './MusicDialog'
 import { API_BASE_URL, openTelegramLink } from '../utils/twa'
-import { mediaUrl, tenantHeaders, contactName } from '../utils/tenant'
+import { mediaUrl, tenantHeaders, contactName, contactUrl } from '../utils/tenant'
 import { requestAdmin } from '../utils/admin'
 import { bookingUrl } from '../utils/booking'
 import { useAnalyticsScreen } from '../utils/analytics'
 import { money } from '../utils/commerce'
-import StaffCustomerActions from './StaffCustomerActions'
+import useCustomerSubscriptions from '../utils/useCustomerSubscriptions'
+import { SubscriptionControl, SubscriptionFeedback } from './CustomerDutyControls'
 import './StaffGallery.css'
 
 async function requestStaff(action, fields, signal) {
@@ -32,8 +33,14 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
   const [replacement, setReplacement] = useState(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const [customerDuty, setCustomerDuty] = useState(null)
   const [description, setDescription] = useState('')
+  const subscription = useCustomerSubscriptions(venue.id, () => setAttempt(value => value + 1), { enabled: !admin })
+  const customerDuty = selected ? subscription.states?.[selected.id] : null
+  const dutyLabel = member => {
+    const state = !admin && subscription.states?.[member.id]
+    return state ? state.published_at ? `${state.shift}出勤` : '本班未发布出勤'
+      : member.attendance_overlay || member.duty_label || '出勤记录待确认'
+  }
   useAnalyticsScreen(selected ? 'technician_detail' : null)
 
   useEffect(() => {
@@ -66,7 +73,6 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
   }, [selected, replacement, busy])
   useEffect(() => {
     setDetail(null)
-    setCustomerDuty(null)
     setDetailError('')
     setDescription('')
     setImageIndex(0)
@@ -166,6 +172,12 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
     {!data && !error && <p role="status">正在读取人员档案…</p>}
     {data && <>
       <p className="staff-meta">全部人员 · {data.total}位 · {data.shift}</p>
+      {!admin && <>
+        <p className="staff-meta">{subscription.authenticated
+          ? '可持续订阅未出勤档案，白班、晚班每班新发布出勤时提醒一次，直到取消。'
+          : '请从 Telegram 主入口打开，才能订阅出勤提醒。'}</p>
+        <SubscriptionFeedback subscription={subscription} />
+      </>}
       {!data.roster_available && <p className="staff-meta">当前班次尚未发布出勤，照片仍可查看；未出勤天数依据最近发布记录。</p>}
       {!data.members.length && <p className="staff-meta">暂无人员。档案随每日出勤与可识别照片自动积累。</p>}
       <div className="staff-grid">
@@ -176,8 +188,9 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
                 ? <img loading="lazy" src={mediaUrl(`${API_BASE_URL}/staff-photos/${member.cover}/image?thumb=1`)}
                   alt={`工号 ${member.code}`} onError={() => failImage(member.cover)} />
                 : <span>{member.blocked ? '暂不展示' : member.cover ? '照片暂不可用' : '照片待更新'}</span>}
-              <span className={`staff-attendance-overlay${member.duty_label ? ' is-on-duty' : ''}`}>
-                {member.attendance_overlay || member.duty_label || '出勤记录待确认'}
+              <span className={`staff-attendance-overlay${(!admin && subscription.states?.[member.id]
+                ? subscription.states[member.id].published_at : member.duty_label) ? ' is-on-duty' : ''}`}>
+                {dutyLabel(member)}
               </span>
             </div>
             <div className="staff-card-info">
@@ -185,6 +198,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
               <small>{member.photo_count}张照片</small>
             </div>
           </button>
+          {!admin && <SubscriptionControl id={member.id} onDuty={Boolean(member.duty_label)} subscription={subscription} />}
           {onSelect && <button type="button" className="staff-replace" disabled={busy || member.blocked}
             onClick={() => onSelect(member)}>选择此技师</button>}
           {admin && !onSelect && <button type="button" className="staff-replace" disabled={busy}
@@ -194,7 +208,7 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
     </>}
     {selected && <MusicDialog className={admin ? 'account-sheet staff-sheet staff-admin-detail' : ordinaryMassage ? 'staff-sheet' : 'account-sheet staff-sheet'}
       title={ordinaryMassage ? `工号 ${selected.code}` : `${venue.name} · 工号 ${selected.code}`}
-      scrollBody={admin || ordinaryMassage} onClose={closeDetail}
+      scrollBody onClose={closeDetail}
       headerContent={admin ? <div className="staff-admin-header-actions">
         <button type="button" className="staff-admin-delete" disabled={busy || !detail || detailLoading}
           onClick={deleteArchive}>删除档案</button>
@@ -203,12 +217,27 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
         <button type="button" disabled={busy || !changed} onClick={() => setDescription(detail.description)}>取消修改</button>
         <button type="button" disabled={busy || !changed || description.length > 2000}
           onClick={saveDescription}>{busy ? '处理中…' : '确认并提交'}</button>
-      </div> : ordinaryMassage ? <StaffCustomerActions key={selected.id} staffId={selected.id} onState={setCustomerDuty} /> : undefined}>
-      {ordinaryMassage && !admin ? <><p className="staff-detail-duty">{customerDuty ? customerDuty.published_at
-        ? `${customerDuty.shift}出勤已发布` : '本班次尚未发布出勤' : '正在核对本班次出勤…'}</p>
+      </div> : <div className="staff-customer-actions">
+        <div className="staff-customer-buttons">
+          <SubscriptionControl id={selected.id} onDuty={Boolean(selected.duty_label)} subscription={subscription} />
+          {(!ordinaryMassage || customerDuty?.published_at || (!customerDuty && selected.duty_label)) &&
+            <button type="button" className="staff-customer-primary" onClick={() => openTelegramLink(ordinaryMassage ? contactUrl() : bookingUrl({
+              title: `你好，我想咨询${venue.name} · 工号${selected.code}`,
+              details: [`人员档案编号：${selected.id}`],
+              links: photo ? [new URL(mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`), window.location.origin).href] : [],
+            }))}>
+              联系{contactName()}{ordinaryMassage ? ' · 正规按摩咨询' : '咨询'}
+            </button>}
+        </div>
+        <SubscriptionFeedback subscription={subscription} />
+        <p className="staff-meta">{subscription.authenticated
+          ? '持续订阅，白班、晚班每班提醒一次，可随时取消。请先在机器人聊天中点击开始。'
+          : '请从 Telegram 主入口打开，才能订阅。'}只提醒订阅后的新发布，不补发历史；出勤发布不代表实时在岗。</p>
+      </div>}>
+      {ordinaryMassage && !admin ? <><p className="staff-detail-duty">{dutyLabel(selected)}</p>
       {customerDuty?.published_at && <p className="staff-meta">发布时间：{customerDuty.published_at}</p>}
       <p className="staff-meta">仅提供正规按摩信息。未发布不代表实际休息或离职，已发布不代表实时在岗。</p></> : <>
-      <p className="staff-detail-duty">{selected.attendance_overlay || selected.duty_label || '出勤记录待确认'}</p>
+      <p className="staff-detail-duty">{dutyLabel(selected)}</p>
       <p>{selected.price_usd === null || selected.price_usd === undefined
         ? '价格待确认' : `$${money(selected.price_usd)} 起 · ${selected.price_detail}`}</p>
       {selected.last_duty_at && <p className="staff-meta">最近出勤发布：{selected.last_duty_at}</p>}
@@ -237,11 +266,6 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
         <p className="staff-meta">{description.length}/2000{changed ? ' · 尚未提交' : ''}</p>
         {notice && <p className="membership-notice" role="status">{notice}</p>}
       </div>}
-      {!admin && !ordinaryMassage && <button type="button" onClick={() => openTelegramLink(bookingUrl({
-        title: `你好，我想咨询${venue.name} · 工号${selected.code}`,
-        details: [`人员档案编号：${selected.id}`],
-        links: photo ? [new URL(mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`), window.location.origin).href] : [],
-      }))}>联系{contactName()}咨询</button>}
     </MusicDialog>}
     {replacement && <MusicDialog className="account-sheet" title="确认工号换人" onClose={() => { if (!busy) setReplacement(null) }}>
       <p>{venue.name} · 工号 {replacement.code} · 原档案 {replacement.id}</p>

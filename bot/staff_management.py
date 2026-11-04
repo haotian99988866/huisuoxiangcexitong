@@ -166,11 +166,6 @@ def save(data, actor_id):
                 VALUES(%s,%s,%s,%s) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),
                 actor_id=VALUES(actor_id),updated_at=VALUES(updated_at)""",
                         (staff_id, customer_authorized, actor_id, now))
-            if not customer_authorized:
-                cur.execute("UPDATE staff_customer_subscriptions SET enabled=0,revision=revision+1 WHERE staff_id=%s AND enabled=1",
-                            (staff_id,))
-                cur.execute("UPDATE staff_customer_notifications SET status='cancelled' WHERE staff_id=%s AND status='pending'",
-                            (staff_id,))
             cur.execute("""INSERT INTO staff_management(staff_id,employment,circumstance,actor_id,updated_at)
                 VALUES(%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE employment=VALUES(employment),
                 circumstance=VALUES(circumstance),actor_id=VALUES(actor_id),updated_at=VALUES(updated_at),revision=revision+1""",
@@ -296,12 +291,16 @@ def deliver(bot):
 
 def start_worker(bot):
     def run():
+        from staff_customer_duty import deliver as deliver_customer_duty
         while True:
             try:
                 deliver(bot)
-                from staff_customer_duty import deliver as deliver_customer_duty
                 deliver_customer_duty(bot)
             except (ValueError, RuntimeError, pymysql.MySQLError):
                 logger.exception("Staff duty notification worker unavailable")
+            try:
+                deliver_customer_duty(bot, delivery=True)
+            except (ValueError, RuntimeError, pymysql.MySQLError):
+                logger.exception("Delivery duty notification worker unavailable")
             threading.Event().wait(15)
     threading.Thread(target=run, name="internal-staff-duty", daemon=True).start()
