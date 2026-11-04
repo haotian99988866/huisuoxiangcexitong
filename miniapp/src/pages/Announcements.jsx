@@ -203,9 +203,22 @@ function ReadingProgress({ articleId, ready }) {
 
 function NewsCover({ item, count }) {
   const [failed, setFailed] = useState(false)
-  return <div className="news-cover">
+  const [nearby, setNearby] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (item.kind !== 'video') return
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        setNearby(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '160px' })
+    observer.observe(ref.current)
+    return () => observer.disconnect()
+  }, [item.kind])
+  return <div className="news-cover" ref={ref}>
     {failed ? <NewsIcon name="image" /> : item.kind === 'video'
-      ? <video src={imageUrl(item)} muted playsInline preload="metadata" aria-hidden="true" onError={() => setFailed(true)} />
+      ? <video src={nearby ? imageUrl(item) : undefined} muted playsInline preload={nearby ? 'metadata' : 'none'} aria-hidden="true" onError={() => setFailed(true)} />
       : <img src={imageUrl(item)} alt="" loading="lazy" onError={() => setFailed(true)} />}
     {!failed && item.kind === 'video' && <span className="news-cover-play"><NewsIcon name="play" /></span>}
     {count > 1 && <span className="news-cover-count"><NewsIcon name="image" />{count}</span>}

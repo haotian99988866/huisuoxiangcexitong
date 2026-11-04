@@ -843,6 +843,9 @@ def announcement_media(ident, index):
         path = announcements.local_media_path(media["filename"])
         if not path.is_file():
             return jsonify({"error": "公告媒体暂不可用，请稍后重试"}), 503
+        if media["kind"] == "video":
+            from announcement_video import playback_path
+            path = playback_path(path)
         content_type = "image/jpeg" if media["kind"] == "photo" else (
             "video/webm" if path.suffix == ".webm" else "video/mp4"
         )
@@ -850,6 +853,9 @@ def announcement_media(ident, index):
                              conditional=True, max_age=0)
         response.headers["Cache-Control"] = "private, no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
+        if media["kind"] == "video":
+            response.headers["Accept-Ranges"] = "bytes"
+            response.headers["X-Video-Prepared"] = "faststart" if path.parent.name == "video-faststart" else "original"
         return response
     except pymysql.MySQLError:
         logger.exception("Announcement media unavailable")
@@ -1862,6 +1868,11 @@ if __name__ == "__main__":
     threading.Thread(
         target=maintain_ktv_video_cache, args=(stop_cache,), kwargs={"delivery": True},
         name="delivery-video-cache", daemon=True,
+    ).start()
+    from announcement_video import maintain as maintain_announcement_videos
+    threading.Thread(
+        target=maintain_announcement_videos, args=(stop_cache,),
+        name="news-video-faststart", daemon=True,
     ).start()
     try:
         serve(

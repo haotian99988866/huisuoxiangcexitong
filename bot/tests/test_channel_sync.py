@@ -326,8 +326,8 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
             [call.args[0].channel_id for call in self.user.get_input_entity.await_args_list],
             [ident for _, ident in NEWS_SOURCES],
         )
-        self.assertEqual(len(sources), 7)
-        self.assertEqual((channels[-1].username, channels[-1].id), ("vhhhh", 2062055062))
+        self.assertEqual(len(sources), 8)
+        self.assertEqual((channels[-1].username, channels[-1].id), ("vip20th", 2296480093))
         self.assertEqual(boundaries[channels[0].id], 20)
         self.assertEqual(self.store.progress(channels[0].id, "2", 999)["scanned_id"], 25)
         for index, channel in enumerate(channels[1:], 1):
