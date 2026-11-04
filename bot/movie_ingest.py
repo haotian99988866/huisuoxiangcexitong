@@ -5,6 +5,7 @@ from copy import copy
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import timezone
+import json
 import logging
 import os
 import re
@@ -71,12 +72,15 @@ class MovieStore:
             CREATE TABLE IF NOT EXISTS jobs (
                 message INTEGER PRIMARY KEY, historical INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'queued', result_id INTEGER,
-                document_id INTEGER, error TEXT
+                document_id INTEGER, error TEXT, result_ids TEXT
             );
             CREATE TABLE IF NOT EXISTS owned (
                 document_id INTEGER PRIMARY KEY, message INTEGER NOT NULL
             );
         """)
+        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
+        if "result_ids" not in columns:
+            self.connection.execute("ALTER TABLE jobs ADD COLUMN result_ids TEXT")
         ensure_health_table(self.connection)
         if recover:
             with self.connection:
@@ -105,6 +109,12 @@ class MovieStore:
         with self.connection:
             self.connection.execute("INSERT OR IGNORE INTO jobs(message,historical) VALUES (?,?)",
                                     (message, int(historical)))
+            if self.source.short_drama:
+                self.connection.execute(
+                    "UPDATE jobs SET status='queued',error=NULL,result_id=NULL,document_id=NULL,result_ids=NULL "
+                    "WHERE message=? AND status='excluded' AND error IN (?,?)",
+                    (message, "Same short-drama compilation already has an equal or larger file",
+                     "Smaller duplicate removed from owned short-drama channel; largest file retained"))
 
     def reconcile(self, message):
         if message < int(self.setting("start_message", str(self.source.start))):
@@ -122,12 +132,13 @@ class MovieStore:
         with self.connection:
             self.connection.execute(f"UPDATE progress SET {column}=MAX({column},?) WHERE id=1", (message,))
 
-    def update(self, job, status, error=None, result_id=None, document_id=None):
+    def update(self, job, status, error=None, result_id=None, document_id=None, result_ids=None):
         with self.connection:
             self.connection.execute(
                 "UPDATE jobs SET status=?,error=?,result_id=COALESCE(?,result_id),"
-                "document_id=COALESCE(?,document_id) WHERE message=?",
-                (status, error, result_id, document_id, job["message"]))
+                "document_id=COALESCE(?,document_id),result_ids=COALESCE(?,result_ids) WHERE message=?",
+                (status, error, result_id, document_id,
+                 json.dumps(result_ids) if result_ids is not None else None, job["message"]))
 
     def pending(self):
         return self.connection.execute(
@@ -231,11 +242,51 @@ def clean_movie_caption(text, source=SOURCES[0]):
     return caption
 
 
+async def resolve_album_messages(user, source, message, config):
+    if not message or not getattr(message, "grouped_id", None) or getattr(message, "noforwards", False):
+        return [message] if message else []
+    siblings = await user.get_messages(source, ids=list(range(max(1, message.id - 9), message.id + 10)))
+    group = sorted(
+        (sibling for sibling in siblings
+         if sibling and getattr(sibling, "grouped_id", None) == message.grouped_id
+         and not getattr(sibling, "noforwards", False)),
+        key=lambda sibling: sibling.id,
+    )
+    if not any(sibling.id == message.id for sibling in group):
+        group.append(message)
+        group.sort(key=lambda sibling: sibling.id)
+    caption = None
+    for sibling in group:
+        if not sibling.message:
+            continue
+        eligible = False
+        for video in group:
+            if not getattr(video, "document", None):
+                continue
+            candidate = copy(video)
+            candidate.message = sibling.message
+            if video_metadata(candidate, config):
+                eligible = True
+                break
+        if eligible:
+            caption = sibling.message
+            break
+    if not caption:
+        return [message]
+    videos = []
+    for sibling in group:
+        resolved = copy(sibling)
+        if not resolved.message:
+            resolved.message = caption
+        if video_metadata(resolved, config):
+            videos.append(resolved)
+    return videos or [message]
+
+
 async def resolve_album_caption(user, source, message, config):
     if (not message or message.message or not getattr(message, "grouped_id", None)
             or getattr(message, "noforwards", False)):
         return message
-    # Telegram albums contain at most ten messages; accept only the exact same group.
     siblings = await user.get_messages(source, ids=list(range(max(1, message.id - 9), message.id + 10)))
     for sibling in siblings:
         if (sibling and getattr(sibling, "grouped_id", None) == message.grouped_id
@@ -245,6 +296,12 @@ async def resolve_album_caption(user, source, message, config):
             if video_metadata(resolved, config):
                 return resolved
     return message
+
+
+async def source_videos(user, source, message, config):
+    if config.short_drama:
+        return await resolve_album_messages(user, source, message, config)
+    return [await resolve_album_caption(user, source, message, config)]
 
 
 async def scan_source(user, source, store, historical):
@@ -264,7 +321,11 @@ async def scan_source(user, source, store, historical):
     count = 0
     async for message in user.iter_messages(source, **options):
         count += 1
-        message = await resolve_album_caption(user, source, message, store.source)
+        messages = await source_videos(user, source, message, store.source)
+        if not messages or (store.source.short_drama and message.id != messages[0].id):
+            store.advance(message.id, historical)
+            continue
+        message = messages[0]
         if video_metadata(message, store.source):
             store.enqueue(message.id, historical)
         store.advance(message.id, historical)
@@ -307,11 +368,45 @@ async def reconcile_recent(user, source, store):
     start = int(store.setting("start_message", str(store.source.start)))
     queued = 0
     async for message in user.iter_messages(source, min_id=start - 1, limit=RECENT_RECHECK_LIMIT):
-        job = store.connection.execute("SELECT status FROM jobs WHERE message=?", (message.id,)).fetchone()
-        if job and job["status"] != "skipped":
+        job = store.connection.execute("SELECT status,error FROM jobs WHERE message=?", (message.id,)).fetchone()
+        if job and job["status"] != "skipped" and not store.source.short_drama:
             continue
-        message = await resolve_album_caption(user, source, message, store.source)
-        if video_metadata(message, store.source) and store.reconcile(message.id):
+        if job and store.source.short_drama and job["status"] not in (
+                "skipped", "excluded", "sent", "forwarded"):
+            continue
+        messages = await source_videos(user, source, message, store.source)
+        if not messages or (store.source.short_drama and message.id != messages[0].id):
+            continue
+        message = messages[0]
+        if not video_metadata(message, store.source):
+            continue
+        if store.source.short_drama:
+            legacy_errors = {
+                "Same short-drama compilation already has an equal or larger file",
+                "Smaller duplicate removed from owned short-drama channel; largest file retained",
+            }
+            old_duplicate = bool(
+                job and job["status"] == "excluded" and job["error"] in legacy_errors
+            )
+            child_ids = [item.id for item in messages if item.id != message.id]
+            for child_id in child_ids:
+                child = store.connection.execute(
+                    "SELECT status,error FROM jobs WHERE message=?", (child_id,)).fetchone()
+                old_duplicate = old_duplicate or bool(
+                    child and child["status"] == "excluded" and child["error"] in legacy_errors)
+            if old_duplicate:
+                store.enqueue(message.id, False)
+                with store.connection:
+                    store.connection.execute(
+                        "UPDATE jobs SET status='queued',error=NULL,result_id=NULL,document_id=NULL,result_ids=NULL "
+                        "WHERE message=? AND status IN ('sent','forwarded','excluded')",
+                        (message.id,))
+                queued += 1
+                logger.info("Movie recovered recent source=%s message=%s", store.source.id, message.id)
+            elif (not job or job["status"] == "skipped") and store.reconcile(message.id):
+                queued += 1
+                logger.info("Movie recovered recent source=%s message=%s", store.source.id, message.id)
+        elif store.reconcile(message.id):
             queued += 1
             logger.info("Movie recovered recent source=%s message=%s", store.source.id, message.id)
     store.set("recent_checked_at", now)
@@ -319,34 +414,71 @@ async def reconcile_recent(user, source, store):
                 store.source.id, queued, RECENT_RECHECK_LIMIT)
 
 
+def _result_ids(job):
+    stored = job["result_ids"] if "result_ids" in job.keys() else None
+    if stored:
+        result = json.loads(stored)
+        if not isinstance(result, list) or not result or any(type(item) is not int for item in result):
+            raise ValueError("Stored movie result IDs are invalid")
+        return result
+    return [job["result_id"]] if job["result_id"] else []
+
+
+def _exclude_album_children(store, source_messages, leader_id):
+    children = [message.id for message in source_messages if message.id != leader_id]
+    if children:
+        with store.connection:
+            store.connection.executemany(
+                "UPDATE jobs SET status='excluded',error=? WHERE message=? AND "
+                "(status IN ('queued','skipped','failed') OR (status='excluded' AND error IN (?,?)))",
+                [(f"Included in short-drama album job {leader_id}",
+                  "Same short-drama compilation already has an equal or larger file",
+                  "Smaller duplicate removed from owned short-drama channel; largest file retained",
+                  ident) for ident in children],
+            )
+
+
 async def process_job(user, bot, source, target, store, job, other_stores=()):
+    target_peer = types.PeerChannel(target.id)
     if job["status"] == "forwarded":
-        messages = await bot.get_messages(types.PeerChannel(target.id), ids=[job["result_id"]])
-        message = messages[0] if messages else None
-        metadata = video_metadata(message, store.source)
-        if not metadata:
-            raise ValueError("Owned video unavailable or no longer eligible; channel copy retained")
-        caption = clean_movie_caption(message.message, store.source)
-        if not getattr(message, "fwd_from", None):
-            try:
-                await bot.edit_message(
-                    types.PeerChannel(target.id), message.id,
-                    buttons=[[
-                        Button.url("🤖 进入机器人", BOT_URL),
-                        Button.url("💬 联系昊天", CONTACT_URL),
-                    ]])
-            except errors.MessageNotModifiedError:
-                pass
-        saved = await asyncio.to_thread(
-            save_movie, f"-100{target.id}", message.id, caption,
-            duration=metadata["duration"],
-            file_size=getattr(message.document, "size", None),
-            posted_at=message.date.astimezone(timezone.utc).replace(tzinfo=None))
-        if not saved:
-            raise ValueError("Movie metadata was not indexed")
+        ids = _result_ids(job)
+        messages = await bot.get_messages(target_peer, ids=ids)
+        if len(messages) != len(ids) or any(message is None for message in messages):
+            raise ValueError("Owned video album is incomplete; channel copies retained")
+        messages_by_id = {message.id: message for message in messages}
+        messages = [messages_by_id[ident] for ident in ids]
+        caption = clean_movie_caption(messages[0].message, store.source)
+        for index, message in enumerate(messages):
+            resolved = copy(message)
+            if not resolved.message:
+                resolved.message = caption
+            metadata = video_metadata(resolved, store.source)
+            if not metadata:
+                raise ValueError("Owned video unavailable or no longer eligible; channel copy retained")
+            if index == 0 and not getattr(message, "fwd_from", None):
+                try:
+                    await bot.edit_message(
+                        target_peer, message.id,
+                        buttons=[[
+                            Button.url("🤖 进入机器人", BOT_URL),
+                            Button.url("💬 联系昊天", CONTACT_URL),
+                        ]])
+                except errors.MessageNotModifiedError:
+                    pass
+            saved = await asyncio.to_thread(
+                save_movie, f"-100{target.id}", message.id, caption,
+                duration=metadata["duration"],
+                file_size=getattr(message.document, "size", None),
+                posted_at=message.date.astimezone(timezone.utc).replace(tzinfo=None))
+            if not saved:
+                raise ValueError("Movie metadata was not indexed")
         store.update(job, "sent")
-        logger.info("Movie indexed source=%s message=%s target=%s", source.id, job["message"], message.id)
+        source_rows = await user.get_messages(source, ids=[job["message"]])
+        source_items = await source_videos(user, source, source_rows[0] if source_rows else None, store.source)
+        _exclude_album_children(store, source_items, job["message"])
+        logger.info("Movie indexed source=%s message=%s target=%s", source.id, job["message"], ids)
         return
+
     current_source = await user.get_entity(source)
     if job["message"] < int(store.setting("start_message", str(store.source.start))):
         store.update(job, "excluded", "Before configured start message")
@@ -355,67 +487,85 @@ async def process_job(user, bot, source, target, store, job, other_stores=()):
         store.update(job, "skipped", "Source content protected")
         logger.warning("Movie source protected; skipped message=%s", job["message"])
         return
-    messages = await user.get_messages(source, ids=[job["message"]])
-    message = messages[0] if messages else None
-    message = await resolve_album_caption(user, source, message, store.source)
-    metadata = video_metadata(message, store.source)
-    if not metadata:
+    source_rows = await user.get_messages(source, ids=[job["message"]])
+    source_items = await source_videos(user, source, source_rows[0] if source_rows else None, store.source)
+    if (not source_items or source_items[0] is None
+            or (store.source.short_drama and source_items[0].id != job["message"])):
+        store.update(job, "excluded", "Part of a short-drama album; only its first video is sent")
+        return
+    metadata = [video_metadata(message, store.source) for message in source_items]
+    if not metadata or any(item is None for item in metadata):
         store.update(job, "skipped", "Missing, protected, advertisement or unsupported video/title")
         logger.warning("Movie ineligible; skipped message=%s", job["message"])
         return
-    if store.source.short_drama:
-        from short_drama_dedupe import largest
-        size = getattr(message.document, "size", None)
-        if type(size) is not int or size <= 0:
-            raise ValueError("Short drama file size unavailable; cannot deduplicate")
-        existing = await asyncio.to_thread(largest, clean_movie_caption(message.message, store.source))
-        if existing and existing["file_size"] >= size:
-            store.update(job, "excluded", "Same short-drama compilation already has an equal or larger file",
-                         result_id=existing["message_id"], document_id=metadata["document_id"])
-            logger.info("Short drama duplicate excluded source=%s message=%s bytes=%s kept=%s",
-                        source.id, message.id, size, existing["message_id"])
-            return
-    duplicate = None
-    for candidate in (store, *(item for item in other_stores
-                              if item is not store and item.source.target_id == store.source.target_id)):
-        duplicate = candidate.connection.execute(
-            "SELECT result_id FROM jobs WHERE document_id=? AND status IN ('forwarded','sent') LIMIT 1",
-            (metadata["document_id"],)).fetchone()
-        if duplicate is None:
-            duplicate = candidate.connection.execute(
-                "SELECT message AS result_id FROM owned WHERE document_id=?",
-                (metadata["document_id"],)).fetchone()
-        if duplicate:
-            break
-        uncertain = candidate.connection.execute(
-            "SELECT 1 FROM jobs WHERE document_id=? AND status IN ('sending','uncertain') LIMIT 1",
-            (metadata["document_id"],)).fetchone()
-        if uncertain:
-            store.update(job, "uncertain", "Matching publication outcome unknown; inspect target",
-                         document_id=metadata["document_id"])
-            logger.warning("Movie duplicate uncertain; not sending source=%s message=%s", source.id, message.id)
-            return
-    if duplicate:
-        store.update(job, "forwarded", result_id=duplicate["result_id"], document_id=metadata["document_id"])
+    if store.source.short_drama and any(
+            type(getattr(message.document, "size", None)) is not int or message.document.size <= 0
+            for message in source_items):
+        raise ValueError("Short drama file size unavailable; cannot preserve the complete album")
+
+    duplicates = []
+    uncertain = False
+    candidates = (store, *(item for item in other_stores
+                           if item is not store and item.source.target_id == store.source.target_id))
+    if not store.source.short_drama:
+        for item in metadata:
+            for candidate in candidates:
+                duplicate = candidate.connection.execute(
+                    "SELECT result_id FROM jobs WHERE document_id=? AND status IN ('forwarded','sent') LIMIT 1",
+                    (item["document_id"],)).fetchone()
+                if duplicate is None:
+                    duplicate = candidate.connection.execute(
+                        "SELECT message AS result_id FROM owned WHERE document_id=?",
+                        (item["document_id"],)).fetchone()
+                if duplicate:
+                    if duplicate["result_id"] is None:
+                        uncertain = True
+                    else:
+                        duplicates.append(duplicate["result_id"])
+                    break
+                if candidate.connection.execute(
+                        "SELECT 1 FROM jobs WHERE document_id=? AND status IN ('sending','uncertain') LIMIT 1",
+                        (item["document_id"],)).fetchone():
+                    uncertain = True
+                    break
+    if uncertain:
+        store.update(job, "uncertain", "Matching publication outcome unknown; inspect target",
+                     document_id=metadata[0]["document_id"])
+        logger.warning("Movie duplicate uncertain; not sending source=%s message=%s", source.id, job["message"])
         return
-    caption = clean_movie_caption(message.message, store.source)
-    store.update(job, "sending", document_id=metadata["document_id"])
+    if duplicates:
+        if len(duplicates) != len(source_items):
+            store.update(job, "uncertain", "Only part of this album is already owned; inspect target",
+                         document_id=metadata[0]["document_id"])
+            return
+        store.update(job, "forwarded", result_id=duplicates[0],
+                     document_id=metadata[0]["document_id"], result_ids=duplicates)
+        return
+
+    caption = clean_movie_caption(source_items[0].message, store.source)
+    store.update(job, "sending", document_id=metadata[0]["document_id"])
+    media = [message.document for message in source_items]
     try:
-        # Reference Telegram's existing document; never download/reupload the video.
         sent = await user.send_file(
-            target, message.document, caption=caption, parse_mode=None,
-            formatting_entities=[], silent=True)
+            target, media if len(media) > 1 else media[0], caption=caption,
+            parse_mode=None, formatting_entities=[], silent=True)
     except errors.FloodWaitError:
-        # A server-declared rejection has not published this single-message request.
         store.update(job, "queued", "Telegram flood wait; retry only after persisted delay")
         raise
-    if sent is None or not getattr(sent, "id", None):
+    sent_messages = list(sent) if isinstance(sent, (list, tuple)) else [sent]
+    if (len(sent_messages) != len(source_items)
+            or any(not getattr(message, "id", None) for message in sent_messages)):
         raise RuntimeError("Publication outcome unknown")
-    store.update(job, "forwarded", result_id=sent.id)
+    sent_ids = [message.id for message in sent_messages]
+    store.update(job, "forwarded", result_id=sent_ids[0],
+                 document_id=metadata[0]["document_id"], result_ids=sent_ids)
     with store.connection:
-        store.connection.execute("INSERT OR IGNORE INTO owned VALUES (?,?)",
-                                 (metadata["document_id"], sent.id))
-    logger.info("Movie stored source=%s message=%s target=%s", source.id, message.id, sent.id)
+        store.connection.executemany(
+            "INSERT OR IGNORE INTO owned VALUES (?,?)",
+            [(item["document_id"], message_id) for item, message_id in zip(metadata, sent_ids)],
+        )
+    _exclude_album_children(store, source_items, job["message"])
+    logger.info("Movie stored source=%s message=%s target=%s", source.id, job["message"], sent_ids)
 
 
 async def movie_worker(user, bot, directory, sources=SOURCES):
@@ -459,8 +609,6 @@ async def _movie_worker(user, bot, directory, sources):
                     permissions = await user.get_permissions(owned, await user.get_me())
                     if not permissions.is_admin or not permissions.post_messages:
                         raise ValueError("Movie forwarding account needs target posting permission")
-                    if config.short_drama and not permissions.delete_messages:
-                        raise ValueError("Short drama account needs target delete_messages permission for deduplication")
                     reader = await resolve_channel(bot, config.target_id, config.target_username)
                     if reader.id != config.target_id:
                         raise ValueError("Movie publisher target identity changed")
@@ -477,9 +625,6 @@ async def _movie_worker(user, bot, directory, sources):
                 if not await scan_owned(user, target, store):
                     await asyncio.sleep(3)
                     continue
-                if config.short_drama:
-                    from short_drama_dedupe import cleanup
-                    await cleanup(user, target, store)
                 await scan_source(user, source, store, historical=False)
                 await scan_source(user, source, store, historical=True)
                 await reconcile_recent(user, source, store)

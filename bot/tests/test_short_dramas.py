@@ -1,4 +1,6 @@
 import asyncio
+import json
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
@@ -11,7 +13,8 @@ from telethon import types
 import api_server
 import movies
 from movie_ingest import (DRAMA_SOURCE, SOURCES, MovieStore, clean_movie_caption,
-                          process_job, resolve_album_caption, scan_owned, store_path, video_metadata)
+                          process_job, resolve_album_caption, resolve_album_messages, scan_owned,
+                          reconcile_recent, scan_source, store_path, video_metadata)
 
 
 def video(ident=10, caption="原创短剧《测试短剧》完整版", document_id=100):
@@ -100,6 +103,24 @@ class ShortDramaCatalogTests(unittest.TestCase):
         self.assertEqual(module.filename, f"movie-import-{DRAMA_SOURCE.id}.sqlite3")
 
 
+class MovieStoreMigrationTests(unittest.TestCase):
+    def test_existing_job_database_adds_album_result_ids(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "movie-import.sqlite3"
+            connection = sqlite3.connect(path)
+            connection.execute(
+                "CREATE TABLE jobs (message INTEGER PRIMARY KEY, historical INTEGER NOT NULL, "
+                "status TEXT NOT NULL DEFAULT 'queued', result_id INTEGER, document_id INTEGER, error TEXT)"
+            )
+            connection.close()
+            store = MovieStore(path, source=DRAMA_SOURCE)
+            try:
+                columns = {row["name"] for row in store.connection.execute("PRAGMA table_info(jobs)")}
+                self.assertIn("result_ids", columns)
+            finally:
+                store.close()
+
+
 class ShortDramaApiTests(unittest.TestCase):
     def setUp(self):
         self.client = api_server.app.test_client()
@@ -145,23 +166,14 @@ class ShortDramaIngestionTests(unittest.IsolatedAsyncioTestCase):
             send_file=AsyncMock(return_value=SimpleNamespace(id=88)))
         self.bot = SimpleNamespace(get_messages=AsyncMock(return_value=[video(88)]),
                                    edit_message=AsyncMock())
-        patcher = patch("short_drama_dedupe.largest", return_value=None)
-        self.largest = patcher.start()
-        self.addCleanup(patcher.stop)
-
-    async def test_same_compilation_larger_or_equal_file_is_excluded_before_copy(self):
-        for size in (5000, 6000):
-            with self.subTest(size=size):
-                self.largest.return_value = {"message_id": 77, "file_size": size}
-                self.store.enqueue(size, True)
-                job = self.store.pending()
-                await process_job(self.user, self.bot, self.source, self.target, self.store, job)
-                row = self.store.connection.execute("SELECT * FROM jobs WHERE message=?", (size,)).fetchone()
-                self.assertEqual((row["status"], row["result_id"]), ("excluded", 77))
-        self.user.send_file.assert_not_awaited()
+    async def test_same_compilation_segments_are_copied_instead_of_deleted(self):
+        self.user.get_messages.return_value = [video(document_id=101)]
+        self.store.enqueue(10, True)
+        await process_job(self.user, self.bot, self.source, self.target, self.store, self.store.pending())
+        self.user.send_file.assert_awaited_once()
+        self.assertEqual(self.store.pending()["status"], "forwarded")
 
     async def test_larger_new_file_is_copied_and_indexed_with_actual_bytes(self):
-        self.largest.return_value = {"message_id": 77, "file_size": 4000}
         self.store.enqueue(10, True)
         await process_job(self.user, self.bot, self.source, self.target, self.store, self.store.pending())
         with patch("movie_ingest.save_movie", return_value=True) as save:
@@ -237,6 +249,102 @@ class ShortDramaIngestionTests(unittest.IsolatedAsyncioTestCase):
         resolved = await resolve_album_caption(self.user, self.source, item, DRAMA_SOURCE)
         self.assertEqual(resolved.message, photo.message)
         self.assertEqual(item.message, "")
+
+    async def test_short_drama_album_is_copied_and_indexed_as_one_group(self):
+        source_group = []
+        target_group = []
+        for index in range(4):
+            source_item = video(ident=10 + index, caption="《测试短剧》第1-2季",
+                                document_id=200 + index)
+            source_item.grouped_id = 123
+            source_item.document.size = 5000 - index * 100
+            source_group.append(source_item)
+            target_group.append(video(ident=90 + index, caption="《测试短剧》第1-2季",
+                                      document_id=200 + index))
+
+        async def source_messages(_source, ids):
+            return source_group if len(ids) > 1 else [source_group[0]]
+
+        self.user.get_messages.side_effect = source_messages
+        self.user.send_file.return_value = target_group
+        self.bot.get_messages.return_value = target_group
+        self.store.enqueue(10, True)
+
+        await process_job(self.user, self.bot, self.source, self.target, self.store, self.store.pending())
+        self.user.send_file.assert_awaited_once()
+        self.assertEqual(len(self.user.send_file.call_args.args[1]), 4)
+        job = self.store.pending()
+        self.assertEqual(job["status"], "forwarded")
+        self.assertEqual(json.loads(job["result_ids"]), [90, 91, 92, 93])
+
+        with patch("movie_ingest.save_movie", return_value=True) as save:
+            await process_job(self.user, self.bot, self.source, self.target, self.store, job)
+        self.assertEqual(save.call_count, 4)
+        self.assertEqual([call.args[1] for call in save.call_args_list], [90, 91, 92, 93])
+        self.assertEqual(self.store.pending(), None)
+
+    async def test_source_scan_queues_only_the_first_video_in_an_album(self):
+        source_group = []
+        for index in range(4):
+            item = video(ident=10 + index, caption="《测试短剧》第1-2季",
+                         document_id=300 + index)
+            item.grouped_id = 456
+            source_group.append(item)
+        by_id = {item.id: item for item in source_group}
+
+        async def messages(_source, ids):
+            return source_group if len(ids) > 1 else [by_id[ids[0]]]
+
+        async def iterate(_source, **_options):
+            for item in source_group:
+                yield item
+
+        self.user.get_messages.side_effect = messages
+        self.user.iter_messages = iterate
+        with self.store.connection:
+            self.store.connection.execute("UPDATE progress SET live=0 WHERE id=1")
+        await scan_source(self.user, self.source, self.store, historical=False)
+        rows = self.store.connection.execute("SELECT message FROM jobs ORDER BY message").fetchall()
+        self.assertEqual([row["message"] for row in rows], [10])
+
+    def test_old_dedupe_exclusion_is_requeued_for_album_recovery(self):
+        self.store.enqueue(10, True)
+        self.store.update(
+            self.store.pending(), "excluded",
+            "Same short-drama compilation already has an equal or larger file",
+            result_id=77, document_id=100,
+        )
+        self.store.enqueue(10, True)
+        row = self.store.pending()
+        self.assertEqual((row["status"], row["result_id"], row["document_id"]), ("queued", None, None))
+
+    async def test_recent_partial_album_deletion_requeues_the_complete_group(self):
+        source_group = []
+        for index in range(2):
+            item = video(ident=10 + index, caption="《测试短剧》第1-2季",
+                         document_id=400 + index)
+            item.grouped_id = 789
+            source_group.append(item)
+
+        async def messages(_source, ids):
+            return source_group if len(ids) > 1 else [source_group[0]]
+
+        async def iterate(_source, **_options):
+            for item in reversed(source_group):
+                yield item
+
+        self.user.get_messages.side_effect = messages
+        self.user.iter_messages = iterate
+        self.store.enqueue(10, True)
+        self.store.update(self.store.pending(), "sent", result_id=77, document_id=400)
+        self.store.enqueue(11, True)
+        self.store.update(
+            self.store.connection.execute("SELECT * FROM jobs WHERE message=11").fetchone(),
+            "excluded", "Smaller duplicate removed from owned short-drama channel; largest file retained",
+        )
+        await reconcile_recent(self.user, self.source, self.store)
+        row = self.store.pending()
+        self.assertEqual((row["message"], row["status"]), (10, "queued"))
 
 
 if __name__ == "__main__":

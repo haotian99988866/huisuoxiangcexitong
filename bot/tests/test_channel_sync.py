@@ -13,8 +13,11 @@ from channel_sync_clean import clean_text, is_advertisement, is_news_advertiseme
 
 
 MISSED_NEWS_ADS = (
+    "➡神盾出海联盟 广告位招商：",
     "🤩🤩🤩🤩\n🤩🤩🤩🤩🤩\n东南亚大事件联合担保🤩🤩(电子)\n"
     "香港六合彩 · 独家盈利无上限！\n百家乐全网最高起步返水\n诚招代理合作：\n打码返佣",
+    "🤩🤩🤩🤩\n0审核|包出款\n东南亚大事件联合担保\n香港六合彩·独家盈利无上限\n"
+    "百家乐全网最高起步返水\n诚招代理合作\n打码返佣",
     "🫥🏆🏆🏆\n😀云购入口: https://example.com\n😀云购网址: https://example.com\n"
     "一元云购主营商品：\n每消费1USDT即可获得1积分，积分可用于积分抽奖或者兑现成USDT\n"
     "中奖后可选择实体发货或兑现成USDT进行提现。\n官方频道: @example\n官方客服: @service",
@@ -52,6 +55,7 @@ class CleanTextTests(unittest.TestCase):
             "本频道专属邀请链接被用于诈骗，涉及多个频道、群组。",
             "#频道互推", "一元云购平台被调查", "", None,
             "警方提醒：NO钱包冒名广告涉嫌诈骗\n雄厚实力护航，官网权威验证；知名免费能量赞助商。",
+            "警方查处广告位招商诈骗，提醒商户谨慎合作。",
             "警方查处娱乐城\n注册就送28.8U，首存赠送，香港六合彩和全网返水，注册网址。",
             "广告优惠券市场调查报道\n购买所有广告获得优惠，官方机器人广告同步展示。",
             "NO钱包发布安全更新", "免费能量公益项目启动",
@@ -83,6 +87,20 @@ class CleanTextTests(unittest.TestCase):
             "https://example.com/path www.example.org t.me/someone @other_contact"
         )
         self.assertEqual(clean_text(original), "正文保留")
+
+    def test_map_links_are_preserved_but_other_links_are_removed(self):
+        body = "事故地点 https://maps.app.goo.gl/example https://example.com/news"
+        self.assertEqual(clean_text(body), "事故地点 https://maps.app.goo.gl/example")
+        self.assertEqual(clean_text("位置 maps.google.com/maps/@12.5,104.9"), "位置 maps.google.com/maps/@12.5,104.9")
+
+    def test_hidden_map_text_url_keeps_its_destination(self):
+        text = "事故地点 查看地图"
+        start = len(text[:text.index("查看地图")].encode("utf-16-le")) // 2
+        entity = types.MessageEntityTextUrl(start, len("查看地图"), "https://maps.google.com/?q=12.5,104.9")
+        self.assertEqual(
+            clean_text(text, [entity]),
+            "事故地点 查看地图 (https://maps.google.com/?q=12.5,104.9)",
+        )
 
     def test_entities_use_utf16_offsets_and_remove_hidden_contact_label(self):
         text = "🎵正文 点击联系 结尾"

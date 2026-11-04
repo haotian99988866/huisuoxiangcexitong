@@ -6,7 +6,7 @@ import { Cover, durationText, openMovie } from './MovieList'
 import { rememberModuleScroll, useModuleScroll, useModuleState } from '../utils/moduleState'
 import { bindBackButton } from '../utils/twa'
 import usePagedCatalog from '../utils/usePagedCatalog'
-import { ListRefresh, LoadMore } from '../components/ContinuousList'
+import { LoadMore } from '../components/ContinuousList'
 import './MovieList.css'
 import './ShortDramas.css'
 
@@ -42,7 +42,6 @@ export default function ShortDramas() {
       <button type="submit">搜索</button>
       </form>
     </AccountHeader>
-    <ListRefresh onRefresh={refresh} busy={catalog.refreshing} disabled={catalog.busy} />
     <div className="movie-section-heading"><h1>{filter.query ? `“${filter.query}”的搜索结果` : '最新短剧'}</h1>
       <span>{loading ? '读取中…' : error ? '加载失败' : `共 ${data.total} 部合集`}</span></div>
     {loading ? <div className="movie-grid movie-skeleton" role="status" aria-label="正在加载短剧">

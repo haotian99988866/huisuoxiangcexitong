@@ -3,8 +3,10 @@ import json
 import re
 import os
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 from db import get_conn
+from channel_sync_clean import LINK, extract_map_urls, is_map_url
 
 
 def media_directory():
@@ -69,8 +71,59 @@ def summary(body, media):
     )
 
 
+def map_coordinates(url):
+    if not is_map_url(url):
+        return None
+    parsed = urlsplit(url)
+    values = parse_qs(parsed.query)
+    candidates = []
+    if "mlat" in values and "mlon" in values:
+        candidates.append(f"{values['mlat'][0]},{values['mlon'][0]}")
+    for key in ("ll", "query", "q", "center", "destination", "daddr", "map"):
+        candidates.extend(values.get(key, []))
+    candidates.append(unquote(parsed.path))
+    for value in candidates:
+        match = re.search(r"(?<![\d.])(-?\d{1,2}(?:\.\d+)?)\s*[,;]\s*(-?\d{1,3}(?:\.\d+)?)(?![\d.])", value)
+        if not match:
+            match = re.search(r"@(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)", value)
+        if not match:
+            match = re.search(r"!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)", value)
+        if match:
+            latitude, longitude = float(match[1]), float(match[2])
+            if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                return latitude, longitude
+    return None
+
+
+def map_previews(body):
+    previews = []
+    for url in extract_map_urls(body):
+        coordinates = map_coordinates(url)
+        preview_url = None
+        if coordinates:
+            latitude, longitude = coordinates
+            west, east = round(max(-180, longitude - 0.01), 6), round(min(180, longitude + 0.01), 6)
+            south, north = round(max(-90, latitude - 0.01), 6), round(min(90, latitude + 0.01), 6)
+            query = urlencode({
+                "bbox": f"{west},{south},{east},{north}",
+                "layer": "mapnik",
+                "marker": f"{latitude},{longitude}",
+            })
+            preview_url = f"https://www.openstreetmap.org/export/embed.html?{query}"
+        previews.append({"url": url, "preview_url": preview_url})
+    return previews
+
+
+def _without_map_urls(text):
+    return LINK.sub(
+        lambda match: "" if is_map_url(match.group(0)) else match.group(0),
+        text or "",
+    ).strip()
+
+
 def reading_text(body, media):
-    lines = body.strip().splitlines()
+    display_body = _without_map_urls(body)
+    lines = display_body.splitlines()
     first = lines[0].strip() if lines else ""
     tag = re.match(r"^#([^\s:：]{1,20})[：:]\s*", first)
     category = tag[1] if tag else "频道资讯"
@@ -79,7 +132,7 @@ def reading_text(body, media):
         headline = summary("", media) if media else "文字公告"
     complete_title = len(headline) <= 120
     title = headline if complete_title else headline[:120] + "…"
-    content = "\n".join(lines[1:]).strip() if first and complete_title else body.strip()
+    content = "\n".join(lines[1:]).strip() if first and complete_title else display_body
     excerpt = re.sub(r"\s+", " ", content).strip()
     return {"title": title, "category": category, "content": content,
             "excerpt": excerpt[:100] + ("…" if len(excerpt) > 100 else "")}
@@ -88,12 +141,15 @@ def reading_text(body, media):
 def serialize(row, detail=False):
     media = json.loads(row["media"]) if isinstance(row["media"], str) else row["media"]
     reading = reading_text(row["body"], media)
-    cover_index = next((index for index, item in enumerate(media) if item["kind"] == "photo"), None)
+    cover_index = next((index for index, item in enumerate(media)
+                        if item["kind"] in {"photo", "video"}), None)
     result = {
         "id": row["id"], "summary": summary(row["body"], media),
         "title": reading["title"], "category": reading["category"], "excerpt": reading["excerpt"],
-        "cover": {"kind": "photo", "url": f"/announcement-media/{row['id']}/{cover_index}"} if cover_index is not None else None,
+        "cover": {"kind": media[cover_index]["kind"],
+                  "url": f"/announcement-media/{row['id']}/{cover_index}"} if cover_index is not None else None,
         "has_video": any(item["kind"] == "video" for item in media),
+        "maps": map_previews(row["body"]),
         "published_at": row["published_at"].isoformat(timespec="seconds") + "Z",
         "media_count": len(media),
     }

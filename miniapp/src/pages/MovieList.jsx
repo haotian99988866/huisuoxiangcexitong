@@ -9,7 +9,7 @@ import { useAnalyticsScreen } from '../utils/analytics'
 import { API_BASE_URL, bindBackButton, hasTelegramBackButton, openTelegramLink, subscribeFullscreen } from '../utils/twa'
 import './MovieList.css'
 import usePagedCatalog from '../utils/usePagedCatalog'
-import { ListRefresh, LoadMore } from '../components/ContinuousList'
+import { LoadMore } from '../components/ContinuousList'
 
 const seriesKey = item => JSON.stringify([item.category, item.name])
 const coverUrl = cover => !cover ? '' : /^https?:/.test(cover) ? cover : mediaUrl(`${API_BASE_URL}/${cover}`)
@@ -101,7 +101,6 @@ export default function MovieList() {
           aria-pressed={category === item.name} onClick={() => setCategory(item.name)}>{item.name}</button>)}
       </nav>}
     </header>
-    {!openSeries && <ListRefresh onRefresh={catalog.refresh} busy={catalog.refreshing} disabled={catalog.busy} />}
     {openSeries ? <>
       {!hasTelegramBackButton && <button className="movie-back" type="button" onClick={() => setOpenSeries(null)}>← 返回片库</button>}
       <section className="movie-detail">

@@ -50,17 +50,35 @@ class AnnouncementTests(unittest.TestCase):
         result = announcements.reading_text("#本地资讯：\n\n正文", [])
         self.assertEqual(result["content"], "正文")
 
-    def test_catalog_selects_first_photo_not_video_as_cover(self):
+    def test_catalog_uses_first_media_item_as_cover(self):
         row = {"id": 2, "body": "标题\n正文", "published_at": datetime(2026, 1, 1),
                "media": [{"kind": "video", "filename": "2-1.mp4"}, {"kind": "photo", "filename": "2-2.jpg"}]}
         result = announcements.serialize(row)
         self.assertTrue(result["has_video"])
-        self.assertEqual(result["cover"]["url"], "/announcement-media/2/1")
+        self.assertEqual(result["cover"]["kind"], "video")
+        self.assertEqual(result["cover"]["url"], "/announcement-media/2/0")
         self.assertEqual(result["title"], "标题")
         self.assertEqual(result["excerpt"], "正文")
         self.assertNotIn("content", result)
         row["media"] = []
         self.assertIsNone(announcements.serialize(row)["cover"])
+
+    def test_map_links_are_exposed_as_safe_previews_and_removed_from_reading_text(self):
+        body = "#本地资讯：路口事故\n\n请绕行 https://www.google.com/maps/@12.5,104.9,15z\n"
+        result = announcements.serialize({
+            "id": 3, "body": body, "published_at": datetime(2026, 1, 1), "media": "[]",
+        }, detail=True)
+        self.assertEqual(result["maps"][0]["url"], "https://www.google.com/maps/@12.5,104.9,15z")
+        self.assertTrue(result["maps"][0]["preview_url"].startswith(
+            "https://www.openstreetmap.org/export/embed.html?"))
+        self.assertNotIn("google.com/maps", result["content"])
+        self.assertIsNone(announcements.map_coordinates("https://maps.app.goo.gl/example"))
+        self.assertIsNone(announcements.map_previews("https://maps.app.goo.gl/example")[0]["preview_url"])
+        self.assertIsNone(announcements.map_coordinates("https://example.com/maps/@12.5,104.9"))
+        no_map = announcements.serialize({
+            "id": 4, "body": "无地图", "published_at": datetime(2026, 1, 1), "media": "[]",
+        })
+        self.assertEqual(no_map["maps"], [])
 
     def test_strict_inputs_and_path_scope(self):
         for value in [None, True, -1, 0, "1", 1.5, 100001]:

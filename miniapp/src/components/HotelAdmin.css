@@ -1,4 +1,41 @@
+.hotel-admin { padding: 18px !important; }
+.hotel-admin-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hotel-admin-heading > div { min-width: 0; }
+.hotel-admin-eyebrow { color: var(--ink-accent); font-size: 9px; font-weight: 700; letter-spacing: 1.8px; }
+.hotel-admin .hotel-admin-heading h2 { margin: 4px 0 0; font-size: 19px; line-height: 1.35; }
+.hotel-admin .hotel-admin-add { flex: 0 0 auto; min-height: 42px; padding: 8px 13px; border: 0; border-radius: 12px; background: var(--ink-accent); color: #fff; font-size: 13px; font-weight: 600; }
+.hotel-admin-intro { margin: 13px 0 4px; color: var(--ink-text); font-size: 13px; line-height: 1.6; }
+.hotel-admin-guidance { margin: 0; color: var(--ink-muted); font-size: 11px; line-height: 1.6; }
+.hotel-admin-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px -2px 10px; padding: 10px 2px; border-top: 1px solid var(--ink-line); color: var(--ink-muted); font-size: 12px; }
+.hotel-admin .hotel-admin-toolbar button { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 6px 10px; border-color: var(--ink-line); border-radius: 10px; background: var(--ink-surface); color: var(--ink-text); font-size: 12px; }
+.hotel-admin-toolbar button span { font-size: 17px; line-height: 1; }
+.hotel-admin-loading { padding: 18px 0; color: var(--ink-muted); font-size: 13px; text-align: center; }
+.hotel-admin-list { display: grid; gap: 10px; }
+.hotel-admin-item { min-width: 0; padding: 15px; border: 1px solid var(--ink-line); border-radius: 15px; background: var(--ink-surface); }
+.hotel-admin-item-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.hotel-admin-item-heading > div { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; width: 100%; }
+.hotel-admin-item h3 { min-width: 0; margin: 0; font-size: 15px; line-height: 1.5; font-weight: 650; overflow-wrap: anywhere; }
+.hotel-admin-status { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 999px; background: #f1f1ef; color: var(--ink-muted); font-size: 10px; white-space: nowrap; }
+.hotel-admin-status i { width: 6px; height: 6px; border-radius: 50%; background: #98a09a; }
+.hotel-admin-status.is-active { background: #edf5ef; color: #38634f; }
+.hotel-admin-status.is-active i { background: #528264; }
+.hotel-admin-contact { display: flex; align-items: center; gap: 9px; margin-top: 14px; color: var(--ink-text); text-decoration: none; }
+.hotel-admin-contact > span:first-child { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 10px; background: #edf2e9; color: var(--ink-accent); font-size: 16px; font-weight: 700; }
+.hotel-admin-contact > span:last-child { display: grid; min-width: 0; gap: 2px; }
+.hotel-admin-contact small { color: var(--ink-muted); font-size: 10px; }
+.hotel-admin-contact strong { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; }
+.hotel-admin-map { display: flex; align-items: center; gap: 6px; width: fit-content; max-width: 100%; margin-top: 12px; color: var(--ink-accent); font-size: 12px; font-weight: 600; text-decoration: none; }
+.hotel-admin-map > span:first-child { font-size: 17px; }
+.hotel-admin-map > span:last-child { color: var(--ink-muted); }
 .hotel-admin-actions { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.hotel-admin-item .hotel-admin-actions { justify-content: flex-start; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ink-line); }
+.hotel-admin .hotel-admin-actions button { min-height: 40px; padding: 8px 12px; border-radius: 10px; font-size: 12px; }
+.hotel-admin .hotel-admin-actions .hotel-admin-unpublish { margin-left: auto; border-color: #efdbd8; background: #fff8f7; color: #a64c43; }
+.hotel-admin .hotel-admin-actions .hotel-admin-publish { margin-left: auto; border-color: #d3e6d8; background: #f2f8f3; color: #38634f; }
+.hotel-admin-empty { display: grid; justify-items: center; gap: 7px; padding: 28px 16px; border: 1px dashed var(--ink-line); border-radius: 14px; color: var(--ink-muted); text-align: center; }
+.hotel-admin-empty > span { color: var(--ink-accent); font-size: 26px; }
+.hotel-admin-empty strong { color: var(--ink-text); font-size: 14px; }
+.hotel-admin-empty p { max-width: 260px; margin: 0; font-size: 12px; line-height: 1.6; }
 .dialog-panel-footer .hotel-admin-actions { margin: 0; }
 .hotel-admin-preview { display: block; width: 100%; max-height: 240px; object-fit: contain; margin: 14px 0; border-radius: 12px; }
 .hotel-admin-link { overflow-wrap: anywhere; }
@@ -14,3 +51,9 @@
 .hotel-editor-sheet .dialog-panel-footer .hotel-admin-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; }
 .hotel-editor-sheet .hotel-admin-actions button { min-height: 44px; padding: 10px 12px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); font-size: 14px; }
 .hotel-editor-sheet .hotel-admin-actions .hotel-admin-primary { background: var(--ink-accent); border-color: var(--ink-accent); color: white; }
+@media (max-width: 380px) {
+  .hotel-admin { padding: 14px !important; }
+  .hotel-admin .hotel-admin-heading h2 { font-size: 17px; }
+  .hotel-admin .hotel-admin-add { padding-inline: 10px; font-size: 12px; }
+  .hotel-admin-item { padding: 12px; }
+}

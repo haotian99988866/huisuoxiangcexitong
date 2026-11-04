@@ -124,26 +124,43 @@ export default function HotelAdmin() {
   }
   const disabled = busy || recovering || Boolean(recoveryError) || Boolean(editor)
   return <section className="admin-card hotel-admin" aria-label="酒店管理">
-    <div className="admin-header"><h2>酒店推荐管理</h2>
-      <button type="button" disabled={disabled} onClick={() => open(null)}>新增酒店</button></div>
-    <p className="admin-hint">仅维护真实酒店资料。门头照上传须已获使用许可；地图链接和前台Telegram请核实后发布。</p>
+    <div className="hotel-admin-heading">
+      <div><span className="hotel-admin-eyebrow">HOTEL DIRECTORY</span><h2>酒店推荐管理</h2></div>
+      <button className="hotel-admin-add" type="button" disabled={disabled} onClick={() => open(null)}>＋ 新增酒店</button>
+    </div>
+    <p className="hotel-admin-intro">维护酒店门头照片、地图位置与前台联系方式。</p>
+    <p className="hotel-admin-guidance">请确认资料真实，并已获门头照使用许可后再发布。</p>
     {recoveryError && <p className="admin-error" role="alert">{recoveryError}</p>}
     {!editor && error && <p className="admin-error" role="alert">{error}</p>}
     {notice && <p className="admin-notice" role="status">{notice}</p>}
-    <button type="button" disabled={loading || disabled} onClick={() => setReload(value => value + 1)}>刷新酒店</button>
-    {loading && <p role="status">正在读取酒店资料…</p>}
+    <div className="hotel-admin-toolbar">
+      <span>{data ? `共 ${data.total} 家酒店` : '酒店目录'}</span>
+      <button type="button" disabled={loading || disabled} onClick={() => setReload(value => value + 1)}>
+        <span aria-hidden="true">↻</span> 刷新
+      </button>
+    </div>
+    {loading && <p className="hotel-admin-loading" role="status">正在读取酒店资料…</p>}
     {data && <>
-      {!data.hotels.length && <p className="admin-hint">暂无酒店，点击新增酒店开始录入。</p>}
-      {data.hotels.map(hotel => <article className="admin-tenant" key={hotel.id}>
-        <div className="admin-header"><h3>{hotel.name}</h3><span>{hotel.enabled ? '展示中' : '已下架'}</span></div>
-        <p>前台 Telegram：@{hotel.telegram_username}</p>
-        <a href={hotel.map_url} target="_blank" rel="noopener noreferrer">核对地图位置</a>
+      {!data.hotels.length && <div className="hotel-admin-empty"><span aria-hidden="true">⌂</span><strong>还没有酒店资料</strong>
+        <p>添加酒店门头照、地图链接和前台联系方式后即可开始管理。</p></div>}
+      <div className="hotel-admin-list">{data.hotels.map(hotel => <article className="hotel-admin-item" key={hotel.id}>
+        <div className="hotel-admin-item-heading"><div><h3>{hotel.name}</h3>
+          <span className={`hotel-admin-status${hotel.enabled ? ' is-active' : ''}`}>
+            <i aria-hidden="true" />{hotel.enabled ? '展示中' : '已下架'}
+          </span></div></div>
+        <a className="hotel-admin-contact" href={`https://t.me/${hotel.telegram_username}`}
+          target="_blank" rel="noopener noreferrer"><span aria-hidden="true">@</span>
+          <span><small>前台 Telegram</small><strong>{hotel.telegram_username}</strong></span></a>
+        <a className="hotel-admin-map" href={hotel.map_url} target="_blank" rel="noopener noreferrer">
+          <span aria-hidden="true">⌖</span> 核对地图位置 <span aria-hidden="true">↗</span>
+        </a>
         <div className="hotel-admin-actions">
           <button type="button" disabled={disabled} onClick={() => open(hotel)}>编辑资料</button>
-          <button type="button" disabled={disabled} onClick={() => open(hotel, !hotel.enabled)}>
+          <button className={hotel.enabled ? 'hotel-admin-unpublish' : 'hotel-admin-publish'}
+            type="button" disabled={disabled} onClick={() => open(hotel, !hotel.enabled)}>
             {hotel.enabled ? '下架酒店' : '重新上架'}</button>
         </div>
-      </article>)}
+      </article>)}</div>
       {data.total > 20 && <nav className="hotel-admin-actions" aria-label="酒店管理分页">
         <button type="button" disabled={disabled || page === 1} onClick={() => setPage(value => value - 1)}>上一页</button>
         <span>{page} / {Math.ceil(data.total / 20)}</span>

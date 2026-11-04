@@ -10,7 +10,7 @@ import { requestMusic } from '../utils/music'
 import { musicArtist as artistName, playlistLink } from '../utils/musicPlayback'
 import { filterMusicTracks, musicCategories } from '../utils/musicCategories'
 import { musicSummary } from '../utils/catalogSummary'
-import { ListRefresh, LoadMore } from '../components/ContinuousList'
+import { LoadMore } from '../components/ContinuousList'
 import './Music.css'
 
 export default function Music() {
@@ -108,13 +108,6 @@ export default function Music() {
     setVisibleCount(20)
     window.scrollTo(0, 0)
   }, [view, query, category])
-  const refresh = () => {
-    setVisibleCount(20)
-    window.scrollTo(0, 0)
-    player.load()
-    if (player.profile) player.loadAccount()
-    if (sharedToken) setSharedAttempt(value => value + 1)
-  }
   const categoryLabel = musicCategories.find(([key]) => key === category)?.[1] || '全部'
   const title = selected?.name || ({ all: category === 'all' ? '全部歌曲' : `${categoryLabel}歌曲`, favorites: '我喜欢', recent: '最近播放',
     playlists: '我的歌单', shared: shared?.name || '分享歌单' })[view] || '歌曲列表'
@@ -171,7 +164,6 @@ export default function Music() {
         ))}
       </nav>
       </div>
-      <ListRefresh onRefresh={refresh} busy={player.status === 'loading'} disabled={!!sheet || player.busy} />
       {view === 'all' && <nav className="music-language-tabs" aria-label="歌曲语言分类">
         {musicCategories.map(([key, label]) => <button type="button" key={key}
           aria-pressed={category === key} onClick={() => setCategory(key)}>{label}</button>)}

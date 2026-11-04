@@ -45,6 +45,10 @@ class MatchingTests(unittest.TestCase):
         footer = "\n\n👉 订阅东南亚大事件频道\u00a0 ↓\n\n投稿澄清爆料："
         self.assertEqual(normalized_body(body + footer), normalized_body(body))
         self.assertEqual(clean_news_text(body + footer), body)
+        inline_footer = "👉 订阅东南亚大事件频道 投稿澄清爆料："
+        self.assertEqual(normalized_body(body + inline_footer), normalized_body(body))
+        self.assertEqual(clean_news_text(body + inline_footer), body)
+        self.assertEqual(clean_news_text(body + "订阅东南亚大事件频道投稿澄清爆料"), body)
         self.assertIn("订阅东南亚大事件频道", clean_text(body + footer))
         inline = "警方提醒：不要相信“订阅东南亚大事件频道”及“投稿澄清爆料”的冒名消息。"
         self.assertIn("订阅东南亚大事件频道", normalized_body(inline))
@@ -153,6 +157,22 @@ class NewsDedupeTests(unittest.IsolatedAsyncioTestCase):
         footer = "\n\n👉 订阅东南亚大事件频道 ↓\n\n投稿澄清爆料："
         file = self.directory / "same.jpg"
         file.write_bytes(b"identical complete album")
+        first = self.job(1, 10)
+        self.remember(first, body, media_digest([file]))
+        second = self.job(3, 10)
+        self.user.get_messages.return_value = [self.message(body + footer, types.MessageMediaPhoto())]
+        self.user.download_media.return_value = str(file)
+        await deliver(self.user, self.bot, SimpleNamespace(id=3), self.target, self.store,
+                      second, self.directory)
+        self.bot.send_file.assert_not_awaited()
+        self.assertEqual(self.store.connection.execute(
+            "SELECT status FROM jobs WHERE source=3").fetchone()[0], "skipped")
+
+    async def test_inline_footer_with_same_album_is_skipped(self):
+        body = "#网友投稿：西港海岸公寓旁边的越南公寓现在有宪兵查房，各位注意了"
+        footer = "👉 订阅东南亚大事件频道 投稿澄清爆料："
+        file = self.directory / "same-inline.jpg"
+        file.write_bytes(b"identical inline-footer album")
         first = self.job(1, 10)
         self.remember(first, body, media_digest([file]))
         second = self.job(3, 10)

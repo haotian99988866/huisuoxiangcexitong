@@ -7,9 +7,3 @@ export function appendUnique(previous, incoming, key) {
     return true
   })]
 }
-
-export function pullDistance(start, point) {
-  const vertical = point.y - start.y
-  return vertical > 0 && vertical > Math.abs(point.x - start.x) * 1.5
-    ? Math.min(110, vertical * 0.5) : 0
-}
