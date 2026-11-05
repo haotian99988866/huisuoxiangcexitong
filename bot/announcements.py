@@ -2,11 +2,59 @@
 import json
 import re
 import os
+import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 from db import get_conn
 from channel_sync_clean import LINK, extract_map_urls, is_map_url
+
+
+logger = logging.getLogger(__name__)
+
+
+def retention_cutoff():
+    return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=72)
+
+
+def expire_news():
+    from announcement_video import cache_key, video_cache
+
+    cutoff = retention_cutoff()
+    conn = get_conn()
+    removed = 0
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE channel_announcements SET enabled=0 WHERE published_at<%s", (cutoff,))
+            conn.commit()
+            cur.execute("SELECT id,media FROM channel_announcements"
+                        " WHERE published_at<%s AND (body<>'' OR JSON_LENGTH(media)>0)", (cutoff,))
+            rows = cur.fetchall()
+            for row in rows:
+                media = json.loads(row["media"]) if isinstance(row["media"], str) else row["media"]
+                try:
+                    for item in media:
+                        path = local_media_path(item["filename"])
+                        if path.is_symlink():
+                            raise ValueError("Refusing to delete linked announcement media")
+                        if path.exists() and path.suffix == ".mp4":
+                            cached = video_cache(path.parent).get(cache_key(path))
+                            if cached is not None:
+                                cached.unlink(missing_ok=True)
+                        path.unlink(missing_ok=True)
+                except (OSError, ValueError):
+                    logger.exception("Cannot clean expired announcement %s; retrying next cycle", row["id"])
+                    continue
+                cur.execute("UPDATE channel_announcements SET body='',media='[]'"
+                            " WHERE id=%s AND enabled=0 AND published_at<%s", (row["id"], cutoff))
+                conn.commit()
+                removed += 1
+        if removed:
+            logger.info("Removed content and local media for %s expired announcements", removed)
+        return removed
+    finally:
+        conn.close()
 
 
 def media_directory():
@@ -39,15 +87,15 @@ def ensure_tables():
         conn.close()
 
 
-def save(job_key, message_ids, body, media, published_at):
+def save(job_key, message_ids, body, media, published_at, enabled=True):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO channel_announcements (job_key,message_ids,body,media,published_at)"
-                " VALUES (%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE job_key=VALUES(job_key)",
+                "INSERT INTO channel_announcements (job_key,message_ids,body,media,published_at,enabled)"
+                " VALUES (%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE job_key=VALUES(job_key)",
                 (job_key, json.dumps(message_ids), body, json.dumps(media),
-                 published_at.replace(tzinfo=None)),
+                 published_at.replace(tzinfo=None), enabled),
             )
         conn.commit()
     finally:
@@ -169,13 +217,15 @@ def catalog(page=1):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS total FROM channel_announcements WHERE enabled=1")
+            cutoff = retention_cutoff()
+            cur.execute("SELECT COUNT(*) AS total FROM channel_announcements"
+                        " WHERE enabled=1 AND published_at>=%s", (cutoff,))
             total = cur.fetchone()["total"]
             pages = max(1, (total + 19) // 20)
             page = min(page, pages)
             cur.execute(
-                "SELECT * FROM channel_announcements WHERE enabled=1"
-                " ORDER BY published_at DESC,id DESC LIMIT 20 OFFSET %s", ((page - 1) * 20,),
+                "SELECT * FROM channel_announcements WHERE enabled=1 AND published_at>=%s"
+                " ORDER BY published_at DESC,id DESC LIMIT 20 OFFSET %s", (cutoff, (page - 1) * 20),
             )
             return {"items": [serialize(row) for row in cur.fetchall()],
                     "page": page, "pages": pages, "total": total}
@@ -189,7 +239,8 @@ def detail(ident):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM channel_announcements WHERE id=%s AND enabled=1", (ident,))
+            cur.execute("SELECT * FROM channel_announcements WHERE id=%s AND enabled=1"
+                        " AND published_at>=%s", (ident, retention_cutoff()))
             row = cur.fetchone()
             return serialize(row, detail=True) if row else None
     finally:
@@ -200,7 +251,8 @@ def media_file(ident, index):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT media FROM channel_announcements WHERE id=%s AND enabled=1", (ident,))
+            cur.execute("SELECT media FROM channel_announcements WHERE id=%s AND enabled=1"
+                        " AND published_at>=%s", (ident, retention_cutoff()))
             row = cur.fetchone()
             if not row:
                 return None

@@ -160,6 +160,7 @@ def enqueue_news():
             cur.execute("""INSERT IGNORE INTO news_deliveries (user_id,announcement_id)
                 SELECT s.user_id,a.id FROM news_subscriptions s
                 JOIN channel_announcements a ON a.id>s.start_id AND a.enabled=1
+                    AND a.published_at>=UTC_TIMESTAMP() - INTERVAL 72 HOUR
                 LEFT JOIN display_tenants t ON t.slug=s.tenant_slug
                 WHERE s.active=1 AND (s.tenant_slug='' OR
                     (t.status='active' AND t.expires_at>UTC_TIMESTAMP() AND t.announcements_enabled=1))
@@ -185,6 +186,7 @@ def claim_delivery():
                 s.tenant_slug FROM news_deliveries d
                 JOIN news_subscriptions s ON s.user_id=d.user_id AND s.active=1
                 JOIN channel_announcements a ON a.id=d.announcement_id AND a.enabled=1 AND a.id>s.start_id
+                    AND a.published_at>=UTC_TIMESTAMP() - INTERVAL 72 HOUR
                 WHERE d.id=%s""", (row["id"],))
             result = cur.fetchone()
             if not result:

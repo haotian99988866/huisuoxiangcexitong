@@ -9,12 +9,13 @@ import logging
 import os
 from pathlib import Path
 import sqlite3
+import shutil
 import tempfile
 
 from dotenv import load_dotenv
 from telethon import TelegramClient, events, errors, types, utils
 
-from channel_sync_clean import clean_news_text, is_news_advertisement
+from channel_sync_clean import clean_news_text, is_news_advertisement, exceeds_news_limits, cleaned_news_emoji_count
 from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 from news_sources import NEWS_SOURCES, announcement_job_key
 from news_dedupe import NewsDeduper, MIN_SIMILAR_LENGTH, media_digest, normalized_body, seed_recent_news
@@ -313,6 +314,12 @@ async def deliver(user, bot, source, target, store, job, directory):
         logger.info("Skipped advertisement job %s", job["job_key"])
         return
     captions = [clean_news_text(message.message, message.entities) for message in messages]
+    if (any(exceeds_news_limits(text) for text in captions)
+            or sum(cleaned_news_emoji_count(message.message, text, message.entities)
+                   for message, text in zip(messages, captions)) > 5):
+        store.update(job, "skipped", error="Cleaned news contains SOSO or more than 5 emojis; entire job excluded.")
+        logger.info("Skipped cleaned news limits job %s", job["job_key"])
+        return
     media_messages = [message for message in messages if message.media
                       and not isinstance(message.media, types.MessageMediaWebPage)]
     if media_messages and any(
@@ -426,7 +433,7 @@ async def index_announcements(bot, target, store):
     from announcements import indexed_keys
     known = await asyncio.to_thread(indexed_keys)
     jobs = store.connection.execute(
-        "SELECT * FROM jobs WHERE target=? AND status='sent' ORDER BY rowid",
+        "SELECT * FROM jobs WHERE target=? AND status='sent' ORDER BY rowid DESC",
         (str(target.id),),
     ).fetchall()
     failed = 0
@@ -446,11 +453,16 @@ async def index_announcements(bot, target, store):
 
 
 async def index_announcement(bot, target, job, key):
-    from announcements import local_media_path, save
+    from announcements import local_media_path, save, retention_cutoff
     ids = json.loads(job["result_ids"])
     messages = await bot.get_messages(target, ids=ids)
     if not ids or len(messages) != len(ids) or any(message is None for message in messages):
         raise ValueError(f"Published messages unavailable for announcement job {job['job_key']}")
+    published_at = messages[0].date
+    if published_at.astimezone(timezone.utc).replace(tzinfo=None) < retention_cutoff():
+        await asyncio.to_thread(save, key, ids, "", [], published_at, enabled=False)
+        logger.info("Recorded expired announcement job %s without downloading media", job["job_key"])
+        return
     media = []
     for message in messages:
         if message.photo or message.video or message.gif:
@@ -462,9 +474,10 @@ async def index_announcement(bot, target, job, key):
             size = message.file.size
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists() or path.stat().st_size != size:
-                total = sum(item.stat().st_size for item in path.parent.iterdir() if item.is_file())
-                if size > 200 * 1024 * 1024 or total + size > 2 * 1024 ** 3:
-                    raise ValueError("Announcement media storage limit exceeded (200 MB/file, 2 GB total).")
+                if size > 200 * 1024 * 1024:
+                    raise ValueError("Announcement media storage limit exceeded (200 MB/file).")
+                if shutil.disk_usage(path.parent).free < size + 1024 ** 3:
+                    raise OSError("Announcement media storage requires 1 GB free disk reserve.")
                 temporary = path.with_suffix(".part")
                 try:
                     await bot.download_media(message, file=str(temporary))
@@ -482,7 +495,7 @@ async def index_announcement(bot, target, job, key):
 
 
 async def announcement_worker(bot, target, store):
-    from announcements import ensure_tables
+    from announcements import ensure_tables, expire_news
     ready = False
     while True:
         record_worker_heartbeat(store.connection, "announcement_indexer")
@@ -491,6 +504,7 @@ async def announcement_worker(bot, target, store):
             if not ready:
                 await asyncio.to_thread(ensure_tables)
                 ready = True
+            await asyncio.to_thread(expire_news)
             await index_announcements(bot, target, store)
         except errors.FloodWaitError as error:
             delay = max(delay, error.seconds + 1)

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -100,7 +100,8 @@ class AnnouncementTests(unittest.TestCase):
         with patch("announcements.get_conn", return_value=conn):
             result = announcements.catalog(100)
         self.assertEqual((result["page"], result["pages"]), (2, 2))
-        self.assertEqual(cur.execute.call_args.args[1], (20,))
+        self.assertEqual(cur.execute.call_args.args[1][1], 20)
+        self.assertIn("published_at>=%s", cur.execute.call_args.args[0])
         self.assertIn("published_at DESC,id DESC", cur.execute.call_args.args[0])
         conn.close.assert_called_once()
 
@@ -256,6 +257,45 @@ class AnnouncementIndexTests(unittest.IsolatedAsyncioTestCase):
         save.assert_called_once()
         self.bot.download_media.assert_not_awaited()
 
+    async def test_expired_job_keeps_identity_without_download_or_republication(self):
+        message = self.message(100, "过期新闻", photo=True)
+        cutoff = datetime(2026, 11, 3)
+        message.date = (cutoff - timedelta(seconds=1)).replace(tzinfo=timezone.utc)
+        self.bot.get_messages.return_value = [message]
+        with patch("announcements.retention_cutoff", return_value=cutoff), \
+                patch("announcements.save") as save:
+            await index_announcement(self.bot, self.target, {"result_ids": "[100]", "job_key": "10"}, "2:10")
+        self.assertEqual(save.call_args.args[:4], ("2:10", [100], "", []))
+        self.assertEqual(save.call_args.kwargs, {"enabled": False})
+        self.bot.download_media.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+
+    async def test_exact_retention_boundary_still_indexes(self):
+        message = self.message(100, "边界新闻")
+        self.bot.get_messages.return_value = [message]
+        with patch("announcements.retention_cutoff", return_value=message.date.replace(tzinfo=None)), \
+                patch("announcements.save") as save:
+            await index_announcement(self.bot, self.target, {"result_ids": "[100]", "job_key": "10"}, "2:10")
+        self.assertEqual(save.call_args.args[2], "边界新闻")
+        self.assertNotIn("enabled", save.call_args.kwargs)
+
+    async def test_disk_reserve_blocks_download_but_not_cached_retry(self):
+        message = self.message(100, photo=True)
+        self.bot.get_messages.return_value = [message]
+        job = {"result_ids": "[100]", "job_key": "10"}
+        with patch("announcements.local_media_path", side_effect=lambda name: self.directory / name), \
+                patch("channel_sync.shutil.disk_usage", return_value=SimpleNamespace(free=1024 ** 3 + 2)), \
+                patch("announcements.save") as save, self.assertRaisesRegex(OSError, "disk reserve"):
+            await index_announcement(self.bot, self.target, job, "2:10")
+        save.assert_not_called()
+        self.bot.download_media.assert_not_awaited()
+        (self.directory / "2-100.jpg").write_bytes(b"jpg")
+        with patch("announcements.local_media_path", side_effect=lambda name: self.directory / name), \
+                patch("channel_sync.shutil.disk_usage", return_value=SimpleNamespace(free=0)), \
+                patch("announcements.save") as save:
+            await index_announcement(self.bot, self.target, job, "2:10")
+        save.assert_called_once()
+
     async def test_failed_announcement_does_not_block_later_jobs(self):
         self.sent(10, 100)
         self.sent(11, 101)
@@ -265,6 +305,7 @@ class AnnouncementIndexTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await index_announcements(self.bot, self.target, self.store)
             self.assertEqual(index.await_count, 2)
+            self.assertEqual([call.args[2]["job_key"] for call in index.await_args_list], ["11", "10"])
 
     async def test_equal_source_message_numbers_are_indexed_separately(self):
         from news_sources import NEWS_SOURCES

@@ -1,4 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -64,7 +66,7 @@ class NewsSubscriptionTests(unittest.TestCase):
     def article(self, body="#新闻：测试标题\n测试正文"):
         return self.sql("INSERT INTO channel_announcements"
                         " (job_key,message_ids,body,media,published_at) VALUES (%s,'[]',%s,'[]',%s)",
-                        (uuid.uuid4().hex, body, datetime(2026, 1, 1, 8, 30)))
+                        (uuid.uuid4().hex, body, datetime.now(timezone.utc).replace(tzinfo=None)))
 
     def tenant(self):
         self.sql("INSERT INTO display_tenants"
@@ -137,7 +139,9 @@ class NewsSubscriptionTests(unittest.TestCase):
         news.send_delivery(self.bot, row)
         args, kwargs = self.bot.send_message.call_args
         self.assertEqual(args[0], 123)
-        self.assertIn("01/01 15:30（UTC+7）", args[1])
+        published = self.sql("SELECT published_at FROM channel_announcements WHERE id=%s", (ident,))[0]["published_at"]
+        expected = published.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=7)))
+        self.assertIn(f"{expected:%m/%d %H:%M}（UTC+7）", args[1])
         self.assertIn("测试标题", args[1])
         self.assertNotIn("测试正文", args[1])
         buttons = kwargs["reply_markup"].to_dict()["inline_keyboard"]
@@ -147,6 +151,67 @@ class NewsSubscriptionTests(unittest.TestCase):
         self.assertEqual(self.sql("SELECT status,result_id FROM news_deliveries"),
                          [{"status": "sent", "result_id": 77}])
         self.assertIsNone(self.pending())
+
+    def test_expired_news_hidden_on_all_app_surfaces_and_not_notified(self):
+        news.subscribe(123)
+        expired = self.article("expired")
+        current = self.article("current")
+        self.sql("UPDATE channel_announcements SET published_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 73 HOUR)"
+                 " WHERE id=%s", (expired,))
+        self.assertEqual(announcements.catalog()["total"], 1)
+        self.assertIsNone(announcements.detail(expired))
+        self.assertIsNone(announcements.media_file(expired, 0))
+        self.assertEqual(self.pending()["announcement_id"], current)
+        self.assertIsNone(news.claim_delivery())
+
+    def test_queued_news_expiring_before_claim_is_skipped(self):
+        news.subscribe(123)
+        ident = self.article()
+        news.enqueue_news()
+        self.sql("UPDATE channel_announcements SET published_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 73 HOUR)"
+                 " WHERE id=%s", (ident,))
+        self.assertTrue(news.claim_delivery()["skipped"])
+
+    def test_retention_boundary_and_media_cleanup_preserve_index_tombstones(self):
+        import json
+        from announcement_video import cache_key, video_cache
+        cutoff = datetime(2026, 11, 3, 0, 0)
+        expired = self.article("expired")
+        current = self.article("current")
+        self.sql("UPDATE channel_announcements SET published_at=%s,media=%s WHERE id=%s",
+                 (cutoff - timedelta(seconds=1), json.dumps([{"kind": "video", "filename": "2-100.mp4"}]), expired))
+        self.sql("UPDATE channel_announcements SET published_at=%s WHERE id=%s", (cutoff, current))
+        with TemporaryDirectory() as directory, \
+                patch("announcements.media_directory", return_value=Path(directory)), \
+                patch("announcements.retention_cutoff", return_value=cutoff):
+            path = announcements.local_media_path("2-100.mp4")
+            path.write_bytes(b"\x00\x00\x00\x18ftyp" + b"0000")
+            cache = video_cache(path.parent)
+            cached = cache.store(cache_key(path), [path.read_bytes()], ".mp4", path.stat().st_size)
+            self.assertEqual(announcements.catalog()["total"], 1)
+            self.assertIsNotNone(announcements.detail(current))
+            self.assertEqual(announcements.expire_news(), 1)
+            self.assertFalse(path.exists())
+            self.assertFalse(cached.exists())
+            self.assertEqual(announcements.expire_news(), 0)
+        row = self.sql("SELECT job_key,body,media,enabled FROM channel_announcements WHERE id=%s", (expired,))[0]
+        self.assertEqual((row["body"], row["media"], row["enabled"]), ("", "[]", 0))
+        self.assertIn(row["job_key"], announcements.indexed_keys())
+
+    def test_cleanup_failure_keeps_metadata_for_retry_without_restoring_visibility(self):
+        import json
+        ident = self.article()
+        self.sql("UPDATE channel_announcements SET published_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 73 HOUR),media=%s"
+                 " WHERE id=%s", (json.dumps([{"kind": "photo", "filename": "2-100.jpg"}]), ident))
+        with TemporaryDirectory() as directory, patch("announcements.media_directory", return_value=Path(directory)):
+            path = announcements.local_media_path("2-100.jpg")
+            path.write_bytes(b"jpg")
+            with patch.object(Path, "unlink", side_effect=PermissionError("in use")), \
+                    self.assertLogs("announcements", level="ERROR"):
+                self.assertEqual(announcements.expire_news(), 0)
+            self.assertIsNone(announcements.detail(ident))
+            self.assertEqual(announcements.expire_news(), 1)
+            self.assertFalse(path.exists())
 
     def test_unknown_outcome_not_automatically_resent(self):
         news.subscribe(123)

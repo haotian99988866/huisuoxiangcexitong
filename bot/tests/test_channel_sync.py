@@ -9,7 +9,7 @@ from telethon import types, errors
 
 from channel_sync import JobStore, complete_album, deliver, enqueue_new_messages, prepare_news_sources, reconcile_messages, single_instance, split_telegram_text, worker
 from news_sources import NEWS_SOURCES, announcement_job_key
-from channel_sync_clean import clean_text, is_advertisement, is_news_advertisement
+from channel_sync_clean import clean_text, clean_news_text, is_advertisement, is_news_advertisement, news_emoji_count, exceeds_news_limits, cleaned_news_emoji_count
 
 
 MISSED_NEWS_ADS = (
@@ -36,6 +36,40 @@ MISSED_NEWS_ADS = (
 
 
 class CleanTextTests(unittest.TestCase):
+    def test_news_emoji_threshold_counts_visible_sequences(self):
+        for symbol in ("😀", "🇨🇳", "👨‍👩‍👧‍👦", "👍🏽", "1️⃣", "❤️", "➡️"):
+            with self.subTest(symbol=symbol):
+                self.assertEqual(news_emoji_count(symbol * 5), 5)
+                self.assertFalse(exceeds_news_limits("警方通报：" + symbol * 5))
+                self.assertTrue(exceeds_news_limits("警方通报：" + symbol * 6))
+        self.assertEqual(news_emoji_count("123 普通文字 !?"), 0)
+
+    def test_soso_is_blocked_when_remaining_in_cleaned_body(self):
+        for text in ("soso", "SOSO", "消息 SoSo 搜索", "https://soso.example/path",
+                     "@soso123", "警方提醒：SOSO广告", "ＳＯＳＯ", "so\u200bso"):
+            with self.subTest(text=text):
+                self.assertTrue(exceeds_news_limits(text))
+        self.assertFalse(exceeds_news_limits("本地搜救队救援"))
+
+    def test_custom_emojis_count_without_double_counting_utf16_sequences(self):
+        text = "😀ABCDE"
+        entities = [types.MessageEntityCustomEmoji(offset=i, length=1, document_id=1)
+                    for i in range(2, 7)]
+        entities.append(types.MessageEntityCustomEmoji(offset=0, length=2, document_id=2))
+        self.assertEqual(news_emoji_count(text, entities), 6)
+        self.assertTrue(exceeds_news_limits(text, entities))
+
+    def test_cleanup_counts_only_surviving_custom_emojis(self):
+        text = "正文😀ABCDE\n订阅东南亚大事件频道\n😀😀😀😀😀😀\n投稿澄清爆料："
+        entities = [types.MessageEntityCustomEmoji(offset=i, length=1, document_id=1)
+                    for i in range(4, 9)]
+        cleaned = clean_news_text(text)
+        self.assertEqual(cleaned, "正文😀ABCDE")
+        self.assertEqual(cleaned_news_emoji_count(text, cleaned, entities), 6)
+        footer_entities = [types.MessageEntityCustomEmoji(
+            offset=len(text[:text.index("订阅")].encode("utf-16-le")) // 2, length=2, document_id=1)]
+        self.assertEqual(cleaned_news_emoji_count(text, cleaned, footer_entities), 1)
+
     def test_reported_unlabelled_ads_and_cleaned_copies_are_blocked(self):
         for text in MISSED_NEWS_ADS:
             with self.subTest(text=text):
@@ -519,6 +553,41 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.status(), "sent")
 
+    async def test_six_emojis_across_album_excludes_every_media_before_download(self):
+        messages = [self.message("现场消息😀😀😀", types.MessageMediaPhoto()),
+                    self.message("补充说明👍👍👍", types.MessageMediaPhoto())]
+        await self.publish(messages, ids=(10, 11))
+        self.assertEqual(self.status(), "skipped")
+        self.user.download_media.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+        self.bot.send_message.assert_not_awaited()
+
+    async def test_soso_in_removed_link_does_not_exclude_news(self):
+        self.user.download_media.return_value = "news.jpg"
+        await self.publish([self.message("警方通报 https://soso.example", types.MessageMediaPhoto())])
+        self.assertEqual(self.status(), "sent")
+        self.assertEqual(self.bot.send_file.await_args.kwargs["caption"], "警方通报")
+
+    async def test_many_footer_emojis_removed_before_new_filter(self):
+        text = "现场新闻😀\n订阅东南亚大事件频道\n" + "👉" * 12 + "\n投稿澄清爆料："
+        await self.publish([self.message(text)])
+        self.assertEqual(self.status(), "sent")
+        self.assertEqual(self.bot.send_message.await_args.args[1], "现场新闻😀")
+
+    async def test_soso_remaining_in_body_blocks_after_cleanup(self):
+        await self.publish([self.message("警方通报 SoSo 搜索 @contact", types.MessageMediaPhoto())])
+        self.assertEqual(self.status(), "skipped")
+        self.user.download_media.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+
+    async def test_custom_body_emojis_still_block_after_footer_cleanup(self):
+        message = self.message("正文😀ABCDE\n订阅东南亚大事件频道\n👉👉👉\n投稿澄清爆料：")
+        message.entities = [types.MessageEntityCustomEmoji(offset=i, length=1, document_id=1)
+                            for i in range(4, 9)]
+        await self.publish([message])
+        self.assertEqual(self.status(), "skipped")
+        self.bot.send_message.assert_not_awaited()
+
     async def test_protected_message_not_downloaded(self):
         message = self.message()
         message.noforwards = True
@@ -575,14 +644,14 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bot.send_message.await_args.args[1], first + "\n\n" + second)
 
     async def test_caption_utf16_boundary_and_long_plain_text(self):
-        for text in ["文" * 1024, "🎵" * 512]:
+        for text in ["文" * 1024, "𠀀" * 512]:
             with self.subTest(text_length=len(text)):
                 self.user.get_messages.return_value = [self.message(text, types.MessageMediaPhoto())]
                 self.user.download_media.return_value = "one.jpg"
                 job = self.job((len(text),))
                 await deliver(self.user, self.bot, self.source, self.target, self.store, job, self.directory)
                 self.assertEqual(self.bot.send_file.await_args.kwargs["caption"], text)
-        text = "🎵" * 3000 + "结尾"
+        text = "𠀀" * 3000 + "结尾"
         parts = split_telegram_text(text)
         self.assertEqual("".join(parts), text)
         self.assertTrue(all(len(part.encode("utf-16-le")) // 2 <= 4096 for part in parts))

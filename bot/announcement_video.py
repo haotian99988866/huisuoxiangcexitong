@@ -88,14 +88,14 @@ def prepare(path):
 
 def maintain(stop):
     import json
-    from announcements import get_conn, local_media_path
+    from announcements import get_conn, local_media_path, retention_cutoff
     while not stop.is_set():
         conn = None
         try:
             conn = get_conn()
             with conn.cursor() as cur:
-                cur.execute("SELECT media FROM channel_announcements WHERE enabled=1 "
-                            "ORDER BY published_at DESC,id DESC")
+                cur.execute("SELECT media FROM channel_announcements WHERE enabled=1 AND published_at>=%s "
+                            "ORDER BY published_at DESC,id DESC", (retention_cutoff(),))
                 rows = cur.fetchall()
         except pymysql.MySQLError:
             logger.exception("Cannot list news videos for playback preparation")

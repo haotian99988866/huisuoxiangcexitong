@@ -1,6 +1,9 @@
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from urllib.parse import urlsplit
+
+import emoji
 
 
 PROMOTION = re.compile(
@@ -67,6 +70,55 @@ def extract_map_urls(text):
 def is_advertisement(text):
     """Only treat an explicit leading advertisement label as an opt-out."""
     return bool(ADVERTISEMENT.match((text or "").lstrip()))
+
+
+def _emoji_spans(text):
+    text = text or ""
+    matches = emoji.emoji_list(text)
+    return [(len(text[:match["match_start"]].encode("utf-16-le")) // 2,
+             len(text[:match["match_end"]].encode("utf-16-le")) // 2)
+            for match in matches]
+
+
+def _add_emoji_span(spans, start, end):
+    if not any(start < stop and end > begin for begin, stop in spans):
+        spans.append((start, end))
+
+
+def news_emoji_count(text, entities=()):
+    spans = _emoji_spans(text)
+    for entity in entities or ():
+        if type(entity).__name__ != "MessageEntityCustomEmoji":
+            continue
+        start, end = entity.offset, entity.offset + entity.length
+        _add_emoji_span(spans, start, end)
+    return len(spans)
+
+
+def exceeds_news_limits(text, entities=()):
+    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
+    return news_emoji_count(text, entities) > 5 or "soso" in normalized.casefold()
+
+
+def cleaned_news_emoji_count(original, cleaned, entities=()):
+    custom = [entity for entity in entities or () if type(entity).__name__ == "MessageEntityCustomEmoji"]
+    if not custom:
+        return news_emoji_count(cleaned)
+    # Telegram offsets refer to the source; only count custom emojis surviving cleanup.
+    source = (original or "").encode("utf-16-le")
+    matches = SequenceMatcher(None, original or "", cleaned, autojunk=False).get_matching_blocks()
+    spans = _emoji_spans(cleaned)
+    for entity in custom:
+        start = len(source[:entity.offset * 2].decode("utf-16-le"))
+        end = len(source[:(entity.offset + entity.length) * 2].decode("utf-16-le"))
+        for block in matches:
+            if block.a <= start < end <= block.a + block.size:
+                offset = block.b + start - block.a
+                mapped_start = len(cleaned[:offset].encode("utf-16-le")) // 2
+                _add_emoji_span(spans, mapped_start, mapped_start + entity.length)
+                break
+    return len(spans)
 
 
 def is_news_advertisement(text):
