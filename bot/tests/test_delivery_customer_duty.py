@@ -99,6 +99,8 @@ class DeliveryCustomerDutyTests(unittest.TestCase):
         self.assertEqual(set(result["states"]), {"12", "14"})
         self.assertTrue(result["states"]["12"]["subscribed"])
         self.assertEqual(result["states"]["12"]["revision"], 4)
+        self.assertEqual(result["states"]["12"]["cover"], 1)
+        self.assertIsNone(result["states"]["14"]["cover"])
         self.assertIsNone(result["states"]["14"]["published_at"])
         self.assertEqual(cur.execute.call_count, 2)
         self.assertEqual(cur.execute.call_args.args[1], (7, 99))

@@ -1162,7 +1162,8 @@ def webhook():
         except pymysql.MySQLError:
             logger.exception("Announcement service unavailable")
             return jsonify({"error": "公告暂不可用，请稍后重试"}), 503
-    if action in {"staff_customer_status", "staff_customer_subscribe", "staff_customer_catalog",
+    if action in {"subscription_catalog", "subscription_save",
+                  "staff_customer_status", "staff_customer_subscribe", "staff_customer_catalog",
                   "delivery_customer_status", "delivery_customer_subscribe"}:
         from admin_console import authenticate, is_tenant_session
         from staff_customer_duty import status as customer_duty_status, save as customer_duty_save
@@ -1173,6 +1174,10 @@ def webhook():
         if is_tenant_session(data["init_data"]):
             return jsonify({"error": "请从主入口管理个人订阅"}), 403
         try:
+            if action in {"subscription_catalog", "subscription_save"}:
+                import subscription_center
+                return jsonify(subscription_center.catalog(user["id"], data.get("venue_id"))
+                               if action == "subscription_catalog" else subscription_center.save(data, user["id"]))
             if action == "staff_customer_catalog":
                 from staff_customer_duty import catalog_status
                 return jsonify(catalog_status(data.get("venue_id"), user["id"]))
@@ -1855,6 +1860,8 @@ if __name__ == "__main__":
     from delivery_staff import ensure_tables as ensure_delivery_staff_tables
     ensure_delivery_staff_tables()
     ensure_customer_duty_tables(delivery=True)
+    from subscription_center import ensure_tables as ensure_subscription_center
+    ensure_subscription_center()
     from customer_records import ensure_tables as ensure_customer_record_tables
     ensure_customer_record_tables()
     host = os.getenv("API_HOST", "127.0.0.1")

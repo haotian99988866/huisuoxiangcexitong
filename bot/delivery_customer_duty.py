@@ -57,6 +57,8 @@ def catalog_status(venue_id, user_id):
                 if media:
                     publication = attendance_publication(rows, media, start, end, shift)
                     states[str(person_id)] = state_result(subscriptions.get(person_id), True, publication, shift, end)
+                    states[str(person_id)]["cover"] = next(
+                        (item["id"] for item in media if item["type"] == "photo"), None)
         return {"states": states, "shift_ends_at": int(end.timestamp() * 1000)}
     finally:
         conn.close()

@@ -16,6 +16,7 @@ test('home menu Mini App links resolve to their intended pages', () => {
     recharge: '/recharge',
     personal: '/personal',
     services: '/services',
+    subscriptions: '/subscriptions',
   }
   for (const [param, path] of Object.entries(routes)) {
     const targets = modules.filter(item => item.startParam === param)

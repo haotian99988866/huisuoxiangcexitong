@@ -14,6 +14,15 @@ export default function Services() {
       <h1>服务中心</h1>
     </header></AccountHeader>
     <p className="consumption-intro">精选服务，轻松开通</p>
+    <section className="membership-panel" aria-labelledby="service-subscriptions">
+      <Link className="service-product" to="/subscriptions">
+        <span className="service-product-icon"><ModuleIcon name="announcements" /></span>
+        <div><h3 id="service-subscriptions">订阅服务</h3>
+          <p>会所、外送、大事件 · 多位人员出勤提醒</p>
+          <span className="service-inline-action">添加订阅 · 查看详情 · 随时取消</span>
+        </div>
+      </Link>
+    </section>
     <section className="membership-panel service-news" aria-labelledby="service-news">
       <Link className="service-product" to="/announcements">
         <span className="service-product-icon"><ModuleIcon name="announcements" /></span>

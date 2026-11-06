@@ -43,12 +43,14 @@ class StaffCustomerDutyTests(unittest.TestCase):
         cur = get_conn.return_value.cursor.return_value.__enter__.return_value
         cur.fetchone.return_value = {"members_json": "[12]", "published_at": START + timedelta(hours=1)}
         cur.fetchall.return_value = [
-            {"id": 12, "enabled": True, "revision": 3},
+            {"id": 12, "enabled": True, "revision": 3, "cover": 101},
             {"id": 13, "enabled": None, "revision": None},
         ]
         result = service.catalog_status(2, 99)
         self.assertEqual(set(result["states"]), {"12", "13"})
         self.assertTrue(result["states"]["12"]["subscribed"])
+        self.assertEqual(result["states"]["12"]["cover"], 101)
+        self.assertIsNone(result["states"]["13"]["cover"])
         self.assertTrue(result["states"]["12"]["available"])
         self.assertIsNone(result["states"]["13"]["published_at"])
         self.assertEqual(result["states"]["13"]["revision"], 0)

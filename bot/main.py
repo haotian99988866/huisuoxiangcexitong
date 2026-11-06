@@ -1165,6 +1165,8 @@ if __name__ == "__main__":
     news_subscription.start_worker(bot)
     post_navigation.start_worker(bot)
     menu_messages.ensure_tables()
+    from subscription_center import start_worker as start_subscription_center
+    start_subscription_center(bot)
     from customer_records import ensure_tables as ensure_customer_record_tables, start_worker as start_customer_record_worker
     ensure_customer_record_tables()
     start_customer_record_worker(bot)
