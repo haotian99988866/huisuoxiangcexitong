@@ -350,12 +350,13 @@ async def deliver(user, bot, source, target, store, job, directory):
             f"Duplicate news within 15 hours: {duplicate['source']}:{duplicate['job_key']}"))
         logger.info("Skipped duplicate news source=%s job=%s", job["source"], job["job_key"])
         return
+    separate_album_text = len(media_messages) > 1
     long_caption = any(len(text.encode("utf-16-le")) // 2 > 1024 for text in captions)
     # Bot accounts have a smaller caption limit than premium source-channel authors.
     text_parts = split_telegram_text("\n\n".join(text for text in captions if text)) if (
-        long_caption or not media_messages
+        long_caption or separate_album_text or not media_messages
     ) else []
-    media_captions = [""] * len(captions) if long_caption else captions
+    media_captions = [""] * len(captions) if long_caption or separate_album_text else captions
     with tempfile.TemporaryDirectory(prefix="media-", dir=directory) as temporary:
         paths = []
         for message in media_messages:
@@ -388,7 +389,11 @@ async def deliver(user, bot, source, target, store, job, directory):
             result_ids.extend(message.id for message in sent)
             store.update(job, "sending", result_ids=result_ids)
         for text in text_parts:
-            options = {"reply_to": result_ids[0]} if paths else {}
+            options = {"reply_to": result_ids[0]} if paths and not separate_album_text else {}
+            if separate_album_text:
+                from telethon import Button
+                from post_navigation import NEWS_BUTTONS
+                options["buttons"] = [[Button.url(label, url) for label, url in NEWS_BUTTONS]]
             sent = await bot.send_message(target, text, parse_mode=None, link_preview=False, **options)
             result_ids.append(sent.id)
             store.update(job, "sending", result_ids=result_ids)
@@ -595,9 +600,37 @@ async def run(mode, directory, news_only=False):
             await user.run_until_disconnected()
             raise ConnectionError("Listener disconnected; stop and inspect before restarting.")
     finally:
-        await bot.disconnect()
-        await user.disconnect()
-        store.close()
+        try:
+            await bot.disconnect()
+        finally:
+            try:
+                await user.disconnect()
+            finally:
+                store.close()
+
+
+def is_connection_failure(error):
+    if isinstance(error, ExceptionGroup):
+        return all(is_connection_failure(item) for item in error.exceptions)
+    return isinstance(error, (ConnectionError, TimeoutError))
+
+
+async def run_with_recovery(directory, news_only=False):
+    while True:
+        delay = 30
+        try:
+            await run("run", directory, news_only=news_only)
+        except errors.FloodWaitError as error:
+            delay = max(delay, error.seconds + 1)
+            logger.warning("Listener startup rate limited; retrying in %s seconds", delay)
+        except Exception as error:
+            if not is_connection_failure(error):
+                raise
+            logger.exception("Listener connection lost; sessions closed, cursors retained;"
+                             " reconnecting in %s seconds", delay)
+        else:
+            raise RuntimeError("Listener stopped unexpectedly without a connection failure.")
+        await asyncio.sleep(delay)
 
 
 async def resolve_channel(client, expected_id, username):
@@ -659,7 +692,8 @@ def main():
             finally:
                 store.close()
         else:
-            asyncio.run(run(args.mode, directory, news_only=args.news_only))
+            asyncio.run(run("login", directory) if args.mode == "login"
+                        else run_with_recovery(directory, news_only=args.news_only))
 
 
 if __name__ == "__main__":

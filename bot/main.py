@@ -49,6 +49,7 @@ from subscribe import (
 )
 from welcome import send_help, send_welcome, show_screen
 import news_subscription
+import post_navigation
 from visit_stats import admin_ids, ensure_table, format_stats
 from relay import (
     RELAY_CONTENT_TYPES,
@@ -702,6 +703,17 @@ def handle_stats(message):
 
 
 # ===== 处理照片消息（更新封面） =====
+@bot.message_handler(func=post_navigation.accepts, content_types=["text", "photo", "video"],
+                     chat_types=["group", "supergroup"])
+@bot.channel_post_handler(func=post_navigation.accepts, content_types=["text", "photo", "video"])
+def handle_post_navigation(message):
+    try:
+        post_navigation.enqueue(message)
+    except pymysql.MySQLError:
+        logger.exception("Cannot queue navigation for chat %s message %s",
+                         message.chat.id, message.message_id)
+
+
 @bot.message_handler(content_types=['photo'])
 @bot.channel_post_handler(content_types=['photo'])
 def handle_photo_message(message):
@@ -1129,6 +1141,7 @@ if __name__ == "__main__":
     ensure_announcement_tables()
     news_subscription.ensure_tables()
     news_subscription.start_worker(bot)
+    post_navigation.start_worker(bot)
     from customer_records import ensure_tables as ensure_customer_record_tables, start_worker as start_customer_record_worker
     ensure_customer_record_tables()
     start_customer_record_worker(bot)

@@ -4,10 +4,11 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
+import asyncio
 
 from telethon import types, errors
 
-from channel_sync import JobStore, complete_album, deliver, enqueue_new_messages, prepare_news_sources, reconcile_messages, single_instance, split_telegram_text, worker
+from channel_sync import JobStore, complete_album, deliver, enqueue_new_messages, prepare_news_sources, reconcile_messages, single_instance, split_telegram_text, worker, run_with_recovery
 from news_sources import NEWS_SOURCES, announcement_job_key
 from channel_sync_clean import clean_text, clean_news_text, is_advertisement, is_news_advertisement, news_emoji_count, exceeds_news_limits, cleaned_news_emoji_count
 
@@ -33,6 +34,53 @@ MISSED_NEWS_ADS = (
     "😀😀😀😀\n😀NO钱包，雄厚实力护航，官网权威验证（https://example.com）\n"
     "😀😀😀😀😀\n😀知名免费能量赞助商\n😀😀😀😀",
 )
+
+
+class ListenerRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_network_failure_reconnects_with_same_directory_and_mode(self):
+        for failure in (ConnectionError("offline"), TimeoutError("timeout"),
+                        ExceptionGroup("tasks", [ConnectionError("offline"),
+                            ExceptionGroup("nested", [TimeoutError("timeout")])])):
+            with self.subTest(failure=type(failure).__name__), \
+                    patch("channel_sync.run", new_callable=AsyncMock,
+                          side_effect=[failure, asyncio.CancelledError()]) as run, \
+                    patch("channel_sync.asyncio.sleep", new_callable=AsyncMock) as sleep, \
+                    self.assertLogs("channel_sync", level="ERROR"):
+                with self.assertRaises(asyncio.CancelledError):
+                    await run_with_recovery(Path("state"), news_only=True)
+                self.assertEqual(run.await_count, 2)
+                for call in run.await_args_list:
+                    self.assertEqual(call.args, ("run", Path("state")))
+                    self.assertEqual(call.kwargs, {"news_only": True})
+                sleep.assert_awaited_once_with(30)
+
+    async def test_configuration_and_mixed_failures_are_not_retried(self):
+        for failure in (ValueError("wrong channel"), PermissionError("denied"),
+                        ExceptionGroup("tasks", [ConnectionError("offline"), ValueError("bad config")])):
+            with self.subTest(failure=type(failure).__name__), \
+                    patch("channel_sync.run", new_callable=AsyncMock, side_effect=failure) as run, \
+                    patch("channel_sync.asyncio.sleep", new_callable=AsyncMock) as sleep:
+                with self.assertRaises(type(failure)):
+                    await run_with_recovery(Path("state"))
+                run.assert_awaited_once()
+                sleep.assert_not_awaited()
+
+    async def test_startup_flood_wait_is_respected(self):
+        with patch("channel_sync.run", new_callable=AsyncMock,
+                   side_effect=[errors.FloodWaitError(request=None, capture=45),
+                                asyncio.CancelledError()]), \
+                patch("channel_sync.asyncio.sleep", new_callable=AsyncMock) as sleep, \
+                self.assertLogs("channel_sync", level="WARNING"):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_with_recovery(Path("state"))
+        sleep.assert_awaited_once_with(46)
+
+    async def test_unexpected_clean_exit_is_explicit_not_success(self):
+        with patch("channel_sync.run", new_callable=AsyncMock), \
+                patch("channel_sync.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            with self.assertRaisesRegex(RuntimeError, "stopped unexpectedly"):
+                await run_with_recovery(Path("state"))
+            sleep.assert_not_awaited()
 
 
 class CleanTextTests(unittest.TestCase):
@@ -610,8 +658,12 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         await self.publish([self.message("第一张 @contact", photo),
                             self.message("第二张 https://example.com", photo)], (10, 11))
         self.bot.send_file.assert_awaited_once_with(
-            self.target, ["one.jpg", "two.jpg"], caption=["第一张", "第二张"], parse_mode=None,
+            self.target, ["one.jpg", "two.jpg"], caption=["", ""], parse_mode=None,
         )
+        self.assertEqual(self.bot.send_message.await_args.args[1], "第一张\n\n第二张")
+        self.assertNotIn("reply_to", self.bot.send_message.await_args.kwargs)
+        buttons = self.bot.send_message.await_args.kwargs["buttons"][0]
+        self.assertEqual([button.text for button in buttons], ["联系昊天", "西港娱乐", "会员充值"])
         self.assertEqual(self.status(), "sent")
         self.assertEqual(list(self.directory.glob("media-*")), [])
 
