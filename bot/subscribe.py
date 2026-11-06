@@ -205,7 +205,6 @@ def sub_menu_keyboard(user_id):
         keyboard.add(
             types.InlineKeyboardButton(f"{mark} {name}", callback_data=f"sub:t:{venue_id}")
         )
-    keyboard.add(types.InlineKeyboardButton("⬅️ 返回主菜单", callback_data="menu:home"))
     return keyboard
 
 

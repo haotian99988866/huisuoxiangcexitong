@@ -47,9 +47,10 @@ from subscribe import (
     sub_menu_keyboard,
     sub_menu_text,
 )
-from welcome import send_help, send_welcome, show_screen
+from welcome import is_menu_message, send_help, send_menu_link, send_welcome, show_screen
 import news_subscription
 import post_navigation
+import menu_messages
 from visit_stats import admin_ids, ensure_table, format_stats
 from relay import (
     RELAY_CONTENT_TYPES,
@@ -157,6 +158,27 @@ def handle_start(message):
     send_welcome(bot, message.chat.id)
 
 
+@bot.message_handler(func=is_menu_message, content_types=["text"], chat_types=["private"])
+def handle_fixed_menu(message):
+    try:
+        touch_user(message.from_user)
+        if message.text == "新闻订阅":
+            result = handle_news(message)
+            if result is not None:
+                menu_messages.keep_latest(bot, result)
+        elif message.text == "出勤提醒":
+            menu_messages.keep_latest(bot, handle_remind(message))
+        elif message.text == "使用指南":
+            send_help(bot, message.chat.id)
+        else:
+            send_menu_link(bot, message.chat.id, message.from_user.id, message.text)
+    except ValueError as error:
+        bot.send_message(message.chat.id, str(error))
+    except pymysql.MySQLError:
+        logger.exception("Fixed menu unavailable for %s", message.text)
+        bot.send_message(message.chat.id, "功能入口暂不可用，请稍后重试；专属分享请勿使用其他人的链接。")
+
+
 @bot.my_chat_member_handler()
 def handle_bot_membership(event):
     if event.chat.type != "private" or event.chat.id != event.from_user.id:
@@ -173,7 +195,7 @@ def handle_bot_membership(event):
 
 def show_news_menu(message, slug=""):
     try:
-        news_subscription.show_menu(bot, message.chat.id, message.from_user.id, slug)
+        return news_subscription.show_menu(bot, message.chat.id, message.from_user.id, slug)
     except ValueError as error:
         bot.send_message(message.chat.id, str(error))
     except pymysql.MySQLError:
@@ -188,9 +210,9 @@ def handle_news(message):
         if current and current["active"]:
             keyboard = telebot.types.InlineKeyboardMarkup()
             keyboard.add(telebot.types.InlineKeyboardButton("取消新闻订阅", callback_data="news:off"))
-            bot.send_message(message.chat.id, "你已订阅东南亚大事件，新资讯发布后会及时提醒。", reply_markup=keyboard)
+            return bot.send_message(message.chat.id, "你已订阅东南亚大事件，新资讯发布后会及时提醒。", reply_markup=keyboard)
         else:
-            show_news_menu(message)
+            return show_news_menu(message)
     except pymysql.MySQLError:
         logger.exception("News subscription status unavailable")
         bot.send_message(message.chat.id, "订阅状态暂不可用，请稍后重试 /news。")
@@ -571,7 +593,7 @@ def handle_sub_callback(call):
 @bot.message_handler(commands=['remind'], chat_types=['private'])
 def handle_remind(message):
     touch_user(message.from_user)
-    bot.send_message(
+    return bot.send_message(
         message.chat.id,
         sub_menu_text(),
         parse_mode="HTML",
@@ -1142,6 +1164,7 @@ if __name__ == "__main__":
     news_subscription.ensure_tables()
     news_subscription.start_worker(bot)
     post_navigation.start_worker(bot)
+    menu_messages.ensure_tables()
     from customer_records import ensure_tables as ensure_customer_record_tables, start_worker as start_customer_record_worker
     ensure_customer_record_tables()
     start_customer_record_worker(bot)

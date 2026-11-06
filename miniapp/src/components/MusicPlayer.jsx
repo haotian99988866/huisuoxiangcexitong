@@ -293,8 +293,8 @@ export default function MusicPlayer({ children }) {
       seekto: details => {
         if (Number.isFinite(details.seekTime)) mediaControls.current.seek(details.seekTime)
       },
-      seekbackward: details => mediaControls.current.seek(audioRef.current.currentTime - (details.seekOffset || 10)),
-      seekforward: details => mediaControls.current.seek(audioRef.current.currentTime + (details.seekOffset || 10)),
+      seekbackward: null,
+      seekforward: null,
     })
   }, [current?.id])
   useEffect(() => {

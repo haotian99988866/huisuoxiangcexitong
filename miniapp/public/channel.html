@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>昊天频道</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body { margin: 0; padding: 48px 24px; text-align: center; font: 16px sans-serif; color: var(--tg-theme-text-color, #222); background: var(--tg-theme-bg-color, #fff); }
+    a { display: inline-block; padding: 14px 24px; border-radius: 12px; color: var(--tg-theme-button-text-color, #fff); background: var(--tg-theme-button-color, #2788c7); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1 id="heading">昊天频道</h1>
+  <p id="status">正在打开频道；若未跳转，请点击下方按钮。</p>
+  <a href="https://t.me/haotianyl99988866" id="open">打开频道</a>
+  <script>
+    const contact = new URLSearchParams(window.location.search).get('target') === 'contact';
+    const targetUrl = contact ? 'https://t.me/haotian99988866' : 'https://t.me/haotianyl99988866';
+    const label = contact ? '联系昊天' : '打开频道';
+    document.title = contact ? '联系昊天' : '昊天频道';
+    document.getElementById('heading').textContent = document.title;
+    document.getElementById('open').href = targetUrl;
+    document.getElementById('open').textContent = label;
+    document.getElementById('status').textContent = '正在跳转；若未打开，请点击下方按钮。';
+    function openChannel() {
+      const tg = window.Telegram?.WebApp;
+      if (!tg?.openTelegramLink) return false;
+      try {
+        tg.ready();
+        tg.openTelegramLink(targetUrl);
+        return true;
+      } catch (error) {
+        console.error('Telegram navigation failed', error);
+        document.getElementById('status').textContent = '自动跳转未成功，请点击下方按钮。';
+        return false;
+      }
+    }
+    document.getElementById('open').addEventListener('click', event => {
+      if (openChannel()) {
+        event.preventDefault();
+      }
+    });
+    openChannel();
+  </script>
+</body>
+</html>

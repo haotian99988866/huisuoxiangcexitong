@@ -92,8 +92,7 @@ def show_menu(bot, chat_id, user_id, slug=""):
     keyboard.add(types.InlineKeyboardButton("订阅新资讯", callback_data=f"news:on:{slug or '-'}"))
     if active:
         keyboard.add(types.InlineKeyboardButton("取消新闻订阅", callback_data="news:off"))
-    keyboard.add(types.InlineKeyboardButton("返回主菜单", callback_data="menu:home"))
-    bot.send_message(
+    return bot.send_message(
         chat_id,
         "🔔 东南亚大事件订阅\n\n"
         f"当前状态：{'已订阅' if active else '未订阅'}\n"

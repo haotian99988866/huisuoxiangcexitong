@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { bindMusicMediaSession, updateMusicMediaPosition } from './musicMediaSession.js'
 
 test('unsupported clients do not prevent ordinary music playback', () => {
@@ -62,4 +63,29 @@ test('system position is bounded and unknown duration clears previous song progr
     { duration: 100, position: 0, playbackRate: 1 },
     undefined, undefined,
   ])
+})
+
+test('music lock-screen controls disable seek shortcuts and preserve track navigation', () => {
+  const source = readFileSync(new URL('../components/MusicPlayer.jsx', import.meta.url), 'utf8')
+  assert.match(source, /seekbackward:\s*null/)
+  assert.match(source, /seekforward:\s*null/)
+  assert.match(source, /previoustrack:\s*\(\) => mediaControls\.current\.step\(-1\)/)
+  assert.match(source, /nexttrack:\s*\(\) => mediaControls\.current\.step\(1\)/)
+  const actions = new Map()
+  const calls = []
+  const cleanup = bindMusicMediaSession({
+    setActionHandler: (action, handler) => actions.set(action, handler),
+  }, {
+    previoustrack: () => calls.push('previous'),
+    nexttrack: () => calls.push('next'),
+    seekbackward: null,
+    seekforward: null,
+  })
+  assert.equal(actions.get('seekbackward'), null)
+  assert.equal(actions.get('seekforward'), null)
+  actions.get('previoustrack')()
+  actions.get('nexttrack')()
+  assert.deepEqual(calls, ['previous', 'next'])
+  cleanup()
+  assert.ok([...actions.values()].every(handler => handler === null))
 })
