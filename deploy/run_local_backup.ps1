@@ -30,7 +30,7 @@ $kind = if ($IncludeLocalMusic) { 'weekly-music' } else { 'daily' }
 $logPath = Join-Path $logDirectory "$kind.log"
 $outputPath = Join-Path $logDirectory "$kind-output.log"
 $errorPath = Join-Path $logDirectory "$kind-error.log"
-$arguments = "`"$backupScript`" backup --keep-days 14 --backup-root `"$backupRoot`""
+$arguments = "`"$backupScript`" backup --keep-days 14 --backup-root `"$backupRoot`" --verify-after-backup"
 if ($IncludeLocalMusic) {
     $arguments += ' --include-local-music'
 }

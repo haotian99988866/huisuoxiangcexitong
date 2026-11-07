@@ -122,6 +122,45 @@ class LocalBackupTests(unittest.TestCase):
             self.assertTrue(unrelated.exists())
             self.assertTrue(partial.exists())
 
+    def test_backup_verification_happens_before_expired_backups_are_pruned(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            old = root / "20200101T000000Z"
+            staging = root / "20261108T030000Z.partial"
+            final = root / "20261108T030000Z"
+            old.mkdir()
+            staging.mkdir()
+
+            def verify(package):
+                self.assertEqual(package, final)
+                self.assertTrue(old.exists())
+
+            with patch.object(backup_local, "restore_verify", side_effect=verify) as verify_backup:
+                backup_local.finalize_backup(staging, final, root, 14, True)
+
+            verify_backup.assert_called_once_with(final)
+            self.assertTrue(final.exists())
+            self.assertFalse(old.exists())
+            self.assertFalse(staging.exists())
+
+    def test_failed_backup_verification_preserves_previous_backups(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            old = root / "20200101T000000Z"
+            staging = root / "20261108T030000Z.partial"
+            final = root / "20261108T030000Z"
+            old.mkdir()
+            staging.mkdir()
+
+            with patch.object(backup_local, "restore_verify",
+                              side_effect=RuntimeError("restore failed")):
+                with self.assertRaisesRegex(RuntimeError, "restore failed"):
+                    backup_local.finalize_backup(staging, final, root, 14, True)
+
+            self.assertTrue(old.exists())
+            self.assertTrue(final.exists())
+            self.assertFalse(staging.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -644,7 +644,7 @@ sudo systemctl status clubapp-api clubapp-bot --no-pager
 
 备份默认保存到 `%LOCALAPPDATA%\Huisuo\backups`，可用 `--backup-root D:\Huisuo\backups` 指定其他目录；`verify` 同样支持该参数。默认保留14天；使用 `backup --keep-days 30` 可调整保留天数（1–365）。脚本仅接受 `bot\.env` 配置的本机 `venue_db`，要求 MySQL 8.4 客户端位于 `C:\Program Files\MySQL\MySQL Server 8.4\bin`（其他安装路径可设置 `MYSQL_BIN_DIR`）。备份目录 ACL 限制为当前 Windows 用户和 SYSTEM；SQL、SQLite 状态与媒体文件为未加密文件，应启用 BitLocker，并另行安全复制到不同物理设备，避免电脑或磁盘损坏时本机备份一并丢失。
 
-每份备份包含 MySQL InnoDB 数据库、`%LOCALAPPDATA%\Huisuo\channel-sync` 下所有 `.sqlite3` 任务/进度库，以及公告媒体目录；SQLite 使用在线一致性备份并执行 `quick_check`。Telegram `.session` 登录凭据、可重建的图片/视频缓存和本地音乐目录默认不包含。音乐目录当前体积较大；需要保留其中无法从频道恢复的手工导入音频时，可显式添加 `--include-local-music`，并先确认磁盘空间。完成后建议运行 `verify`：校验清单和全部文件 SHA-256、检查 SQLite，再将 SQL 恢复到随机命名的临时 MySQL 库，核对表结构/索引并读取数据；结束后删除临时库。验证需要本机 MySQL 账号有创建、删除临时库的权限，不会恢复或修改生产 `venue_db`。
+每份备份包含 MySQL InnoDB 数据库、`%LOCALAPPDATA%\Huisuo\channel-sync` 下所有 `.sqlite3` 任务/进度库，以及公告媒体目录；SQLite 使用在线一致性备份并执行 `quick_check`。Telegram `.session` 登录凭据、可重建的图片/视频缓存和本地音乐目录默认不包含。音乐目录当前体积较大；需要保留其中无法从频道恢复的手工导入音频时，可显式添加 `--include-local-music`，并先确认磁盘空间。完成后可运行 `verify`：校验清单和全部文件 SHA-256、检查 SQLite，再将 SQL 恢复到随机命名的临时 MySQL 库，核对表结构/索引并读取数据；结束后删除临时库。验证需要本机 MySQL 账号有创建、删除临时库的权限，不会恢复或修改生产 `venue_db`。计划任务会在每次创建后自动执行相同的隔离恢复验证；验证失败会令任务报错，并保留旧备份，不因失败校验而清理历史副本。
 
 这是一份本机备份和隔离恢复检查，不替代异地备份，也不自动执行生产恢复。真正恢复前应先停止 API、机器人及频道同步，核对备份时间和目标库，再单独制定/确认恢复步骤；不可将验证命令改成指向 `venue_db`。
 

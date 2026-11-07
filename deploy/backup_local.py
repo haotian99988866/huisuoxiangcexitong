@@ -354,20 +354,29 @@ def backup(args):
         }
         (staging / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        os.replace(staging, final)
-        prune_backups(backup_root, args.keep_days)
+        finalize_backup(
+            staging, final, backup_root, args.keep_days, args.verify_after_backup)
         total_bytes = sum(item["bytes"] for item in files.values())
         print(f"备份完成：{final}")
         print(f"文件 {len(files)} 个，约 {total_bytes / (1024 ** 3):.2f} GiB")
         if not args.include_local_music:
             print("本地音乐目录未包含；如有无法从 Telegram 重建的手工导入音乐，请另行备份。")
-        print("建议运行：python deploy/backup_local.py verify")
+        if not args.verify_after_backup:
+            print("建议运行：python deploy/backup_local.py verify")
     except BaseException:
         if option_file.exists():
             option_file.unlink()
         if staging.exists():
             shutil.rmtree(staging)
         raise
+
+
+def finalize_backup(staging, final, backup_root, keep_days, verify_after_backup):
+    os.replace(staging, final)
+    if verify_after_backup:
+        print(f"备份已创建，开始恢复验证：{final}")
+        restore_verify(final)
+    prune_backups(backup_root, keep_days)
 
 
 def prune_backups(backup_root, keep_days):
@@ -522,6 +531,8 @@ def main():
     create.add_argument("--backup-root", type=Path, help="备份目录，默认位于用户本机数据目录")
     create.add_argument("--include-local-music", action="store_true",
                         help="包含本机音乐目录；可能占用大量空间")
+    create.add_argument("--verify-after-backup", action="store_true",
+                        help="创建后校验文件并恢复到临时 MySQL 库")
     verify = commands.add_parser("verify", help="校验最新备份并恢复到临时 MySQL 库")
     verify.add_argument("--path", type=Path, help="指定已完成的备份目录，默认最新备份")
     verify.add_argument("--backup-root", type=Path, help="查找最新备份的目录")
