@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 BACKUP_SCRIPT = Path(__file__).resolve().parents[2] / "deploy" / "backup_local.py"
@@ -13,6 +14,34 @@ SPEC.loader.exec_module(backup_local)
 
 
 class LocalBackupTests(unittest.TestCase):
+    def test_backup_root_can_be_selected_without_changing_other_local_paths(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+                "os.environ", {"LOCALAPPDATA": temporary}):
+            root = Path(temporary) / "external-drive" / "backups"
+            paths = backup_local.local_paths(root)
+
+            self.assertEqual(paths["backup_root"], root)
+            self.assertEqual(paths["state"], Path(temporary) / "Huisuo" / "channel-sync")
+
+    def test_backup_directory_acl_uses_the_current_windows_sid(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(backup_local.subprocess, "check_output",
+                             return_value="S-1-5-21-1234") as current_sid, \
+                patch.object(backup_local.subprocess, "run",
+                             return_value=type("Result", (), {"returncode": 0})()) as icacls:
+            path = Path(temporary) / "backups"
+            backup_local.protect_directory(path)
+
+        current_sid.assert_called_once_with(
+            [
+                "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+            ],
+            text=True,
+            encoding="ascii",
+        )
+        self.assertIn("*S-1-5-21-1234:(OI)(CI)F", icacls.call_args.args[0])
+
     def test_sqlite_snapshot_is_consistent_and_readable(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

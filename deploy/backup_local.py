@@ -38,11 +38,11 @@ INDEXES_QUERY = (
 )
 
 
-def local_paths():
+def local_paths(backup_root=None):
     local = Path(os.environ["LOCALAPPDATA"])
     huisuo = local / "Huisuo"
     return {
-        "backup_root": huisuo / "backups",
+        "backup_root": Path(backup_root) if backup_root else huisuo / "backups",
         "state": huisuo / "channel-sync",
         "announcement_media": huisuo / "announcement-media",
         "music_library": Path(os.getenv("MUSIC_LIBRARY_DIR", str(huisuo / "music"))),
@@ -51,11 +51,18 @@ def local_paths():
 
 def protect_directory(path):
     path.mkdir(parents=True, exist_ok=True)
-    identity = subprocess.check_output(["whoami.exe"], text=True).strip()
+    identity_sid = subprocess.check_output(
+        [
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+            "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+        ],
+        text=True,
+        encoding="ascii",
+    ).strip()
     result = subprocess.run(
         [
             "icacls.exe", str(path), "/inheritance:r", "/grant:r",
-            f"{identity}:(OI)(CI)F", "NT AUTHORITY\\SYSTEM:(OI)(CI)F",
+            f"*{identity_sid}:(OI)(CI)F", "NT AUTHORITY\\SYSTEM:(OI)(CI)F",
         ],
         capture_output=True,
         text=True,
@@ -256,7 +263,7 @@ def run_client(executable, option_file, *arguments, timeout=1800, stdin=None):
 
 
 def backup(args):
-    paths = local_paths()
+    paths = local_paths(args.backup_root)
     backup_root = paths["backup_root"]
     protect_directory(backup_root)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -512,17 +519,19 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     create = commands.add_parser("backup", help="创建受限权限的本机备份")
     create.add_argument("--keep-days", type=int, default=14, help="保留天数，默认 14")
+    create.add_argument("--backup-root", type=Path, help="备份目录，默认位于用户本机数据目录")
     create.add_argument("--include-local-music", action="store_true",
                         help="包含本机音乐目录；可能占用大量空间")
     verify = commands.add_parser("verify", help="校验最新备份并恢复到临时 MySQL 库")
     verify.add_argument("--path", type=Path, help="指定已完成的备份目录，默认最新备份")
+    verify.add_argument("--backup-root", type=Path, help="查找最新备份的目录")
     args = parser.parse_args()
     if args.command == "backup":
         if not 1 <= args.keep_days <= 365:
             parser.error("--keep-days must be between 1 and 365")
         backup(args)
     else:
-        paths = local_paths()
+        paths = local_paths(args.backup_root)
         restore_verify(args.path or latest_backup(paths["backup_root"]))
 
 
