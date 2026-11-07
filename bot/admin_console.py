@@ -67,6 +67,7 @@ def dashboard():
     for row in rows:
         state = row["status"]
         expiry = row["expires_at"]
+        expiring_soon = False
         if state == "active":
             if expiry is None or expiry <= now:
                 state = "expired"
@@ -74,10 +75,11 @@ def dashboard():
                 counts["active"] += 1
                 if expiry <= now + timedelta(days=7):
                     counts["expiring"] += 1
+                    expiring_soon = True
         if state in {"expired", "draft", "suspended"}:
             counts[state] += 1
         tenants.append({**tenant_snapshot(row), "effective_status": state,
-                        "revision": tenant_revision(row)})
+                        "expiring_soon": expiring_soon, "revision": tenant_revision(row)})
     for row in audit:
         for key in ("before_config", "after_config"):
             if isinstance(row.get(key), str):

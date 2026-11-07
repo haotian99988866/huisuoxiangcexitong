@@ -399,7 +399,11 @@ class AdminConsoleTests(unittest.TestCase):
         self.assertTrue(result["audit"][0]["created_at"].endswith("Z"))
         self.assertEqual(result["audit"][0]["before_config"], {"brand_name": "旧品牌"})
         self.assertEqual(result["audit"][0]["after_config"], {"brand_name": "新品牌"})
-        self.assertEqual(result["tenants"][2]["effective_status"], "expired")
+        tenants_by_slug = {row["slug"]: row for row in result["tenants"]}
+        self.assertTrue(tenants_by_slug["soon"]["expiring_soon"])
+        self.assertFalse(tenants_by_slug["test-shop"]["expiring_soon"])
+        self.assertFalse(tenants_by_slug["past"]["expiring_soon"])
+        self.assertEqual(tenants_by_slug["past"]["effective_status"], "expired")
         self.assertTrue(all(len(row["revision"]) == 64 for row in result["tenants"]))
 
 

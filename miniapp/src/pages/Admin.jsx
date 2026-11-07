@@ -81,7 +81,9 @@ export default function Admin() {
     const matchesSearch = !normalizedTenantSearch ||
       [row.slug, row.brand_name, row.contact_name, row.contact_username]
         .some(value => value.toLocaleLowerCase().includes(normalizedTenantSearch))
-    return matchesSearch && (tenantStatus === 'all' || row.effective_status === tenantStatus)
+    const matchesStatus = tenantStatus === 'all' ||
+      (tenantStatus === 'expiring' ? row.expiring_soon : row.effective_status === tenantStatus)
+    return matchesSearch && matchesStatus
   })
 
   const refresh = async () => {
@@ -251,6 +253,7 @@ export default function Admin() {
               onChange={event => setTenantStatus(event.target.value)}>
               <option value="all">全部状态</option>
               <option value="active">已启用</option>
+              <option value="expiring">7天内到期</option>
               <option value="expired">已到期</option>
               <option value="draft">草稿</option>
               <option value="suspended">已暂停</option>
