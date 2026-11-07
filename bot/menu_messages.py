@@ -118,3 +118,18 @@ def clear_before(bot, command):
             return deleted
         finally:
             conn.close()
+
+
+def delete_command(bot, command):
+    chat_id = command.chat.id
+    try:
+        bot.delete_message(chat_id, command.message_id, timeout=20)
+    except apihelper.ApiTelegramException as error:
+        if error.error_code == 400 and "message to delete not found" in error.description.lower():
+            return True
+        logger.exception("Could not delete /start command %s:%s", chat_id, command.message_id)
+        return False
+    except (apihelper.ApiException, ConnectionError, TimeoutError):
+        logger.exception("Could not delete /start command %s:%s", chat_id, command.message_id)
+        return False
+    return True

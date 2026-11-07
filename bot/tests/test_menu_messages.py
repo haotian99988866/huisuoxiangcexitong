@@ -57,6 +57,23 @@ class MenuMessageTests(unittest.TestCase):
         self.assertEqual(cur.execute.call_args_list[0].args[1], (123, 20))
         self.assertIn("message_id<%s", cur.execute.call_args_list[0].args[0])
 
+    def test_delete_command_removes_the_current_start_message(self):
+        bot = Mock()
+        command = SimpleNamespace(chat=SimpleNamespace(id=123), message_id=20)
+
+        self.assertTrue(menu_messages.delete_command(bot, command))
+
+        bot.delete_message.assert_called_once_with(123, 20, timeout=20)
+
+    def test_delete_command_logs_and_reports_telegram_failure(self):
+        bot = Mock()
+        bot.delete_message.side_effect = apihelper.ApiTelegramException("deleteMessage", None, {
+            "error_code": 400, "description": "message can't be deleted"})
+        command = SimpleNamespace(chat=SimpleNamespace(id=123), message_id=20)
+
+        with self.assertLogs("menu_messages"):
+            self.assertFalse(menu_messages.delete_command(bot, command))
+
     def test_tracked_reply_removes_legacy_keyboard_before_sending_inline_menu(self):
         bot = Mock()
         bot.send_message.return_value = SimpleNamespace(

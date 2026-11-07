@@ -170,8 +170,10 @@ def handle_start(message):
     touch_user(message.from_user)
     if len(parts) == 2 and (parts[1] == "news" or parts[1].startswith("news_")):
         show_news_menu(message, "" if parts[1] == "news" else parts[1][5:])
+        menu_messages.delete_command(bot, message)
         return
     send_welcome(bot, message.chat.id, message.from_user.id)
+    menu_messages.delete_command(bot, message)
 
 
 @bot.message_handler(func=is_menu_message, content_types=["text"], chat_types=["private"])
