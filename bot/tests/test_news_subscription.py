@@ -287,21 +287,27 @@ class NewsSubscriptionTests(unittest.TestCase):
 class NewsEntryTests(unittest.TestCase):
     def test_start_deep_link_preserves_tenant_without_auto_subscribing(self):
         import main
-        message = SimpleNamespace(text="/start news_sample", from_user=SimpleNamespace(id=123),
+        user = SimpleNamespace(id=123, to_dict=lambda: {"id": 123})
+        message = SimpleNamespace(text="/start news_sample", from_user=user,
                                   chat=SimpleNamespace(id=123))
-        with patch.object(main, "touch_user"), patch.object(main, "bot"), \
+        with patch("customer_analytics.bot_event") as bot_event, \
+                patch.object(main, "touch_user"), patch.object(main, "bot"), \
                 patch.object(main, "show_news_menu") as menu, patch.object(news, "subscribe") as subscribe:
             main.handle_start(message)
             menu.assert_called_once_with(message, "sample")
             subscribe.assert_not_called()
+            bot_event.assert_called_once_with({"id": 123}, "started", None)
 
     def test_normal_start_still_shows_welcome(self):
         import main
-        message = SimpleNamespace(text="/start", from_user=SimpleNamespace(id=123),
+        user = SimpleNamespace(id=123, to_dict=lambda: {"id": 123})
+        message = SimpleNamespace(text="/start", from_user=user,
                                   chat=SimpleNamespace(id=123))
-        with patch.object(main, "touch_user"), patch.object(main, "send_welcome") as welcome:
+        with patch("customer_analytics.bot_event") as bot_event, \
+                patch.object(main, "touch_user"), patch.object(main, "send_welcome") as welcome:
             main.handle_start(message)
             welcome.assert_called_once_with(main.bot, 123)
+            bot_event.assert_called_once_with({"id": 123}, "started", None)
 
 
 if __name__ == "__main__":
