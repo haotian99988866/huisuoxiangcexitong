@@ -1,8 +1,12 @@
 from urllib.parse import quote
-from telebot import types
+import logging
+
+from telebot import apihelper, types
 
 from admin import get_setting
-from menu_messages import keep_latest
+from menu_messages import send_tracked
+
+logger = logging.getLogger(__name__)
 MINIAPP_URL = "https://t.me/haotianzhaopian_bot?startapp"
 VENUE_URL = "https://t.me/haotianzhaopian_bot?startapp=venue"
 DELIVERY_URL = "https://t.me/haotianzhaopian_bot?startapp=delivery"
@@ -19,23 +23,6 @@ PHONE_URL = "https://t.me/haotianzhaopian_bot?startapp=phone"
 CONTACT_URL = "https://t.me/haotian99988866"
 CHANNEL_URL = "https://t.me/haotianyl99988866"
 BOT_URL = "https://t.me/haotianzhaopian_bot"
-WEBAPP_BASE_URL = "https://app.haotianzhushou.com"
-WEBAPP_PATHS = {
-    VENUE_URL: "/?module=venue",
-    DELIVERY_URL: "/?module=delivery",
-    HOTELS_URL: "/hotels",
-    MOVIES_URL: "/movies",
-    SHORT_DRAMAS_URL: "/short-dramas",
-    MUSIC_URL: "/music",
-    NEWS_URL: "/announcements",
-    MEMBERSHIP_URL: "/membership",
-    PHONE_URL: "/phone-topup",
-    RECHARGE_URL: "/recharge",
-    PERSONAL_URL: "/personal",
-    SERVICES_URL: "/services",
-    CHANNEL_URL: "/channel.html",
-    CONTACT_URL: "/channel.html?target=contact",
-}
 SHARE_URL = (
     "https://t.me/share/url?url="
     + quote(BOT_URL, safe="")
@@ -46,13 +33,11 @@ SHARE_URL = (
 HOME_TEXT = (
     "<b>欢迎使用昊天生活通</b>\n"
     "西港生活服务，一站直达。\n\n"
-    "会所出勤 · 西港外送 · 酒店推荐\n"
-    "影视观影 · 短剧合集 · 在线音乐\n"
-    "东南亚资讯 · 出勤与新闻订阅\n"
-    "Telegram会员 · 话费代充 · 我的账户\n\n"
+    "会所外送 · 出勤提醒 · 观影音乐\n"
+    "资讯订阅 · Telegram会员 · 话费充值\n"
+    "充值服务 · 我的账户与客服\n\n"
     "充值订单人工处理，非即时到账。\n"
-    "下方功能按钮直接打开网页。\n"
-    "账户操作如需登录，请从左下角【昊天生活通】进入。"
+    "点击下方分类展开功能；账户操作请从 Telegram 打开小程序。"
 )
 
 PROMO_TEXT = (
@@ -67,7 +52,7 @@ PROMO_TEXT = (
 
 HELP_TEXT = (
     "📖 <b>使用指南</b>\n\n"
-    "底部网页按钮直接打开功能，不发送消息；账户、下单、收藏和人员订阅如需登录，请从左下角【昊天生活通】进入。\n\n"
+    "点击首页分类展开功能并直接打开网页；账户、下单、收藏和人员订阅如需登录，请从 Telegram 打开小程序。\n\n"
     "<b>1️⃣ 查看实时出勤</b>\n"
     "点【会所出勤】进入小程序，顶部下拉框选择会所，即可看到当前班次的出勤名单。\n\n"
     "<b>2️⃣ 白班 / 晚班</b>\n"
@@ -102,7 +87,7 @@ HELP_TEXT = (
 )
 
 
-def home_keyboard(user_id=None):
+def legacy_home_keyboard(user_id=None):
     keyboard = types.InlineKeyboardMarkup(row_width=3)
     keyboard.row(
         types.InlineKeyboardButton("会所出勤", url=VENUE_URL),
@@ -136,6 +121,80 @@ def home_keyboard(user_id=None):
     return keyboard
 
 
+MENU_CATEGORIES = {
+    "venue": (
+        "会所 / 外送",
+        (
+            ("会所出勤", VENUE_URL),
+            ("西港外送", DELIVERY_URL),
+            ("酒店推荐", HOTELS_URL),
+        ),
+    ),
+    "media": (
+        "影音娱乐",
+        (
+            ("影视观影", MOVIES_URL),
+            ("短剧合集", SHORT_DRAMAS_URL),
+            ("在线音乐", MUSIC_URL),
+        ),
+    ),
+    "news": (
+        "资讯与提醒",
+        (
+            ("昊天大事件", NEWS_URL),
+            ("新闻订阅", "callback:news:menu"),
+            ("出勤提醒", "callback:sub:menu"),
+        ),
+    ),
+    "services": (
+        "充值服务",
+        (
+            ("Telegram会员", MEMBERSHIP_URL),
+            ("话费充值", PHONE_URL),
+            ("余额充值", RECHARGE_URL),
+            ("服务中心", SERVICES_URL),
+        ),
+    ),
+    "account": (
+        "我的与客服",
+        (
+            ("我的账户", PERSONAL_URL),
+            ("频道", CHANNEL_URL),
+            ("分享好友", "share"),
+            ("联系昊天", CONTACT_URL),
+        ),
+    ),
+}
+
+
+def home_keyboard():
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        types.InlineKeyboardButton(title, callback_data=f"menu:category:{key}")
+        for key, (title, _) in MENU_CATEGORIES.items()
+    ]
+    for offset in range(0, len(buttons), 2):
+        keyboard.row(*buttons[offset:offset + 2])
+    return keyboard
+
+
+def category_keyboard(category, user_id=None):
+    title, entries = MENU_CATEGORIES[category]
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    buttons = []
+    for label, destination in entries:
+        if destination.startswith("callback:"):
+            buttons.append(types.InlineKeyboardButton(
+                label, callback_data=destination.removeprefix("callback:")))
+        else:
+            url = personal_share_url(user_id) if destination == "share" else destination
+            buttons.append(types.InlineKeyboardButton(label, url=url))
+    for offset in range(0, len(buttons), 2):
+        keyboard.row(*buttons[offset:offset + 2])
+    keyboard.row(types.InlineKeyboardButton("‹ 返回分类", callback_data="menu:home"))
+    return title, keyboard
+
+
 def personal_share_url(user_id):
     if user_id is None:
         return SHARE_URL
@@ -145,31 +204,14 @@ def personal_share_url(user_id):
         "昊天生活通 · 西港生活服务与东南亚资讯，一站查看", safe="")
 
 
-def reply_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(
-        row_width=3, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
-    entries = [button for row in home_keyboard().keyboard for button in row]
-    direct = [button for button in entries if button.url in WEBAPP_PATHS]
-    replies = [button for button in entries if button.url not in WEBAPP_PATHS]
-    for group in (direct, replies):
-        for offset in range(0, len(group), 3):
-            buttons = []
-            for button in group[offset:offset + 3]:
-                path = WEBAPP_PATHS.get(button.url)
-                web_app = types.WebAppInfo(WEBAPP_BASE_URL + path) if path else None
-                buttons.append(types.KeyboardButton(button.text, web_app=web_app))
-            keyboard.row(*buttons)
-    return keyboard
-
-
 def is_menu_message(message):
     return (not getattr(message, "reply_to_message", None)
             and any(message.text == button.text
-                    for row in home_keyboard().keyboard for button in row))
+                    for row in legacy_home_keyboard().keyboard for button in row))
 
 
 def send_menu_link(bot, chat_id, user_id, text):
-    button = next((button for row in home_keyboard().keyboard
+    button = next((button for row in legacy_home_keyboard().keyboard
                    for button in row if button.text == text), None)
     if button is None or not button.url:
         raise ValueError("无效的功能入口，请发送 /start 刷新菜单。")
@@ -177,8 +219,9 @@ def send_menu_link(bot, chat_id, user_id, text):
         button = types.InlineKeyboardButton(text, url=personal_share_url(user_id))
     markup = types.InlineKeyboardMarkup()
     markup.row(button)
-    return keep_latest(bot, bot.send_message(
-        chat_id, f"点击下方按钮打开{text}。", reply_markup=markup, disable_web_page_preview=True))
+    return send_tracked(
+        bot, chat_id, f"点击下方按钮打开{text}。", reply_markup=markup,
+        disable_web_page_preview=True)
 
 
 def sub_keyboard():
@@ -205,48 +248,51 @@ def screen_text(name):
 
 
 def send_welcome(bot, chat_id):
-    return keep_latest(bot, bot.send_message(
+    return send_tracked(
+        bot,
         chat_id,
         HOME_TEXT,
         parse_mode="HTML",
-        reply_markup=reply_keyboard(),
+        reply_markup=home_keyboard(),
         disable_web_page_preview=True,
-    ), is_keyboard=True)
-
+    )
 
 def send_help(bot, chat_id):
     text, keyboard = SCREENS["help"]
-    return keep_latest(bot, bot.send_message(
+    return send_tracked(bot,
         chat_id,
         text,
         parse_mode="HTML",
         reply_markup=keyboard(),
         disable_web_page_preview=True,
-    ))
+    )
 
 
 def show_screen(bot, call):
     """点击菜单按钮时就地替换消息内容,不刷屏。"""
-    name = (call.data or "").split(":", 1)[-1]
-    screen = SCREENS.get(name)
+    data = call.data or ""
     bot.answer_callback_query(call.id)
-    if not screen:
+    if data == "menu:home":
+        text, keyboard = HOME_TEXT, home_keyboard()
+    elif data.startswith("menu:category:"):
+        category = data.removeprefix("menu:category:")
+        if category not in MENU_CATEGORIES:
+            return
+        title, keyboard = category_keyboard(category, call.from_user.id)
+        text = f"<b>{title}</b>\n选择要打开的功能。"
+    else:
         return
-    if name == "home":
-        send_welcome(bot, call.message.chat.id)
-        return
-    _, keyboard = screen
-    markup = keyboard()
-    text = screen_text(name)
     try:
         bot.edit_message_text(
             text,
             call.message.chat.id,
             call.message.message_id,
             parse_mode="HTML",
-            reply_markup=markup,
+            reply_markup=keyboard,
             disable_web_page_preview=True,
         )
-    except Exception:
-        # 内容没变化或消息过旧时,忽略即可
-        pass
+    except apihelper.ApiTelegramException as error:
+        if error.error_code == 400 and "message is not modified" in error.description.lower():
+            return
+        logger.exception("Could not update grouped bot menu")
+        raise

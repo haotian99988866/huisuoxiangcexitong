@@ -4,45 +4,53 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import bot_profile
+import menu_messages
+import pymysql
 import welcome
 
 
 class WelcomeTests(unittest.TestCase):
     def setUp(self):
-        patcher = patch("welcome.keep_latest", side_effect=lambda bot, message, **kwargs: message)
+        patcher = patch("menu_messages.keep_latest", side_effect=lambda bot, message, **kwargs: message)
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_main_menu_has_all_entries_in_six_three_button_rows(self):
+    def test_main_menu_groups_features_into_five_categories(self):
         buttons = [button for row in welcome.home_keyboard().keyboard for button in row]
-        self.assertEqual(sum(button.url == welcome.MUSIC_URL for button in buttons), 1)
-        self.assertTrue(welcome.MUSIC_URL.endswith("?startapp=music"))
-        self.assertEqual(sum(button.url == welcome.MEMBERSHIP_URL for button in buttons), 1)
-        self.assertEqual(sum(button.url == welcome.PHONE_URL for button in buttons), 1)
-        self.assertTrue(welcome.MEMBERSHIP_URL.endswith("?startapp=membership"))
-        self.assertTrue(welcome.PHONE_URL.endswith("?startapp=phone"))
-        self.assertTrue({welcome.VENUE_URL, welcome.DELIVERY_URL, welcome.HOTELS_URL,
-                         welcome.SHORT_DRAMAS_URL, welcome.NEWS_URL, welcome.RECHARGE_URL,
-                         welcome.SERVICES_URL, welcome.MOVIES_URL, welcome.PERSONAL_URL,
-                         welcome.CONTACT_URL, welcome.CHANNEL_URL, welcome.SHARE_URL}
-                        .issubset({button.url for button in buttons}))
-        self.assertTrue({"news:menu", "sub:menu"}
-                        .issubset({button.callback_data for button in buttons}))
-        self.assertEqual([button.text for button in welcome.home_keyboard().keyboard[-1]],
-                         ["频道", "分享好友", "联系昊天"])
-        self.assertEqual([len(row) for row in welcome.home_keyboard().keyboard], [3, 3, 3, 3, 2, 3])
-        self.assertEqual(len(buttons), 17)
-        self.assertEqual(len({button.text for button in buttons}), 17)
+        self.assertEqual([len(row) for row in welcome.home_keyboard().keyboard], [2, 2, 1])
+        self.assertEqual([button.callback_data for button in buttons], [
+            "menu:category:venue", "menu:category:media", "menu:category:news",
+            "menu:category:services", "menu:category:account",
+        ])
+        all_destinations = {
+            welcome.SHARE_URL if destination == "share" else destination
+            for _, entries in welcome.MENU_CATEGORIES.values()
+            for _, destination in entries
+        }
+        self.assertTrue({
+            welcome.VENUE_URL, welcome.DELIVERY_URL, welcome.HOTELS_URL,
+            welcome.SHORT_DRAMAS_URL, welcome.NEWS_URL, welcome.RECHARGE_URL,
+            welcome.SERVICES_URL, welcome.MOVIES_URL, welcome.PERSONAL_URL,
+            welcome.CONTACT_URL, welcome.CHANNEL_URL, welcome.MEMBERSHIP_URL,
+            welcome.PHONE_URL, "callback:news:menu", "callback:sub:menu", welcome.SHARE_URL,
+        }.issubset(all_destinations))
+        self.assertEqual(len(buttons), 5)
         self.assertNotIn("使用指南", {button.text for button in buttons})
-        self.assertNotIn("menu:promo", {button.callback_data for button in buttons})
-        self.assertNotIn("member:login", {button.callback_data for button in buttons})
-        news_buttons = [button for button in buttons if button.callback_data == "news:menu"]
-        self.assertEqual([button.text for button in news_buttons], ["新闻订阅"])
         self.assertIn("【新闻订阅】", welcome.HELP_TEXT)
         self.assertEqual(len(welcome.sub_keyboard().keyboard), 1)
         self.assertEqual(len(welcome.sub_keyboard().keyboard[0]), 2)
-        self.assertNotIn("menu:home", {button.callback_data
-                                     for row in welcome.sub_keyboard().keyboard for button in row})
+        for key, (title, _) in welcome.MENU_CATEGORIES.items():
+            with self.subTest(category=key):
+                category_title, keyboard = welcome.category_keyboard(key)
+                self.assertEqual(category_title, title)
+                self.assertEqual(keyboard.keyboard[-1][0].callback_data, "menu:home")
+        rendered_destinations = {
+            button.url or f"callback:{button.callback_data}"
+            for key in welcome.MENU_CATEGORIES
+            for row in welcome.category_keyboard(key)[1].keyboard
+            for button in row
+        }
+        self.assertTrue(all_destinations.issubset(rendered_destinations))
 
     def test_descriptions_fit_telegram_limits_and_cover_current_modules(self):
         self.assertLessEqual(len(bot_profile.DESCRIPTION.encode("utf-16-le")) // 2, 512)
@@ -68,46 +76,56 @@ class WelcomeTests(unittest.TestCase):
         self.assertTrue({"member", "member_sales", "paysupport"}.issubset(commands))
         self.assertFalse({"premium_sales", "stars_sales"} & commands)
 
-    def test_start_sends_current_text_and_keyboard_without_preview(self):
+    def test_start_removes_old_reply_keyboard_and_adds_grouped_inline_menu(self):
         bot = Mock()
-        with patch("customer_analytics.invite_link", return_value=welcome.BOT_URL + "?start=ref_" + "a" * 32):
-            welcome.send_welcome(bot, 123)
+        bot.send_message.return_value = SimpleNamespace(
+            chat=SimpleNamespace(id=123), message_id=456)
+        welcome.send_welcome(bot, 123)
         args, options = bot.send_message.call_args
         self.assertEqual(args, (123, welcome.HOME_TEXT))
         self.assertEqual(options["parse_mode"], "HTML")
         self.assertTrue(options["disable_web_page_preview"])
-        markup = json.loads(options["reply_markup"].to_json())
-        self.assertEqual([len(row) for row in markup["keyboard"]], [3, 3, 3, 3, 2, 3])
-        self.assertTrue(markup["is_persistent"])
-        self.assertTrue(markup["resize_keyboard"])
-        self.assertFalse(markup["one_time_keyboard"])
-        self.assertEqual({item["text"] for row in markup["keyboard"] for item in row},
-                         {button.text for row in welcome.home_keyboard().keyboard for button in row})
-        buttons = [item for row in markup["keyboard"] for item in row]
-        self.assertEqual(sum("web_app" in button for button in buttons), 14)
-        self.assertEqual({button["text"] for button in buttons if "web_app" not in button},
-                         {"新闻订阅", "出勤提醒", "分享好友"})
-        self.assertTrue(all("web_app" in item for item in buttons[:14]))
-        by_text = {item["text"]: item for item in buttons}
-        for inline in [button for row in welcome.home_keyboard().keyboard for button in row]:
-            if inline.url in welcome.WEBAPP_PATHS:
-                self.assertEqual(by_text[inline.text]["web_app"]["url"],
-                                 welcome.WEBAPP_BASE_URL + welcome.WEBAPP_PATHS[inline.url])
+        remove_markup = json.loads(options["reply_markup"].to_json())
+        self.assertTrue(remove_markup["remove_keyboard"])
+        bot.edit_message_reply_markup.assert_called_once()
+        inline_markup = json.loads(
+            bot.edit_message_reply_markup.call_args.kwargs["reply_markup"].to_json())
+        self.assertEqual([len(row) for row in inline_markup["inline_keyboard"]], [2, 2, 1])
 
     def test_menu_links_preserve_destinations_and_personal_share(self):
         bot = Mock()
-        for row in welcome.home_keyboard().keyboard:
+        for row in welcome.legacy_home_keyboard().keyboard:
             for button in row:
                 if not button.url:
                     continue
                 with self.subTest(button=button.text), patch(
                         "customer_analytics.invite_link", return_value=welcome.BOT_URL + "?start=ref_test"):
                     welcome.send_menu_link(bot, 123, 123, button.text)
-                sent = bot.send_message.call_args.kwargs["reply_markup"].keyboard[0][0]
+                sent = bot.edit_message_reply_markup.call_args.kwargs["reply_markup"].keyboard[0][0]
                 if button.text == "分享好友":
                     self.assertIn("ref_test", sent.url)
                 else:
                     self.assertEqual(sent.url, button.url)
+
+    def test_category_callback_edits_the_same_message_with_compact_links(self):
+        bot = Mock()
+        call = SimpleNamespace(
+            data="menu:category:news",
+            id="callback",
+            from_user=SimpleNamespace(id=123),
+            message=SimpleNamespace(chat=SimpleNamespace(id=123), message_id=456),
+        )
+
+        welcome.show_screen(bot, call)
+
+        bot.send_message.assert_not_called()
+        bot.edit_message_text.assert_called_once()
+        self.assertIn("资讯与提醒", bot.edit_message_text.call_args.args[0])
+        markup = bot.edit_message_text.call_args.kwargs["reply_markup"]
+        callbacks = [button.callback_data for row in markup.keyboard for button in row]
+        self.assertIn("news:menu", callbacks)
+        self.assertIn("sub:menu", callbacks)
+        self.assertEqual(callbacks[-1], "menu:home")
 
     def test_fixed_menu_precedes_relay_and_dispatches_actions(self):
         import main
@@ -125,10 +143,30 @@ class WelcomeTests(unittest.TestCase):
         self.assertFalse(welcome.is_menu_message(SimpleNamespace(text="普通留言")))
         self.assertFalse(welcome.is_menu_message(SimpleNamespace(text="联系昊天", reply_to_message=object())))
 
-    def test_return_home_sends_reply_keyboard_not_inline_edit(self):
+    def test_return_home_edits_the_existing_message(self):
         bot = Mock()
         call = SimpleNamespace(data="menu:home", id="callback",
-                               message=SimpleNamespace(chat=SimpleNamespace(id=123)))
+                               message=SimpleNamespace(chat=SimpleNamespace(id=123),
+                                                       message_id=456))
         welcome.show_screen(bot, call)
-        bot.edit_message_text.assert_not_called()
-        self.assertTrue(json.loads(bot.send_message.call_args.kwargs["reply_markup"].to_json())["is_persistent"])
+        bot.send_message.assert_not_called()
+        bot.edit_message_text.assert_called_once()
+        markup = json.loads(bot.edit_message_text.call_args.kwargs["reply_markup"].to_json())
+        self.assertEqual([len(row) for row in markup["inline_keyboard"]], [2, 2, 1])
+
+    def test_command_history_handler_runs_before_start_and_continues_dispatch(self):
+        import main
+        handlers = [item["function"] for item in main.bot.message_handlers]
+        self.assertLess(handlers.index(main.handle_command_history_cleanup),
+                        handlers.index(main.handle_start))
+        message = SimpleNamespace(
+            text="/news_off", chat=SimpleNamespace(id=123, type="private"), message_id=20)
+        self.assertTrue(main.is_private_command(message))
+        with patch("main.menu_messages.clear_before") as clear:
+            result = main.handle_command_history_cleanup(message)
+        clear.assert_called_once_with(main.bot, message)
+        self.assertEqual(type(result).__name__, "ContinueHandling")
+        with patch("main.menu_messages.clear_before", side_effect=pymysql.MySQLError("offline")), \
+                self.assertLogs("main"):
+            result = main.handle_command_history_cleanup(message)
+        self.assertEqual(type(result).__name__, "ContinueHandling")

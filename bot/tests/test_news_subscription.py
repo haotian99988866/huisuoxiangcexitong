@@ -51,6 +51,12 @@ class NewsSubscriptionTests(unittest.TestCase):
         self.sql("DELETE FROM display_tenants")
         self.bot = Mock()
         self.bot.send_message.return_value = SimpleNamespace(message_id=77)
+        self.tracked_message_patcher = patch.object(
+            news, "send_tracked",
+            side_effect=lambda bot, chat_id, text, **kwargs: bot.send_message(
+                chat_id, text, **kwargs))
+        self.tracked_message_patcher.start()
+        self.addCleanup(self.tracked_message_patcher.stop)
 
     def sql(self, sql, args=()):
         conn = self.connect()

@@ -7,6 +7,7 @@ import pymysql
 import requests
 import telebot
 from telebot import apihelper, types, util
+from telebot.handler_backends import ContinueHandling
 from dotenv import load_dotenv
 from db import get_conn
 from image_hash import compute_hash, ensure_columns as ensure_image_hash_columns
@@ -141,6 +142,21 @@ def parse_caption(caption):
     text_without_tags = re.sub(hashtag_pattern, '', caption).strip()
     return tags, text_without_tags
 
+def is_private_command(message):
+    return (message.chat.type == "private"
+            and bool(message.text)
+            and message.text.startswith("/"))
+
+
+@bot.message_handler(func=is_private_command, content_types=["text"], chat_types=["private"])
+def handle_command_history_cleanup(message):
+    try:
+        menu_messages.clear_before(bot, message)
+    except pymysql.MySQLError:
+        logger.exception("Could not clear previous bot menu messages")
+    return ContinueHandling()
+
+
 # ===== 客人私聊机器人时发送欢迎信息 =====
 @bot.message_handler(commands=['start'], chat_types=['private'])
 def handle_start(message):
@@ -163,11 +179,9 @@ def handle_fixed_menu(message):
     try:
         touch_user(message.from_user)
         if message.text == "新闻订阅":
-            result = handle_news(message)
-            if result is not None:
-                menu_messages.keep_latest(bot, result)
+            handle_news(message)
         elif message.text == "出勤提醒":
-            menu_messages.keep_latest(bot, handle_remind(message))
+            handle_remind(message)
         elif message.text == "使用指南":
             send_help(bot, message.chat.id)
         else:
@@ -197,10 +211,11 @@ def show_news_menu(message, slug=""):
     try:
         return news_subscription.show_menu(bot, message.chat.id, message.from_user.id, slug)
     except ValueError as error:
-        bot.send_message(message.chat.id, str(error))
+        menu_messages.send_tracked(bot, message.chat.id, str(error))
     except pymysql.MySQLError:
         logger.exception("News subscription menu unavailable")
-        bot.send_message(message.chat.id, "订阅服务暂不可用，请稍后重试 /news。")
+        menu_messages.send_tracked(
+            bot, message.chat.id, "订阅服务暂不可用，请稍后重试 /news。")
 
 
 @bot.message_handler(commands=['news'], chat_types=['private'])
@@ -210,22 +225,25 @@ def handle_news(message):
         if current and current["active"]:
             keyboard = telebot.types.InlineKeyboardMarkup()
             keyboard.add(telebot.types.InlineKeyboardButton("取消新闻订阅", callback_data="news:off"))
-            return bot.send_message(message.chat.id, "你已订阅东南亚大事件，新资讯发布后会及时提醒。", reply_markup=keyboard)
+            return menu_messages.send_tracked(
+                bot, message.chat.id, "你已订阅东南亚大事件，新资讯发布后会及时提醒。",
+                reply_markup=keyboard)
         else:
             return show_news_menu(message)
     except pymysql.MySQLError:
         logger.exception("News subscription status unavailable")
-        bot.send_message(message.chat.id, "订阅状态暂不可用，请稍后重试 /news。")
+        menu_messages.send_tracked(
+            bot, message.chat.id, "订阅状态暂不可用，请稍后重试 /news。")
 
 
 @bot.message_handler(commands=['news_off'], chat_types=['private'])
 def handle_news_off(message):
     try:
         news_subscription.unsubscribe(message.from_user.id)
-        bot.send_message(message.chat.id, "已取消东南亚大事件新闻订阅。")
+        menu_messages.send_tracked(bot, message.chat.id, "已取消东南亚大事件新闻订阅。")
     except pymysql.MySQLError:
         logger.exception("News unsubscribe failed")
-        bot.send_message(message.chat.id, "取消失败，请稍后重试 /news_off。")
+        menu_messages.send_tracked(bot, message.chat.id, "取消失败，请稍后重试 /news_off。")
 
 
 @bot.callback_query_handler(func=lambda call: (call.data or "").startswith("news:"))
@@ -593,7 +611,8 @@ def handle_sub_callback(call):
 @bot.message_handler(commands=['remind'], chat_types=['private'])
 def handle_remind(message):
     touch_user(message.from_user)
-    return bot.send_message(
+    return menu_messages.send_tracked(
+        bot,
         message.chat.id,
         sub_menu_text(),
         parse_mode="HTML",

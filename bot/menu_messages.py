@@ -1,8 +1,8 @@
-"""Delete only recorded bot menu responses, never arbitrary chat history."""
+"""Track and clear recorded bot menu responses without deleting user messages."""
 import logging
 import threading
 
-from telebot import apihelper
+from telebot import apihelper, types
 
 from db import get_conn
 
@@ -61,3 +61,47 @@ def keep_latest(bot, message, is_keyboard=False):
         finally:
             conn.close()
     return message
+
+
+def send_tracked(bot, chat_id, text, is_keyboard=True, **kwargs):
+    markup = kwargs.pop("reply_markup", None)
+    message = bot.send_message(
+        chat_id, text, reply_markup=types.ReplyKeyboardRemove(), **kwargs)
+    keep_latest(bot, message, is_keyboard=is_keyboard)
+    if markup is not None:
+        bot.edit_message_reply_markup(chat_id, message.message_id, reply_markup=markup)
+    return message
+
+
+def clear_before(bot, command):
+    chat_id = command.chat.id
+    with _lock:
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT message_id FROM bot_menu_messages "
+                    "WHERE chat_id=%s AND message_id<%s ORDER BY message_id",
+                    (chat_id, command.message_id),
+                )
+                old_ids = [row["message_id"] for row in cur.fetchall()]
+            deleted = 0
+            for ident in old_ids:
+                try:
+                    bot.delete_message(chat_id, ident, timeout=20)
+                except apihelper.ApiTelegramException as error:
+                    if not (error.error_code == 400
+                            and "message to delete not found" in error.description.lower()):
+                        logger.exception("Cannot clear old bot message %s:%s", chat_id, ident)
+                        continue
+                except (apihelper.ApiException, ConnectionError, TimeoutError):
+                    logger.exception("Command history cleanup unavailable for %s:%s", chat_id, ident)
+                    continue
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM bot_menu_messages WHERE chat_id=%s AND message_id=%s",
+                                (chat_id, ident))
+                conn.commit()
+                deleted += 1
+            return deleted
+        finally:
+            conn.close()

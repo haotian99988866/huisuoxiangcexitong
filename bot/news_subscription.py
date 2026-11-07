@@ -10,6 +10,7 @@ from telebot import apihelper, types
 
 from announcements import reading_text
 from db import get_conn
+from menu_messages import send_tracked
 from tenants import TenantUnavailable, load_tenant
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def show_menu(bot, chat_id, user_id, slug=""):
     keyboard.add(types.InlineKeyboardButton("订阅新资讯", callback_data=f"news:on:{slug or '-'}"))
     if active:
         keyboard.add(types.InlineKeyboardButton("取消新闻订阅", callback_data="news:off"))
-    return bot.send_message(
+    return send_tracked(bot,
         chat_id,
         "🔔 东南亚大事件订阅\n\n"
         f"当前状态：{'已订阅' if active else '未订阅'}\n"
@@ -111,7 +112,7 @@ def handle_callback(bot, call):
         if call.data == "news:off":
             unsubscribe(call.from_user.id)
             bot.answer_callback_query(call.id, "已取消新闻订阅")
-            bot.send_message(call.message.chat.id, "已取消东南亚大事件提醒，不再发送新资讯。")
+            send_tracked(bot, call.message.chat.id, "已取消东南亚大事件提醒，不再发送新资讯。")
         elif call.data == "news:menu":
             current = subscription(call.from_user.id)
             # Cancellation remains available even after a tenant loses access.
@@ -119,7 +120,8 @@ def handle_callback(bot, call):
                 keyboard = types.InlineKeyboardMarkup()
                 keyboard.add(types.InlineKeyboardButton("取消新闻订阅", callback_data="news:off"))
                 bot.answer_callback_query(call.id)
-                bot.send_message(call.message.chat.id, "你已订阅东南亚大事件，可在这里取消。", reply_markup=keyboard)
+                send_tracked(bot, call.message.chat.id,
+                             "你已订阅东南亚大事件，可在这里取消。", reply_markup=keyboard)
             else:
                 bot.answer_callback_query(call.id)
                 show_menu(bot, call.message.chat.id, call.from_user.id)
@@ -127,14 +129,17 @@ def handle_callback(bot, call):
             slug = call.data.removeprefix("news:on:")
             subscribe(call.from_user.id, "" if slug == "-" else slug)
             bot.answer_callback_query(call.id, "已订阅")
-            bot.send_message(call.message.chat.id, "✅ 已订阅东南亚大事件，仅接收此刻之后的新资讯。\n取消请发送 /news 或 /news_off。")
+            send_tracked(
+                bot, call.message.chat.id,
+                "✅ 已订阅东南亚大事件，仅接收此刻之后的新资讯。\n取消请发送 /news 或 /news_off。",
+            )
         else:
             bot.answer_callback_query(call.id, "无效操作", show_alert=True)
     except ValueError as error:
         bot.answer_callback_query(call.id, str(error), show_alert=True)
     except pymysql.MySQLError:
         logger.exception("News subscription database operation failed")
-        bot.send_message(call.message.chat.id, "订阅服务暂不可用，请稍后发送 /news 核对状态。")
+        send_tracked(bot, call.message.chat.id, "订阅服务暂不可用，请稍后发送 /news 核对状态。")
 
 
 def update_delivery(ident, status, error=None, result_id=None, retry_seconds=None):
