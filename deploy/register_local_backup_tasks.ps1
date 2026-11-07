@@ -29,10 +29,10 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
     -RestartInterval (New-TimeSpan -Minutes 15)
 $powershell = Join-Path $PSHOME 'powershell.exe'
 $dailyAction = New-ScheduledTaskAction -Execute $powershell `
-    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runner`"" `
+    -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`"" `
     -WorkingDirectory $repository
 $weeklyAction = New-ScheduledTaskAction -Execute $powershell `
-    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runner`" -IncludeLocalMusic" `
+    -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`" -IncludeLocalMusic" `
     -WorkingDirectory $repository
 $dailyTrigger = New-ScheduledTaskTrigger -Daily -At '3:00 AM'
 $weeklyTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '4:00 AM'
