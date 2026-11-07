@@ -312,7 +312,7 @@ class NewsEntryTests(unittest.TestCase):
         with patch("customer_analytics.bot_event") as bot_event, \
                 patch.object(main, "touch_user"), patch.object(main, "send_welcome") as welcome:
             main.handle_start(message)
-            welcome.assert_called_once_with(main.bot, 123)
+            welcome.assert_called_once_with(main.bot, 123, 123)
             bot_event.assert_called_once_with({"id": 123}, "started", None)
 
 

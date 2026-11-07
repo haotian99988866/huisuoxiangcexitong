@@ -32,12 +32,9 @@ SHARE_URL = (
 
 HOME_TEXT = (
     "<b>欢迎使用昊天生活通</b>\n"
-    "西港生活服务，一站直达。\n\n"
-    "会所外送 · 出勤提醒 · 观影音乐\n"
-    "资讯订阅 · Telegram会员 · 话费充值\n"
-    "充值服务 · 我的账户与客服\n\n"
-    "充值订单人工处理，非即时到账。\n"
-    "点击下方分类展开功能；账户操作请从 Telegram 打开小程序。"
+    "西港生活服务与东南亚资讯，一站查看。\n"
+    "下方按钮可直达会所出勤、外送、酒店、影视观影与音乐、资讯订阅、Telegram会员、话费及其他服务。\n"
+    "账户和订单请在 Telegram 小程序内操作；充值订单由人工处理。"
 )
 
 PROMO_TEXT = (
@@ -167,28 +164,30 @@ MENU_CATEGORIES = {
 }
 
 
-def home_keyboard():
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
+def _menu_button(label, destination, user_id=None):
+    if destination.startswith("callback:"):
+        return types.InlineKeyboardButton(
+            label, callback_data=destination.removeprefix("callback:"))
+    url = personal_share_url(user_id) if destination == "share" else destination
+    return types.InlineKeyboardButton(label, url=url)
+
+
+def home_keyboard(user_id=None):
+    keyboard = types.InlineKeyboardMarkup(row_width=3)
     buttons = [
-        types.InlineKeyboardButton(title, callback_data=f"menu:category:{key}")
-        for key, (title, _) in MENU_CATEGORIES.items()
+        _menu_button(label, destination, user_id)
+        for _, entries in MENU_CATEGORIES.values()
+        for label, destination in entries
     ]
-    for offset in range(0, len(buttons), 2):
-        keyboard.row(*buttons[offset:offset + 2])
+    for offset in range(0, len(buttons), 3):
+        keyboard.row(*buttons[offset:offset + 3])
     return keyboard
 
 
 def category_keyboard(category, user_id=None):
     title, entries = MENU_CATEGORIES[category]
     keyboard = types.InlineKeyboardMarkup(row_width=2)
-    buttons = []
-    for label, destination in entries:
-        if destination.startswith("callback:"):
-            buttons.append(types.InlineKeyboardButton(
-                label, callback_data=destination.removeprefix("callback:")))
-        else:
-            url = personal_share_url(user_id) if destination == "share" else destination
-            buttons.append(types.InlineKeyboardButton(label, url=url))
+    buttons = [_menu_button(label, destination, user_id) for label, destination in entries]
     for offset in range(0, len(buttons), 2):
         keyboard.row(*buttons[offset:offset + 2])
     keyboard.row(types.InlineKeyboardButton("‹ 返回分类", callback_data="menu:home"))
@@ -247,13 +246,13 @@ def screen_text(name):
     return SCREENS[name][0]
 
 
-def send_welcome(bot, chat_id):
+def send_welcome(bot, chat_id, user_id=None):
     return send_tracked(
         bot,
         chat_id,
         HOME_TEXT,
         parse_mode="HTML",
-        reply_markup=home_keyboard(),
+        reply_markup=home_keyboard(user_id),
         disable_web_page_preview=True,
     )
 
@@ -273,7 +272,7 @@ def show_screen(bot, call):
     data = call.data or ""
     bot.answer_callback_query(call.id)
     if data == "menu:home":
-        text, keyboard = HOME_TEXT, home_keyboard()
+        text, keyboard = HOME_TEXT, home_keyboard(call.from_user.id)
     elif data.startswith("menu:category:"):
         category = data.removeprefix("menu:category:")
         if category not in MENU_CATEGORIES:
