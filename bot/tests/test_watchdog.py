@@ -91,6 +91,35 @@ class WatchdogTests(unittest.TestCase):
             send.assert_not_called()
             self.assertFalse((Path(directory) / "monitor-state.json").exists())
 
+    def test_run_once_skips_duplicate_probes_when_no_recovery_is_needed(self):
+        roles = {role: True for role in watchdog.EXPECTED_ROLES}
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(watchdog, "watchdog_directory", return_value=Path(directory)), \
+                patch.object(watchdog, "collect_status", return_value=(roles, {}, {})) as collect:
+            result = watchdog.run_once()
+
+        collect.assert_called_once_with()
+        self.assertEqual(result["issues"], {})
+        self.assertEqual(result["recovered"], [])
+
+    def test_run_once_rechecks_services_after_recovery_attempts(self):
+        roles = {role: True for role in watchdog.EXPECTED_ROLES}
+        missing_api = dict(roles, api_server=False)
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(watchdog, "watchdog_directory", return_value=Path(directory)), \
+                patch.object(watchdog, "collect_status", side_effect=[
+                    (missing_api, {}, {"api_server": "进程未运行"}),
+                    (roles, {}, {}),
+                ]) as collect, \
+                patch.object(watchdog, "run_recovery_script", return_value=0) as recover, \
+                patch.object(watchdog, "send_admin_message"):
+            result = watchdog.run_once()
+
+        self.assertEqual(collect.call_count, 2)
+        recover.assert_called_once_with(watchdog.START_LOCAL, 480)
+        self.assertEqual(result["issues"], {})
+        self.assertEqual(result["recovered"], ["主服务"])
+
     def test_direct_telegram_alert_uses_database_owner_without_starting_a_bot(self):
         response = MagicMock()
         response.json.return_value = {"ok": True}

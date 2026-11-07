@@ -291,11 +291,9 @@ def notification_text(notices, recovered):
 def run_once(dry_run=False, logger=None):
     logger = logger or logging.getLogger("huisuo.watchdog")
     state = IncidentState(watchdog_directory() / "monitor-state.json")
-    initial_roles, _, _ = collect_status()
-    recovered = recover_missing(initial_roles, dry_run=dry_run, logger=logger)
+    roles, probes, issues = collect_status()
+    recovered = recover_missing(roles, dry_run=dry_run, logger=logger)
     if recovered and not dry_run:
-        roles, probes, issues = collect_status()
-    else:
         roles, probes, issues = collect_status()
     now = time.time()
     if dry_run:
