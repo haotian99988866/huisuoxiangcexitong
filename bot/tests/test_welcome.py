@@ -78,19 +78,24 @@ class WelcomeTests(unittest.TestCase):
 
     def test_start_removes_old_reply_keyboard_and_adds_grouped_inline_menu(self):
         bot = Mock()
-        bot.send_message.return_value = SimpleNamespace(
-            chat=SimpleNamespace(id=123), message_id=456)
+        bot.send_message.side_effect = [
+            SimpleNamespace(chat=SimpleNamespace(id=123), message_id=455),
+            SimpleNamespace(chat=SimpleNamespace(id=123), message_id=456),
+        ]
         welcome.send_welcome(bot, 123)
-        args, options = bot.send_message.call_args
+        self.assertEqual(bot.send_message.call_count, 2)
+        remove_args, remove_options = bot.send_message.call_args_list[0]
+        self.assertEqual(remove_args, (123, "已更新菜单。"))
+        remove_markup = json.loads(remove_options["reply_markup"].to_json())
+        self.assertTrue(remove_markup["remove_keyboard"])
+        args, options = bot.send_message.call_args_list[1]
         self.assertEqual(args, (123, welcome.HOME_TEXT))
         self.assertEqual(options["parse_mode"], "HTML")
         self.assertTrue(options["disable_web_page_preview"])
-        remove_markup = json.loads(options["reply_markup"].to_json())
-        self.assertTrue(remove_markup["remove_keyboard"])
-        bot.edit_message_reply_markup.assert_called_once()
-        inline_markup = json.loads(
-            bot.edit_message_reply_markup.call_args.kwargs["reply_markup"].to_json())
+        inline_markup = json.loads(options["reply_markup"].to_json())
         self.assertEqual([len(row) for row in inline_markup["inline_keyboard"]], [2, 2, 1])
+        bot.edit_message_reply_markup.assert_not_called()
+        bot.delete_message.assert_called_once_with(123, 455, timeout=20)
 
     def test_menu_links_preserve_destinations_and_personal_share(self):
         bot = Mock()
@@ -101,7 +106,7 @@ class WelcomeTests(unittest.TestCase):
                 with self.subTest(button=button.text), patch(
                         "customer_analytics.invite_link", return_value=welcome.BOT_URL + "?start=ref_test"):
                     welcome.send_menu_link(bot, 123, 123, button.text)
-                sent = bot.edit_message_reply_markup.call_args.kwargs["reply_markup"].keyboard[0][0]
+                sent = bot.send_message.call_args.kwargs["reply_markup"].keyboard[0][0]
                 if button.text == "分享好友":
                     self.assertIn("ref_test", sent.url)
                 else:

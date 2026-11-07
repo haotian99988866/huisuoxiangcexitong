@@ -57,19 +57,24 @@ class MenuMessageTests(unittest.TestCase):
         self.assertEqual(cur.execute.call_args_list[0].args[1], (123, 20))
         self.assertIn("message_id<%s", cur.execute.call_args_list[0].args[0])
 
-    def test_tracked_reply_removes_legacy_keyboard_before_attaching_inline_menu(self):
+    def test_tracked_reply_removes_legacy_keyboard_before_sending_inline_menu(self):
         bot = Mock()
         bot.send_message.return_value = SimpleNamespace(
             chat=SimpleNamespace(id=123), message_id=20)
+        bot.send_message.side_effect = [
+            SimpleNamespace(chat=SimpleNamespace(id=123), message_id=19),
+            SimpleNamespace(chat=SimpleNamespace(id=123), message_id=20),
+        ]
         with patch("menu_messages.keep_latest", side_effect=lambda bot, message, **kwargs: message) as track:
             result = menu_messages.send_tracked(
                 bot, 123, "Menu", reply_markup=types.InlineKeyboardMarkup())
 
         self.assertEqual(result.message_id, 20)
-        self.assertTrue(bot.send_message.call_args.kwargs["reply_markup"].remove_keyboard)
-        bot.edit_message_reply_markup.assert_called_once()
-        self.assertIsInstance(
-            bot.edit_message_reply_markup.call_args.kwargs["reply_markup"],
-            types.InlineKeyboardMarkup,
-        )
+        self.assertEqual(bot.send_message.call_args_list[0].args, (123, "已更新菜单。"))
+        self.assertTrue(bot.send_message.call_args_list[0].kwargs["reply_markup"].remove_keyboard)
+        self.assertEqual(bot.send_message.call_args_list[1].args, (123, "Menu"))
+        self.assertIsInstance(bot.send_message.call_args_list[1].kwargs["reply_markup"],
+                              types.InlineKeyboardMarkup)
+        bot.edit_message_reply_markup.assert_not_called()
+        bot.delete_message.assert_called_once_with(123, 19, timeout=20)
         track.assert_called_once_with(bot, bot.send_message.return_value, is_keyboard=True)

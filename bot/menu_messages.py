@@ -65,11 +65,24 @@ def keep_latest(bot, message, is_keyboard=False):
 
 def send_tracked(bot, chat_id, text, is_keyboard=True, **kwargs):
     markup = kwargs.pop("reply_markup", None)
-    message = bot.send_message(
-        chat_id, text, reply_markup=types.ReplyKeyboardRemove(), **kwargs)
-    keep_latest(bot, message, is_keyboard=is_keyboard)
     if markup is not None:
-        bot.edit_message_reply_markup(chat_id, message.message_id, reply_markup=markup)
+        clear_message = bot.send_message(
+            chat_id, "已更新菜单。", reply_markup=types.ReplyKeyboardRemove())
+        message = bot.send_message(chat_id, text, reply_markup=markup, **kwargs)
+        try:
+            bot.delete_message(chat_id, clear_message.message_id, timeout=20)
+        except apihelper.ApiTelegramException as error:
+            if not (error.error_code == 400
+                    and "message to delete not found" in error.description.lower()):
+                logger.exception("Could not remove temporary keyboard message %s:%s",
+                                 chat_id, clear_message.message_id)
+        except (apihelper.ApiException, ConnectionError, TimeoutError):
+            logger.exception("Could not remove temporary keyboard message %s:%s",
+                             chat_id, clear_message.message_id)
+    else:
+        message = bot.send_message(
+            chat_id, text, reply_markup=types.ReplyKeyboardRemove(), **kwargs)
+    keep_latest(bot, message, is_keyboard=is_keyboard)
     return message
 
 
