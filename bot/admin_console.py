@@ -1,5 +1,6 @@
 """Authenticated owner-only display tenant management."""
 from datetime import datetime, timedelta, timezone
+import json
 import re
 import time
 from urllib.parse import parse_qsl
@@ -51,7 +52,7 @@ def dashboard():
             cur.execute("SELECT COUNT(*) AS count FROM wallet_deposits WHERE status='pending'")
             pending = cur.fetchone()["count"]
             cur.execute(
-                "SELECT id,tenant_slug,actor_id,source,action,created_at "
+                "SELECT id,tenant_slug,actor_id,source,action,before_config,after_config,created_at "
                 "FROM tenant_admin_audit ORDER BY id DESC LIMIT 30"
             )
             audit = cur.fetchall()
@@ -78,6 +79,9 @@ def dashboard():
         tenants.append({**tenant_snapshot(row), "effective_status": state,
                         "revision": tenant_revision(row)})
     for row in audit:
+        for key in ("before_config", "after_config"):
+            if isinstance(row.get(key), str):
+                row[key] = json.loads(row[key])
         row["created_at"] = row["created_at"].isoformat(timespec="seconds") + "Z"
     return {"counts": counts, "tenants": tenants, "venues": venues, "audit": audit,
             "server_time": now.isoformat(timespec="seconds") + "Z"}

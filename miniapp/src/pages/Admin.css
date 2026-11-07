@@ -15,6 +15,8 @@
 .admin-stats strong { display: block; margin-top: 6px; font-size: 24px; }
 .admin-card { margin-top: 16px; scroll-margin-top: 16px; }
 .admin-tenant { padding: 14px 0; border-top: 1px solid var(--ink-line); }
+.admin-tenant-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, .7fr); gap: 0 12px; align-items: end; }
+.admin-tenant-filters > .admin-hint { grid-column: 1 / -1; margin-top: 0; }
 .admin-tenant p, .admin-confirm p { font-size: 13px; line-height: 1.8; margin: 6px 0; }
 .admin-console label { display: block; font-size: 14px; margin: 12px 0; }
 .admin-console input:not([type="checkbox"]), .admin-console select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: 44px; padding: 12px; margin-top: 6px; border: 1px solid var(--ink-line); border-radius: 12px; background: #f8f9fb; font-size: 16px; color: var(--ink-text); }
@@ -24,6 +26,9 @@
 .admin-check input { width: 18px; height: 18px; flex-shrink: 0; }
 .admin-confirm { background: #faf5ed; border: 1px solid #e4d7c3; padding: 14px; margin-top: 16px; border-radius: 14px; }
 .admin-audit { font-size: 12px; line-height: 1.8; border-top: 1px solid var(--ink-line); padding: 8px 0; }
+.admin-audit > p { margin: 0 0 4px; }
+.admin-audit-details summary { color: var(--ink-accent); cursor: pointer; }
+.admin-audit-details ul { margin: 6px 0 0; padding-left: 20px; }
 .admin-sections { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(130px, 1.1fr); gap: 16px; margin: 12px 0 24px; border-bottom: 1px solid var(--ink-line); }
 .admin-console .admin-sections > button { position: relative; border: 0; border-radius: 0; background: transparent; padding: 16px 6px; font-size: 14px; font-weight: 600; color: var(--ink-muted); }
 .admin-console .admin-sections > button[aria-pressed="true"] { color: var(--ink-accent); }
@@ -44,6 +49,8 @@
 @media (max-width:480px) {
   .admin-console { padding: 12px 14px 32px; }
   .admin-card { padding: 16px; }
+  .admin-tenant-filters { grid-template-columns: 1fr; }
+  .admin-tenant-filters > .admin-hint { grid-column: auto; }
   .admin-sections { grid-template-columns: repeat(3,minmax(0,1fr)) minmax(86px,1.25fr); gap: 4px; margin-bottom: 18px; }
   .admin-console .admin-sections > button { font-size: 13px; }
   .admin-console .admin-more select { padding-inline: 2px; }

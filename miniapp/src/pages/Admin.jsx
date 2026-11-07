@@ -14,11 +14,46 @@ import './Membership.css'
 import './Admin.css'
 
 const labels = { draft: '草稿', active: '已启用', suspended: '已暂停', expired: '已到期' }
+const auditFields = [
+  ['slug', '入口标识'],
+  ['brand_name', '品牌名称'],
+  ['contact_name', '联系名称'],
+  ['contact_username', '联系用户名'],
+  ['venue_ids', '展示项目'],
+  ['status', '服务状态'],
+  ['expires_at', '到期时间'],
+  ['announcements_enabled', '频道公告'],
+]
 const empty = () => ({
   slug: '', brand_name: '', contact_name: '', contact_username: '',
   venue_ids: [], status: 'draft', expires_at: '', announcements_enabled: false,
 })
 const formatDate = iso => iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '未设置'
+
+function auditValue(key, value, venues) {
+  if (key === 'status') return labels[value] || value || '未设置'
+  if (key === 'contact_username') return value ? `@${value}` : '未设置'
+  if (key === 'venue_ids') {
+    return (value || []).map(id => venues.find(venue => venue.id === id)?.name || `项目 ${id}`).join('、') || '无'
+  }
+  if (key === 'expires_at') return formatDate(value)
+  if (key === 'announcements_enabled') return value ? '已开放' : '未开放'
+  return value || '未设置'
+}
+
+function tenantAuditChanges(row, venues) {
+  const before = row.before_config || {}
+  const after = row.after_config || {}
+  return auditFields
+    .filter(([key]) => row.action === 'create' ||
+      JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null))
+    .map(([key, label]) => ({
+      key,
+      label,
+      before: auditValue(key, before[key], venues),
+      after: auditValue(key, after[key], venues),
+    }))
+}
 
 export default function Admin() {
   const navigate = useNavigate()
@@ -35,10 +70,19 @@ export default function Admin() {
   const [confirmation, setConfirmation] = useState(null)
   const [copyFallback, setCopyFallback] = useState('')
   const [section, setSection] = useState('customers')
+  const [tenantSearch, setTenantSearch] = useState('')
+  const [tenantStatus, setTenantStatus] = useState('all')
   useEffect(() => { if (initialCustomerId) setSection('customers') }, [initialCustomerId])
   const inFlight = useRef(false)
   const mounted = useRef(true)
   const formRef = useRef(null)
+  const normalizedTenantSearch = tenantSearch.trim().toLocaleLowerCase()
+  const filteredTenants = (data?.tenants || []).filter(row => {
+    const matchesSearch = !normalizedTenantSearch ||
+      [row.slug, row.brand_name, row.contact_name, row.contact_username]
+        .some(value => value.toLocaleLowerCase().includes(normalizedTenantSearch))
+    return matchesSearch && (tenantStatus === 'all' || row.effective_status === tenantStatus)
+  })
 
   const refresh = async () => {
     setLoading(true)
@@ -200,7 +244,21 @@ export default function Admin() {
           <div className="admin-header"><h2>租户管理</h2><button type="button" disabled={saving || loading} onClick={() => edit(null)}>新建租户</button></div>
           <details className="account-details"><summary>租户权限说明</summary><p>共享机器人及公共观影频道，客户与频道成员并非完全隔离。</p></details>
           {data.tenants.length === 0 && <p>暂无租户，可先创建草稿。</p>}
-          {data.tenants.map(row => (
+          {data.tenants.length > 0 && <div className="admin-tenant-filters">
+            <label>搜索租户<input type="search" aria-label="搜索租户" placeholder="名称、入口标识或联系人"
+              value={tenantSearch} onChange={event => setTenantSearch(event.target.value)} /></label>
+            <label>服务状态<select aria-label="按服务状态筛选租户" value={tenantStatus}
+              onChange={event => setTenantStatus(event.target.value)}>
+              <option value="all">全部状态</option>
+              <option value="active">已启用</option>
+              <option value="expired">已到期</option>
+              <option value="draft">草稿</option>
+              <option value="suspended">已暂停</option>
+            </select></label>
+            <p className="admin-hint">显示 {filteredTenants.length} / {data.tenants.length} 个租户</p>
+          </div>}
+          {data.tenants.length > 0 && filteredTenants.length === 0 && <p>没有符合条件的租户。</p>}
+          {filteredTenants.map(row => (
             <article key={row.slug} className="admin-tenant">
               <div className="admin-header"><h3>{row.brand_name}</h3><span>{labels[row.effective_status]}</span></div>
               <p>{row.slug} · @{row.contact_username}</p>
@@ -262,9 +320,21 @@ export default function Admin() {
         <section className="admin-card"><h2>最近操作</h2>
           <p className="admin-hint">最近30条 · {formatDate(data.server_time)}</p>
           {data.audit.length === 0 && <p>暂无操作记录</p>}
-          {data.audit.map(row => <p className="admin-audit" key={row.id}>
-            {formatDate(row.created_at)} · {row.tenant_slug} · {row.action === 'create' ? '创建' : '更新'} · {row.source === 'cli' ? '本机命令行' : `管理员 ${row.actor_id}`}
-          </p>)}
+          {data.audit.map(row => {
+            const changes = tenantAuditChanges(row, data.venues)
+            return <article className="admin-audit" key={row.id}>
+              <p>{formatDate(row.created_at)} · {row.tenant_slug} · {row.action === 'create' ? '创建' : '更新'} · {row.source === 'cli' ? '本机命令行' : `管理员 ${row.actor_id}`}</p>
+              <details className="admin-audit-details">
+                <summary>{row.action === 'create' ? '查看初始配置' : `查看配置变更（${changes.length} 项）`}</summary>
+                {changes.length
+                  ? <ul>{changes.map(change => <li key={change.key}>
+                    <strong>{change.label}：</strong>
+                    {row.action === 'create' ? change.after : `${change.before} → ${change.after}`}
+                  </li>)}</ul>
+                  : <p>本次操作未更改配置字段。</p>}
+              </details>
+            </article>
+          })}
         </section>
         </div>
       </>}

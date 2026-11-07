@@ -145,6 +145,28 @@ API与主机器人启动时补齐订单字段及 `member_sales_config.phone_enab
 - 启动和服务日志位于 `%LOCALAPPDATA%\Huisuo\logs`。MySQL84 已配置为自动启动的 Windows 服务。
 - BotFather 的 Main Mini App 和机器人菜单网址应保持为上述固定地址。电脑关机、休眠或断网时，小程序仍不可用。
 
+### Windows 自动守护与独立告警
+
+守护程序以当前 Windows 用户运行，不替换现有登录启动项。已授权的计划任务名为 `HuisuoLocalWatchdog`；注册时若同名任务已存在会停止，不覆盖它。安装／启动命令：
+
+```powershell
+bot\venv\Scripts\python.exe deploy\watchdog.py --register-task
+```
+
+任务在安装及当前用户登录后等待 5 分钟让现有启动项完成，此后每 5 分钟执行一次检查，覆盖主机器人、API、前端预览、Cloudflare 隧道、频道同步及本机／公网端点。发现主服务或频道同步进程退出时，分别调用现有 `deploy\start-local.ps1` 或带互斥检查的 `deploy\start-channel-sync.ps1`；**不会结束仍存活但端点无响应的进程**，此类故障只记录并告警。任务仅在该用户登录期间运行；单次运行超时后最多重试 3 次。
+
+故障首次发现时告警，未恢复期间最多每 30 分钟重复一次；恢复后通知一次。收件人从数据库中的人工履约负责人配置读取，并再次校验其仍属于管理员白名单；Bot API 直接发送，不启动额外轮询器。Token 只从本机 `bot\.env` 读取，不放入计划任务参数。告警状态与日志位于 `%LOCALAPPDATA%\Huisuo\watchdog`，目录 ACL 限制为当前用户和 SYSTEM。网络、Telegram 或数据库不可用时通知可能无法送达；可检查 `watchdog.log`。安全只读试运行（不拉起服务、不写告警状态、不发 Telegram 消息）：
+
+```powershell
+bot\venv\Scripts\python.exe deploy\watchdog.py --once --dry-run
+```
+
+取消守护任务（不影响现有服务或登录启动项）：
+
+```powershell
+Unregister-ScheduledTask -TaskName HuisuoLocalWatchdog -Confirm:$false
+```
+
 ## 独立频道同步（需本机用户账号登录）
 
 `bot/channel_sync.py` 是手动启用的独立进程，不会随现有 API/机器人自动启动，也不会读取私人聊天。监听下述七个已授权新闻来源，由现有机器人发布至 `@haotiancm99988866`；用户账号须能读取来源（订阅可获得实时事件，未收到事件时由补扫核对），机器人须有目标频道发帖权限。用户和机器人采用独立 MTProto 会话，不启动额外 Bot API 轮询。来源频道或消息启用保护内容时拒绝转载，不能绕过。
@@ -494,7 +516,7 @@ bot\venv\Scripts\python.exe bot\music_ingest.py disable
 - 所有保存均先展示品牌、联系人、会所、状态与到期时间确认；入口标识创建后不能在网页改名。保存不允许把不存在的租户隐式创建或覆盖已有标识。遇到网络异常请先刷新核对状态与记录，前端不会自动重试写入。
 - 管理 API 每次校验 Telegram 签名、授权时间和服务端管理员白名单；即使管理员使用 `tenant_...` 签名会话或带租户请求标识也拒绝管理操作。管理员响应 `private, no-store`，无独立管理密码、无管理员 ID 客户端信任。
 - 更新使用配置版本摘要和数据库行锁防止覆盖并发修改，冲突返回 409 并提示刷新。`tenant_admin_audit` 与租户配置在同一事务中写入，记录操作者、来源、前后配置及时间，审计失败则整体回滚。本机 CLI 同步记录来源 `cli`；此前已存在的租户不补造历史记录。表应纳入数据库备份，不随 48 小时业务数据清理删除。
-- 页面显示最近 30 条操作元信息，完整前后配置保存在数据库。租户列表上限 200，超过明确提示升级分页，不静默隐藏。概览按刷新时的数据统计，暂停和到期仍由原租户访问检查执行。
+- 页面显示最近 30 条操作及可展开的前后配置差异，完整配置保存在数据库。租户列表上限 200，超过明确提示升级分页，不静默隐藏。概览按刷新时的数据统计，暂停和到期仍由原租户访问检查执行。
 
 ## 充值模块当前状态
 
@@ -612,6 +634,21 @@ sudo systemctl status clubapp-api clubapp-bot --no-pager
 - 在 BotFather 里：`/mybots` → 选机器人 → Bot Settings → Menu Button（或 Configure Mini App）→ 网址改为 `https://myclub.duckdns.org`。
 
 ## 日常运维
+
+### Windows 本机备份与恢复校验
+
+在项目根目录用 PowerShell 手动执行；不会创建计划任务，也不会停止服务：
+
+```powershell
+.\bot\venv\Scripts\python.exe .\deploy\backup_local.py backup
+.\bot\venv\Scripts\python.exe .\deploy\backup_local.py verify
+```
+
+备份保存到 `%LOCALAPPDATA%\Huisuo\backups`，默认保留14天；使用 `backup --keep-days 30` 可调整保留天数（1–365）。脚本仅接受 `bot\.env` 配置的本机 `venue_db`，要求 MySQL 8.4 客户端位于 `C:\Program Files\MySQL\MySQL Server 8.4\bin`（其他安装路径可设置 `MYSQL_BIN_DIR`）。备份目录 ACL 限制为当前 Windows 用户和 SYSTEM；SQL、SQLite 状态与媒体文件为未加密文件，应启用 BitLocker，并另行安全复制到不同物理设备，避免电脑或磁盘损坏时本机备份一并丢失。
+
+每份备份包含 MySQL InnoDB 数据库、`%LOCALAPPDATA%\Huisuo\channel-sync` 下所有 `.sqlite3` 任务/进度库，以及公告媒体目录；SQLite 使用在线一致性备份并执行 `quick_check`。Telegram `.session` 登录凭据、可重建的图片/视频缓存和本地音乐目录默认不包含。音乐目录当前体积较大；需要保留其中无法从频道恢复的手工导入音频时，可显式添加 `--include-local-music`，并先确认磁盘空间。完成后建议运行 `verify`：校验清单和全部文件 SHA-256、检查 SQLite，再将 SQL 恢复到随机命名的临时 MySQL 库，核对表结构/索引并读取数据；结束后删除临时库。验证需要本机 MySQL 账号有创建、删除临时库的权限，不会恢复或修改生产 `venue_db`。
+
+这是一份本机备份和隔离恢复检查，不替代异地备份，也不自动执行生产恢复。真正恢复前应先停止 API、机器人及频道同步，核对备份时间和目标库，再单独制定/确认恢复步骤；不可将验证命令改成指向 `venue_db`。
 
 ```bash
 sudo journalctl -u clubapp-bot -f      # 查看机器人日志

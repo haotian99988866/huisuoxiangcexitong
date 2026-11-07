@@ -386,6 +386,8 @@ class AdminConsoleTests(unittest.TestCase):
         cur.fetchall.side_effect = [rows, [{"id": 3, "name": "KTV"}], [{
             "id": 1, "tenant_slug": "soon", "actor_id": 123,
             "source": "miniapp", "action": "update", "created_at": now,
+            "before_config": json.dumps({"brand_name": "旧品牌"}),
+            "after_config": json.dumps({"brand_name": "新品牌"}),
         }]]
         with patch.object(admin_console, "get_conn", return_value=conn):
             result = admin_console.dashboard()
@@ -395,6 +397,8 @@ class AdminConsoleTests(unittest.TestCase):
             "draft": 1, "suspended": 1, "pending_deposits": 2,
         })
         self.assertTrue(result["audit"][0]["created_at"].endswith("Z"))
+        self.assertEqual(result["audit"][0]["before_config"], {"brand_name": "旧品牌"})
+        self.assertEqual(result["audit"][0]["after_config"], {"brand_name": "新品牌"})
         self.assertEqual(result["tenants"][2]["effective_status"], "expired")
         self.assertTrue(all(len(row["revision"]) == 64 for row in result["tenants"]))
 
