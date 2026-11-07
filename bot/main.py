@@ -1171,8 +1171,6 @@ if __name__ == "__main__":
     ensure_customer_record_tables()
     start_customer_record_worker(bot)
     logger.warning("News subscription worker ready")
-    from operations_alerts import start_worker as start_operations_alerts
-    start_operations_alerts(bot)
     from operations_review import start_worker as start_operations_review
     start_operations_review(bot)
     from review_notifications import start_worker as start_review_notifications
