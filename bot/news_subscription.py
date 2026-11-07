@@ -85,23 +85,56 @@ def unsubscribe(user_id):
         conn.close()
 
 
-def show_menu(bot, chat_id, user_id, slug=""):
-    check_scope(slug)
+def show_menu(bot, chat_id, user_id, slug="", message=None):
     current = subscription(user_id)
     active = bool(current and current["active"])
+    if not active:
+        check_scope(slug)
     keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton("订阅新资讯", callback_data=f"news:on:{slug or '-'}"))
     if active:
         keyboard.add(types.InlineKeyboardButton("取消新闻订阅", callback_data="news:off"))
-    return send_tracked(bot,
-        chat_id,
+    else:
+        keyboard.add(types.InlineKeyboardButton("订阅新资讯", callback_data=f"news:on:{slug or '-'}"))
+    keyboard.add(types.InlineKeyboardButton("‹ 返回主菜单", callback_data="menu:home"))
+    text = (
         "🔔 东南亚大事件订阅\n\n"
         f"当前状态：{'已订阅' if active else '未订阅'}\n"
         "点击“订阅新资讯”确认后，机器人将逐条发送新资讯的标题、时间和详情入口。"
         "不补推已有历史，可随时取消。\n"
-        + (f"本次入口：{slug}\n切换入口后以最后一次确认订阅为准。" if slug else "本次入口：主入口"),
-        reply_markup=keyboard,
+        + (f"本次入口：{slug}\n切换入口后以最后一次确认订阅为准。" if slug else "本次入口：主入口")
     )
+    return _present_menu(bot, chat_id, text, keyboard, message)
+
+
+def _present_menu(bot, chat_id, text, keyboard, message=None):
+    if message is None:
+        return send_tracked(bot, chat_id, text, reply_markup=keyboard)
+    return _edit_callback_message(bot, message, text, keyboard)
+
+
+def _edit_callback_message(bot, message, text, keyboard):
+    try:
+        return bot.edit_message_text(
+            text,
+            message.chat.id,
+            message.message_id,
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+    except apihelper.ApiTelegramException as error:
+        if error.error_code == 400 and "message is not modified" in error.description.lower():
+            return None
+        logger.exception("Could not update news subscription menu")
+        raise
+
+
+def _is_subscription_menu(message):
+    text = getattr(message, "text", "") or ""
+    return text.startswith((
+        "🔔 东南亚大事件订阅",
+        "✅ 已订阅东南亚大事件",
+        "已取消东南亚大事件提醒",
+    ))
 
 
 def handle_callback(bot, call):
@@ -112,26 +145,25 @@ def handle_callback(bot, call):
         if call.data == "news:off":
             unsubscribe(call.from_user.id)
             bot.answer_callback_query(call.id, "已取消新闻订阅")
-            send_tracked(bot, call.message.chat.id, "已取消东南亚大事件提醒，不再发送新资讯。")
-        elif call.data == "news:menu":
-            current = subscription(call.from_user.id)
-            # Cancellation remains available even after a tenant loses access.
-            if current and current["active"]:
-                keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("取消新闻订阅", callback_data="news:off"))
-                bot.answer_callback_query(call.id)
-                send_tracked(bot, call.message.chat.id,
-                             "你已订阅东南亚大事件，可在这里取消。", reply_markup=keyboard)
+            text = "已取消东南亚大事件提醒，不再发送新资讯。需要时可以重新订阅。"
+            if _is_subscription_menu(call.message):
+                _present_menu(
+                    bot, call.message.chat.id, text, _news_status_keyboard(False), call.message)
             else:
-                bot.answer_callback_query(call.id)
-                show_menu(bot, call.message.chat.id, call.from_user.id)
+                send_tracked(bot, call.message.chat.id, text, is_keyboard=False)
+        elif call.data == "news:menu":
+            bot.answer_callback_query(call.id)
+            show_menu(bot, call.message.chat.id, call.from_user.id, message=call.message)
         elif call.data.startswith("news:on:"):
             slug = call.data.removeprefix("news:on:")
             subscribe(call.from_user.id, "" if slug == "-" else slug)
             bot.answer_callback_query(call.id, "已订阅")
-            send_tracked(
-                bot, call.message.chat.id,
-                "✅ 已订阅东南亚大事件，仅接收此刻之后的新资讯。\n取消请发送 /news 或 /news_off。",
+            _present_menu(
+                bot,
+                call.message.chat.id,
+                "✅ 已订阅东南亚大事件，仅接收此刻之后的新资讯。",
+                _news_status_keyboard(True),
+                call.message,
             )
         else:
             bot.answer_callback_query(call.id, "无效操作", show_alert=True)
@@ -139,7 +171,22 @@ def handle_callback(bot, call):
         bot.answer_callback_query(call.id, str(error), show_alert=True)
     except pymysql.MySQLError:
         logger.exception("News subscription database operation failed")
-        send_tracked(bot, call.message.chat.id, "订阅服务暂不可用，请稍后发送 /news 核对状态。")
+        text = "订阅服务暂不可用，请稍后发送 /news 核对状态。"
+        if _is_subscription_menu(call.message):
+            _present_menu(
+                bot, call.message.chat.id, text, _news_status_keyboard(False), call.message)
+        else:
+            send_tracked(bot, call.message.chat.id, text, is_keyboard=False)
+
+
+def _news_status_keyboard(active):
+    keyboard = types.InlineKeyboardMarkup()
+    if active:
+        keyboard.add(types.InlineKeyboardButton("取消新闻订阅", callback_data="news:off"))
+    else:
+        keyboard.add(types.InlineKeyboardButton("打开新闻订阅", callback_data="news:menu"))
+    keyboard.add(types.InlineKeyboardButton("‹ 返回主菜单", callback_data="menu:home"))
+    return keyboard
 
 
 def update_delivery(ident, status, error=None, result_id=None, retry_seconds=None):

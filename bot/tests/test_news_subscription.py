@@ -252,12 +252,20 @@ class NewsSubscriptionTests(unittest.TestCase):
         news.show_menu(self.bot, 123, 123)
         self.assertIsNone(news.subscription(123))
         call = SimpleNamespace(data="news:on:-", id="callback", from_user=SimpleNamespace(id=123),
-                               message=SimpleNamespace(chat=SimpleNamespace(id=123, type="private")))
+                               message=SimpleNamespace(chat=SimpleNamespace(id=123, type="private"),
+                                                       message_id=77, text="🔔 东南亚大事件订阅"))
         news.handle_callback(self.bot, call)
         self.assertTrue(news.subscription(123)["active"])
+        self.assertIn("已订阅东南亚大事件", self.bot.edit_message_text.call_args.args[0])
+        self.assertEqual(
+            self.bot.edit_message_text.call_args.kwargs["reply_markup"].keyboard[-1][0].callback_data,
+            "menu:home",
+        )
+        call.message.text = "✅ 已订阅东南亚大事件，仅接收此刻之后的新资讯。"
         call.data = "news:off"
         news.handle_callback(self.bot, call)
         self.assertFalse(news.subscription(123)["active"])
+        self.assertIn("已取消东南亚大事件", self.bot.edit_message_text.call_args.args[0])
 
     def test_group_callbacks_are_rejected(self):
         call = SimpleNamespace(data="news:on:-", id="callback", from_user=SimpleNamespace(id=123),
@@ -270,9 +278,12 @@ class NewsSubscriptionTests(unittest.TestCase):
         news.subscribe(123, "sample")
         self.sql("UPDATE display_tenants SET announcements_enabled=0")
         call = SimpleNamespace(data="news:menu", id="callback", from_user=SimpleNamespace(id=123),
-                               message=SimpleNamespace(chat=SimpleNamespace(id=123, type="private")))
+                               message=SimpleNamespace(chat=SimpleNamespace(id=123, type="private"),
+                                                       message_id=77, text="首页"))
         news.handle_callback(self.bot, call)
-        self.assertIn("取消新闻订阅", str(self.bot.send_message.call_args.kwargs["reply_markup"].to_dict()))
+        self.assertIn("取消新闻订阅", str(self.bot.edit_message_text.call_args.kwargs["reply_markup"].to_dict()))
+        self.assertIn("menu:home", str(self.bot.edit_message_text.call_args.kwargs["reply_markup"].to_dict()))
+        call.message.text = "🔔 东南亚大事件订阅"
         call.data = "news:off"
         news.handle_callback(self.bot, call)
         self.assertFalse(news.subscription(123)["active"])

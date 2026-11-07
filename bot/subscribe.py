@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 
-from telebot import types
+from telebot import apihelper, types
 
 from db import get_conn
 from welcome import MINIAPP_URL
@@ -205,6 +205,7 @@ def sub_menu_keyboard(user_id):
         keyboard.add(
             types.InlineKeyboardButton(f"{mark} {name}", callback_data=f"sub:t:{venue_id}")
         )
+    keyboard.add(types.InlineKeyboardButton("‹ 返回主菜单", callback_data="menu:home"))
     return keyboard
 
 
@@ -225,5 +226,8 @@ def show_sub_menu(bot, call):
             parse_mode="HTML",
             reply_markup=sub_menu_keyboard(call.from_user.id),
         )
-    except Exception:
-        pass
+    except apihelper.ApiTelegramException as error:
+        if error.error_code == 400 and "message is not modified" in error.description.lower():
+            return
+        logger.exception("Could not update attendance subscription menu")
+        raise

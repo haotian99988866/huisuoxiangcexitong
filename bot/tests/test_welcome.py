@@ -142,6 +142,22 @@ class WelcomeTests(unittest.TestCase):
         self.assertIn("sub:menu", callbacks)
         self.assertEqual(callbacks[-1], "menu:home")
 
+    def test_attendance_subscription_menu_has_a_return_to_main_button(self):
+        import subscribe
+        bot = Mock()
+        call = SimpleNamespace(
+            data="sub:menu",
+            id="callback",
+            from_user=SimpleNamespace(id=123),
+            message=SimpleNamespace(chat=SimpleNamespace(id=123), message_id=456),
+        )
+        with patch("subscribe.get_subscriptions", return_value=set()):
+            subscribe.show_sub_menu(bot, call)
+        bot.send_message.assert_not_called()
+        markup = bot.edit_message_text.call_args.kwargs["reply_markup"]
+        self.assertEqual(markup.keyboard[-1][0].text, "‹ 返回主菜单")
+        self.assertEqual(markup.keyboard[-1][0].callback_data, "menu:home")
+
     def test_fixed_menu_precedes_relay_and_dispatches_actions(self):
         import main
         handlers = [item["function"] for item in main.bot.message_handlers]
