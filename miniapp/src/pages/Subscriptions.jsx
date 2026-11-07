@@ -150,8 +150,10 @@ export default function Subscriptions() {
     <AccountHeader><header className="membership-header"><h1>订阅服务</h1></header></AccountHeader>
     <p className="consumption-intro">关注动态，新发布时接收机器人提醒。</p>
     {!authenticated ? <section className="membership-panel">
-      <p>请从 Telegram 主入口验证身份，才能查看和管理自己的订阅。</p>
-      <a className="subscription-primary" href="https://t.me/haotianzhaopian_bot?startapp=subscriptions">登录并管理订阅</a>
+      <p>{isTenantEntry()
+        ? '租户专属入口不管理个人订阅，请从机器人主入口打开。'
+        : '账户会由 Telegram 自动识别，无需登录。请从机器人小程序打开订阅服务。'}</p>
+      <a className="subscription-primary" href="https://t.me/haotianzhaopian_bot?startapp=subscriptions">在 Telegram 中打开订阅服务</a>
       <p>请先在机器人聊天点击“开始”，以接收提醒。</p>
     </section> : <>
       {error && <p role="alert" className="membership-error">{error}</p>}

@@ -494,7 +494,10 @@ async def index_announcement(bot, target, job, key):
             media.append({"kind": kind, "filename": path.name})
     body = "\n\n".join(message.message for message in messages if message.message)
     if not body and not media:
-        raise ValueError("Published announcement has no supported content.")
+        await asyncio.to_thread(save, key, ids, "", [], published_at, enabled=False)
+        logger.warning("Skipped unsupported announcement job %s without text or supported media",
+                       job["job_key"])
+        return
     await asyncio.to_thread(save, key, ids, body, media, messages[0].date)
     logger.info("Indexed announcement from published job %s", job["job_key"])
 

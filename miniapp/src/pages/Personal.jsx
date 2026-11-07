@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import AccountAccess from '../components/AccountAccess'
 import OrderSummary from '../components/OrderSummary'
 import BrandArtwork from '../components/BrandArtwork'
 import AccountHeader from '../components/AccountHeader'
@@ -13,9 +12,10 @@ import useMemberAccount from '../utils/useMemberAccount'
 import './Membership.css'
 
 export default function Personal() {
-  const { account, orders, loading, error, refresh, reportFailure, logout } = useMemberAccount({ withOrders: true })
+  const { account, orders, loading, error, refresh, reportFailure } = useMemberAccount({ withOrders: true, telegramOnly: true })
   const [busy, setBusy] = useState(false)
   const user = window.Telegram?.WebApp?.initDataUnsafe?.user
+  const telegramEntry = isTelegramMemberEntry()
   const verifiedUser = account && user?.id === account.user_id ? user : null
   const pendingDeposit = account?.pending_deposit || account?.deposits.find(item => item.status === 'pending')
   const attention = orders.find(item => ['manual_pending', 'delivery_unknown', 'refund_pending', 'paid', 'delivering'].includes(item.status))
@@ -43,7 +43,17 @@ export default function Personal() {
     </header>
     </AccountHeader>
     {error && <p className="membership-error" role="alert">{error}</p>}
-    {!account ? <AccountAccess loading={loading} /> : <>
+    {!account ? <section className="membership-panel" role="status">
+      {telegramEntry ? <>
+        <h2>{loading ? '正在识别 Telegram 账户' : '账户信息暂不可用'}</h2>
+        <p>{loading ? '无需登录，正在读取你的账户信息。' : '无需登录。请重新读取账户，或稍后重试。'}</p>
+        {!loading && <button type="button" onClick={() => accountAction(refresh)}>重新读取账户</button>}
+      </> : <>
+        <h2>请从 Telegram 打开“我的”</h2>
+        <p>账户会由 Telegram 自动识别，无需登录。</p>
+        <a className="account-primary-link" href="https://t.me/haotianzhaopian_bot?startapp=personal">在 Telegram 中打开</a>
+      </>}
+    </section> : <>
       {account.can_test && isTelegramMemberEntry() && <Link className="personal-admin-entry" to="/admin">
         <span className="personal-admin-icon"><ModuleIcon name="personal" /></span>
         <div><strong>运营管理平台</strong><span>业务管理 · 运营健康 · 更多管理</span></div>
@@ -83,8 +93,7 @@ export default function Personal() {
         帮助 / 联系人工客服昊天
       </button>
       {account && <div className="personal-account-actions">
-        {account && <button type="button" disabled={busy} onClick={() => accountAction(refresh)}>{busy ? '处理中…' : '刷新账户'}</button>}
-        {account && !isTelegramMemberEntry() && <button type="button" disabled={busy} onClick={() => accountAction(logout)}>退出网站账户</button>}
+        <button type="button" disabled={busy} onClick={() => accountAction(refresh)}>{busy ? '处理中…' : '刷新账户'}</button>
       </div>}
     </footer>
   </main>

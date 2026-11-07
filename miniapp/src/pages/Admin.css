@@ -17,6 +17,8 @@
 .admin-tenant { padding: 14px 0; border-top: 1px solid var(--ink-line); }
 .admin-tenant-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, .7fr); gap: 0 12px; align-items: end; }
 .admin-tenant-filters > .admin-hint { grid-column: 1 / -1; margin-top: 0; }
+.admin-tenant-pagination { display: flex; justify-content: center; align-items: center; gap: 16px; padding-top: 16px; border-top: 1px solid var(--ink-line); }
+.admin-tenant-pagination span { color: var(--ink-muted); font-size: 13px; }
 .admin-tenant p, .admin-confirm p { font-size: 13px; line-height: 1.8; margin: 6px 0; }
 .admin-console label { display: block; font-size: 14px; margin: 12px 0; }
 .admin-console input:not([type="checkbox"]), .admin-console select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: 44px; padding: 12px; margin-top: 6px; border: 1px solid var(--ink-line); border-radius: 12px; background: #f8f9fb; font-size: 16px; color: var(--ink-text); }
@@ -51,6 +53,7 @@
   .admin-card { padding: 16px; }
   .admin-tenant-filters { grid-template-columns: 1fr; }
   .admin-tenant-filters > .admin-hint { grid-column: auto; }
+  .admin-tenant-pagination { gap: 10px; }
   .admin-sections { grid-template-columns: repeat(3,minmax(0,1fr)) minmax(86px,1.25fr); gap: 4px; margin-bottom: 18px; }
   .admin-console .admin-sections > button { font-size: 13px; }
   .admin-console .admin-more select { padding-inline: 2px; }

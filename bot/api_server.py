@@ -1120,6 +1120,15 @@ def webhook():
             if action == "admin_tenant_save":
                 save_from_request(data, user["id"])
                 return jsonify({"ok": True})
+            if action == "admin_dashboard":
+                page = data.get("tenant_page", 1)
+                if type(page) is not int:
+                    raise ValueError("租户页码无效，请刷新后重试")
+                return jsonify(dashboard(
+                    tenant_page=page,
+                    tenant_search=data.get("tenant_search", ""),
+                    tenant_status=data.get("tenant_status", "all"),
+                ))
             return jsonify(dashboard())
         except TenantConflict as exc:
             return jsonify({"error": str(exc)}), 409

@@ -142,6 +142,18 @@ class AdminConsoleTests(unittest.TestCase):
         self.assertEqual(response.json["counts"]["total"], 1)
         self.assertEqual(response.headers["Cache-Control"], "private, no-store")
 
+    def test_dashboard_passes_pagination_filters_and_rejects_non_integer_page(self):
+        with patch.object(admin_console, "dashboard", return_value={"tenants": []}) as dashboard:
+            response = self.post(
+                tenant_page=3, tenant_search="brand", tenant_status="expiring",
+            )
+        self.assertEqual(response.status_code, 200)
+        dashboard.assert_called_once_with(
+            tenant_page=3, tenant_search="brand", tenant_status="expiring",
+        )
+        response = self.post(tenant_page="3")
+        self.assertEqual(response.status_code, 400)
+
     def test_staff_archive_management_requires_admin_and_uses_private_responses(self):
         with patch("staff_archive.detail", return_value={"id": 12, "description": "internal"}) as detail, \
                 patch("staff_archive.update_archive", return_value={"ok": True}) as update:
@@ -382,13 +394,19 @@ class AdminConsoleTests(unittest.TestCase):
             {**tenant(), "slug": "draft", "status": "draft", "expires_at": None},
             {**tenant(), "slug": "paused", "status": "suspended"},
         ]
-        conn, cur = self.connection({"count": 2})
+        conn, cur = self.connection({"total": 5, "active": 2, "expiring": 1,
+                                     "expired": 1, "draft": 1, "suspended": 1})
         cur.fetchall.side_effect = [rows, [{"id": 3, "name": "KTV"}], [{
             "id": 1, "tenant_slug": "soon", "actor_id": 123,
             "source": "miniapp", "action": "update", "created_at": now,
             "before_config": json.dumps({"brand_name": "旧品牌"}),
             "after_config": json.dumps({"brand_name": "新品牌"}),
         }]]
+        cur.fetchone.side_effect = [
+            {"total": 5, "active": 2, "expiring": 1, "expired": 1,
+             "draft": 1, "suspended": 1},
+            {"total": 5}, {"count": 2},
+        ]
         with patch.object(admin_console, "get_conn", return_value=conn):
             result = admin_console.dashboard()
         self.assertEqual(cur.execute.call_args_list[0].args[0], "SET time_zone = '+00:00'")
@@ -405,6 +423,45 @@ class AdminConsoleTests(unittest.TestCase):
         self.assertFalse(tenants_by_slug["past"]["expiring_soon"])
         self.assertEqual(tenants_by_slug["past"]["effective_status"], "expired")
         self.assertTrue(all(len(row["revision"]) == 64 for row in result["tenants"]))
+        self.assertEqual(result["tenant_pagination"], {
+            "page": 1, "page_size": 50, "filtered_total": 5, "total_pages": 1,
+            "search": "", "status": "all",
+        })
+
+    def test_dashboard_searches_and_pages_in_database(self):
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        row = {**tenant(), "expires_at": now + timedelta(days=1)}
+        conn, cur = self.connection({"total": 251, "active": 251, "expiring": 2,
+                                     "expired": 0, "draft": 0, "suspended": 0})
+        cur.fetchone.side_effect = [
+            {"total": 251, "active": 251, "expiring": 2, "expired": 0,
+             "draft": 0, "suspended": 0},
+            {"total": 2}, {"count": 0},
+        ]
+        cur.fetchall.side_effect = [[row], [], []]
+        with patch.object(admin_console, "get_conn", return_value=conn):
+            result = admin_console.dashboard(
+                tenant_page=99, tenant_search="shop_%", tenant_status="expiring",
+            )
+        self.assertEqual(result["tenant_pagination"], {
+            "page": 1, "page_size": 50, "filtered_total": 2, "total_pages": 1,
+            "search": "shop_%", "status": "expiring",
+        })
+        count_sql, count_params = cur.execute.call_args_list[2].args
+        self.assertIn("contact_username LIKE %s", count_sql)
+        self.assertEqual(count_params[:4], ("%shop\\_\\%%",) * 4)
+        page_sql, page_params = cur.execute.call_args_list[3].args
+        self.assertIn("LIMIT %s OFFSET %s", page_sql)
+        self.assertEqual(page_params[-2:], (50, 0))
+        self.assertTrue(result["tenants"][0]["expiring_soon"])
+
+    def test_dashboard_rejects_invalid_tenant_filters(self):
+        for kwargs in (
+            {"tenant_page": True}, {"tenant_page": 0}, {"tenant_search": "x" * 101},
+            {"tenant_status": "unknown"},
+        ):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                admin_console.dashboard(**kwargs)
 
 
 if __name__ == "__main__":

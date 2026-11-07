@@ -227,6 +227,19 @@ class AnnouncementIndexTests(unittest.IsolatedAsyncioTestCase):
             await index_announcement(self.bot, self.target, {"result_ids": "[100]", "job_key": "10"}, "2:10")
         save.assert_not_called()
 
+    async def test_unsupported_media_is_recorded_disabled_instead_of_retried(self):
+        message = self.message(100)
+        message.document = SimpleNamespace(mime_type="audio/ogg")
+        self.bot.get_messages.return_value = [message]
+        job = {"result_ids": "[100]", "job_key": "10"}
+        with patch("announcements.save") as save, \
+                patch("channel_sync.logger.warning") as warning:
+            await index_announcement(self.bot, self.target, job, "2:10")
+        self.assertEqual(save.call_args.args[:5], ("2:10", [100], "", [], message.date))
+        self.assertEqual(save.call_args.kwargs, {"enabled": False})
+        warning.assert_called_once()
+        self.bot.download_media.assert_not_awaited()
+
     async def test_download_incomplete_not_published_and_temporary_cleaned(self):
         self.bot.get_messages.return_value = [self.message(100, photo=True)]
         async def download(message, file):

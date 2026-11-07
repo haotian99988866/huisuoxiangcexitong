@@ -76,24 +76,34 @@ export default function Admin() {
   const inFlight = useRef(false)
   const mounted = useRef(true)
   const formRef = useRef(null)
-  const normalizedTenantSearch = tenantSearch.trim().toLocaleLowerCase()
-  const filteredTenants = (data?.tenants || []).filter(row => {
-    const matchesSearch = !normalizedTenantSearch ||
-      [row.slug, row.brand_name, row.contact_name, row.contact_username]
-        .some(value => value.toLocaleLowerCase().includes(normalizedTenantSearch))
-    const matchesStatus = tenantStatus === 'all' ||
-      (tenantStatus === 'expiring' ? row.expiring_soon : row.effective_status === tenantStatus)
-    return matchesSearch && matchesStatus
-  })
+  const dashboardRequestId = useRef(0)
+  const tenantPagination = data?.tenant_pagination || {
+    page: 1,
+    page_size: data?.tenants?.length || 50,
+    filtered_total: data?.tenants?.length || 0,
+    total_pages: 1,
+    search: '',
+    status: 'all',
+  }
 
-  const refresh = async () => {
+  const refresh = async (page = data?.tenant_pagination?.page || 1,
+                         search = tenantSearch, status = tenantStatus) => {
+    const requestId = ++dashboardRequestId.current
     setLoading(true)
     setError('')
     try {
-      const result = await requestAdmin('admin_dashboard')
-      if (mounted.current) setData(result)
+      const result = await requestAdmin('admin_dashboard', {
+        tenant_page: page,
+        tenant_search: search.trim(),
+        tenant_status: status,
+      })
+      if (mounted.current && requestId === dashboardRequestId.current) {
+        setData(result)
+        setTenantSearch(result.tenant_pagination?.search || '')
+        setTenantStatus(result.tenant_pagination?.status || 'all')
+      }
     } catch (failure) {
-      if (!mounted.current) return
+      if (!mounted.current || requestId !== dashboardRequestId.current) return
       if ([401, 403].includes(failure.status)) {
         setData(null)
         setEditor(null)
@@ -101,7 +111,7 @@ export default function Admin() {
       }
       setError(failure.message)
     } finally {
-      if (mounted.current) setLoading(false)
+      if (mounted.current && requestId === dashboardRequestId.current) setLoading(false)
     }
   }
   useEffect(() => {
@@ -109,6 +119,11 @@ export default function Admin() {
     refresh()
     return () => { mounted.current = false }
   }, [])
+  useEffect(() => {
+    if (!data) return undefined
+    const timer = window.setTimeout(() => refresh(1, tenantSearch, tenantStatus), 300)
+    return () => window.clearTimeout(timer)
+  }, [tenantSearch, tenantStatus])
   useEffect(() => bindBackButton(() => {
     if (saving) return
     if (confirmation) setConfirmation(null)
@@ -167,7 +182,7 @@ export default function Admin() {
       setEditor(null)
       setConfirmation(null)
       setNotice('租户配置已保存。未执行收费或扣款。')
-      await refresh()
+      await refresh(confirmation.mode === 'create' ? 1 : data?.tenant_pagination.page || 1)
     } catch (failure) {
       if ([401, 403].includes(failure.status)) {
         setData(null)
@@ -245,10 +260,9 @@ export default function Admin() {
         <section className="admin-card">
           <div className="admin-header"><h2>租户管理</h2><button type="button" disabled={saving || loading} onClick={() => edit(null)}>新建租户</button></div>
           <details className="account-details"><summary>租户权限说明</summary><p>共享机器人及公共观影频道，客户与频道成员并非完全隔离。</p></details>
-          {data.tenants.length === 0 && <p>暂无租户，可先创建草稿。</p>}
-          {data.tenants.length > 0 && <div className="admin-tenant-filters">
+          {(data.tenants.length > 0 || tenantPagination.filtered_total > 0) && <div className="admin-tenant-filters">
             <label>搜索租户<input type="search" aria-label="搜索租户" placeholder="名称、入口标识或联系人"
-              value={tenantSearch} onChange={event => setTenantSearch(event.target.value)} /></label>
+              maxLength={100} value={tenantSearch} onChange={event => setTenantSearch(event.target.value)} /></label>
             <label>服务状态<select aria-label="按服务状态筛选租户" value={tenantStatus}
               onChange={event => setTenantStatus(event.target.value)}>
               <option value="all">全部状态</option>
@@ -258,10 +272,11 @@ export default function Admin() {
               <option value="draft">草稿</option>
               <option value="suspended">已暂停</option>
             </select></label>
-            <p className="admin-hint">显示 {filteredTenants.length} / {data.tenants.length} 个租户</p>
+            <p className="admin-hint">匹配 {tenantPagination.filtered_total} 个租户 · 第 {tenantPagination.page} / {tenantPagination.total_pages} 页，每页 {tenantPagination.page_size} 个</p>
           </div>}
-          {data.tenants.length > 0 && filteredTenants.length === 0 && <p>没有符合条件的租户。</p>}
-          {filteredTenants.map(row => (
+          {data.tenants.length === 0 && tenantPagination.filtered_total === 0 &&
+            <p>{data.counts.total === 0 ? '暂无租户，可先创建草稿。' : '没有符合条件的租户。'}</p>}
+          {data.tenants.map(row => (
             <article key={row.slug} className="admin-tenant">
               <div className="admin-header"><h3>{row.brand_name}</h3><span>{labels[row.effective_status]}</span></div>
               <p>{row.slug} · @{row.contact_username}</p>
@@ -274,6 +289,13 @@ export default function Admin() {
               {row.effective_status !== 'active' && <p className="admin-hint">当前入口不可用，启用且未到期后才能访问。</p>}
             </article>
           ))}
+          {tenantPagination.total_pages > 1 && <nav className="admin-tenant-pagination" aria-label="租户列表分页">
+            <button type="button" disabled={loading || tenantPagination.page <= 1}
+              onClick={() => refresh(tenantPagination.page - 1)}>上一页</button>
+            <span>第 {tenantPagination.page} / {tenantPagination.total_pages} 页</span>
+            <button type="button" disabled={loading || tenantPagination.page >= tenantPagination.total_pages}
+              onClick={() => refresh(tenantPagination.page + 1)}>下一页</button>
+          </nav>}
         </section>
         {editor && (
           <section ref={formRef} className="admin-card">

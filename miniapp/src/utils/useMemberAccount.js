@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { initializeMemberSession, logoutMember, requestMember } from './membership'
+import { initializeMemberSession, isTelegramMemberEntry, logoutMember, requestMember } from './membership'
 
-export default function useMemberAccount({ withOrders = false, withCatalog = false } = {}) {
+export default function useMemberAccount({ withOrders = false, withCatalog = false, telegramOnly = false } = {}) {
   const { hash } = useLocation()
   const [account, setAccount] = useState(null)
   const [orders, setOrders] = useState([])
@@ -48,6 +48,7 @@ export default function useMemberAccount({ withOrders = false, withCatalog = fal
     setError('')
     async function load() {
       try {
+        if (telegramOnly && !isTelegramMemberEntry()) return
         if (await initializeMemberSession()) await refresh()
       } catch (failure) {
         if (active) reportFailure(failure)
@@ -57,7 +58,7 @@ export default function useMemberAccount({ withOrders = false, withCatalog = fal
     }
     load()
     return () => { active = false; generation.current += 1 }
-  }, [hash, refresh, reportFailure])
+  }, [hash, refresh, reportFailure, telegramOnly])
 
   const needsPolling = Boolean(account?.pending_deposit || account?.rejected_deposit || account?.deposits.some(item => item.status === 'pending')
     || orders.some(item => ['manual_pending', 'paid', 'delivering', 'refund_pending', 'delivery_unknown'].includes(item.status)))
