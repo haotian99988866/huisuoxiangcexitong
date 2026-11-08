@@ -27,12 +27,12 @@ SHARE_URL = (
     "https://t.me/share/url?url="
     + quote(BOT_URL, safe="")
     + "&text="
-    + quote("昊天生活通 · 西港生活服务与东南亚资讯，一站查看", safe="")
+    + quote("西港会所/外送 · 会所出勤与外送信息，一站查看", safe="")
 )
 
 HOME_TEXT = (
-    "<b>欢迎使用昊天生活通</b>\n"
-    "西港生活服务与东南亚资讯，一站查看。\n"
+    "<b>欢迎使用西港会所/外送</b>\n"
+    "会所出勤与外送信息，一站查看。\n"
     "下方按钮可直达会所出勤、外送、酒店、影视观影与音乐、资讯订阅、Telegram会员、话费及其他服务。\n"
     "账户和订单请在 Telegram 小程序内操作；充值订单由人工处理。"
 )
@@ -200,7 +200,7 @@ def personal_share_url(user_id):
     from customer_analytics import invite_link
     link = invite_link(user_id)
     return "https://t.me/share/url?url=" + quote(link, safe="") + "&text=" + quote(
-        "昊天生活通 · 西港生活服务与东南亚资讯，一站查看", safe="")
+        "西港会所/外送 · 会所出勤与外送信息，一站查看", safe="")
 
 
 def is_menu_message(message):

@@ -35,10 +35,12 @@ export function ConsumptionPager({ page, total, onChange, busy }) {
 export function ConsumptionRows({ records, onEdit, onVoid, busy }) {
   return <div className="crm-table"><table>
     <caption>消费明细 · 时间为柬埔寨时间</caption>
-    <thead><tr><th>时间 / 会所</th><th>项目 / 技师</th><th>金额 USD</th><th>状态</th>{onEdit && <th>操作</th>}</tr></thead>
+    <thead><tr><th>时间 / 会所或外送</th><th>项目 / 服务人员</th><th>金额 USD</th><th>状态</th>{onEdit && <th>操作</th>}</tr></thead>
     <tbody>{records.map(row => <tr key={row.id}>
       <td>{consumptionDate(row.occurred_at)}<small>{row.venue_name}</small></td>
-      <td>{row.service}<small>{row.staff_code ? `工号 ${row.staff_code}` : '未关联技师'}</small>
+      <td>{row.service}<small>{row.staff_code ? `工号 ${row.staff_code}` :
+        row.delivery_person_name ? `外送人员 ${row.delivery_person_name}` :
+          row.service_kind === 'delivery' ? '未关联外送人员' : '未关联技师'}</small>
         {onEdit && row.note && <details><summary>内部备注</summary><p>{row.note}</p></details>}</td>
       <td>${money(row.amount)}<small>已退 ${money(row.refunded)}</small></td>
       <td>{row.status === 'void' ? '已作废' : Number(row.refunded) === Number(row.amount) ? '已全额退款' : Number(row.refunded) > 0 ? '部分退款' : '有效'}</td>
@@ -131,7 +133,9 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
     setConsumptionExtras(Boolean(row?.note || Number(row?.refunded)))
     setEditor({
       action: 'admin_consumption_save', revision: row?.revision || 0, record_id: row?.id,
+      service_kind: row?.service_kind || 'venue',
       venue_id: row?.venue_id || '', staff_id: row?.staff_id || '',
+      delivery_person_id: row?.delivery_person_id || '',
       service: row?.service || '', occurred_at: inputDate(row?.occurred_at || new Date()),
       amount: row?.amount || '', refunded: row?.refunded || '0.00', note: row?.note || '', reason: '',
     })
@@ -161,6 +165,9 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
   const field = (key, value) => setEditor(current => ({
     ...current, [key]: value, ...(key === 'venue_id' ? { staff_id: '' } : {}),
   }))
+  const chooseConsumptionSource = value => setEditor(current => value === 'delivery'
+    ? { ...current, service_kind: 'delivery', venue_id: '', staff_id: '', delivery_person_id: '' }
+    : { ...current, service_kind: 'venue', venue_id: value.replace(/^venue:/, ''), staff_id: '', delivery_person_id: '' })
   const prepare = event => {
     event.preventDefault()
     setError('')
@@ -173,9 +180,16 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
         if (!Number.isSafeInteger(payload.telegram_user_id) || payload.telegram_user_id <= 0) throw new Error('请填写有效 Telegram 数字 ID')
       }
       if (editor.action === 'admin_consumption_save') {
-        if (!editor.venue_id || !editor.service.trim() || !editor.amount) throw new Error('请填写会所、项目和实际付款金额')
-        payload.venue_id = Number(editor.venue_id)
-        payload.staff_id = editor.staff_id ? Number(editor.staff_id) : null
+        const serviceKind = editor.service_kind || 'venue'
+        payload.service_kind = serviceKind
+        if (!editor.service.trim() || !editor.amount ||
+            (serviceKind === 'venue' && !editor.venue_id)) {
+          throw new Error('请填写会所或外送类型、项目和实际付款金额')
+        }
+        payload.venue_id = serviceKind === 'venue' ? Number(editor.venue_id) : null
+        payload.staff_id = serviceKind === 'venue' && editor.staff_id ? Number(editor.staff_id) : null
+        payload.delivery_person_id = serviceKind === 'delivery' && editor.delivery_person_id
+          ? Number(editor.delivery_person_id) : null
         payload.occurred_at = new Date(`${editor.occurred_at}:00+07:00`).toISOString()
         payload.refunded = editor.refunded.trim() || '0.00'
         if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(editor.amount) ||
@@ -254,7 +268,7 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
         </div>
       </section>
       <nav className="crm-tabs" aria-label="客户资料分类">
-        {[['overview', '概览'], ['consumption', '消费'], ['staff', '技师'], ['history', '操作记录']].map(([key, label]) =>
+        {[['overview', '概览'], ['consumption', '消费'], ['staff', '服务人员'], ['history', '操作记录']].map(([key, label]) =>
           <button key={key} type="button" aria-pressed={tab === key} disabled={busy || !!editor} onClick={() => setTab(key)}>{label}</button>)}
       </nav>
       {tab === 'overview' && <section className="admin-card crm-overview">
@@ -269,16 +283,18 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
         <p className="admin-hint">偏好和内部备注仅管理员可见。</p>
       </section>}
       {tab === 'staff' && <section className="admin-card">
-        <h2>曾消费的技师 · {data.staff_total}位</h2>
-        <p className="admin-hint">来自已登记的有效消费；补录技师请到“消费”修改对应记录。</p>
+        <h2>曾消费的服务人员 · {data.staff_total}位</h2>
+        <p className="admin-hint">来自已登记的有效消费；补录人员请到“消费”修改对应记录。</p>
         <div className="crm-table"><table>
-          <thead><tr><th>会所 / 技师</th><th>次数 / 净累计</th><th>最近消费</th></tr></thead>
-          <tbody>{data.staff_history.map(row => <tr key={row.staff_id}>
-            <td>{row.venue_name}<small>工号 {row.staff_code} · 档案{row.staff_id}{row.ended_at ? '（历史人员）' : ''}</small></td>
+          <thead><tr><th>类型 / 服务人员</th><th>次数 / 净累计</th><th>最近消费</th></tr></thead>
+          <tbody>{data.staff_history.map(row => <tr key={`${row.person_type}-${row.person_id}`}>
+            <td>{row.venue_name}<small>{row.person_type === 'delivery'
+              ? `${row.person_name} · 外送档案${row.delivery_person_id}`
+              : `工号 ${row.staff_code} · 档案${row.staff_id}${row.ended_at ? '（历史人员）' : ''}`}</small></td>
             <td>{row.visits}次<small>${money(row.net)} · 已退 ${money(row.refunded)}</small></td>
             <td>{consumptionDate(row.last_visit)}</td>
           </tr>)}</tbody>
-        </table>{!data.staff_history.length && <p>暂无已关联技师。登记消费时选择人员档案；旧消费可通过“修改”补充技师。</p>}</div>
+        </table>{!data.staff_history.length && <p>暂无已关联服务人员。登记消费时可选择会所技师或外送人员档案；旧消费可通过“修改”补录。</p>}</div>
         <ConsumptionPager page={staffPage} total={data.staff_total} onChange={setStaffPage} busy={busy || !!editor} />
       </section>}
       {tab === 'consumption' && <section className="admin-card">
@@ -348,22 +364,34 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
             <p className="admin-hint">只记录必要服务信息，勿记录敏感私人资料。</p>
           </details>
         </> : editor.action === 'admin_consumption_save' ? <>
-          <label>会所<select required value={editor.venue_id} onChange={e => field('venue_id', e.target.value)}>
-            <option value="">请选择</option>{data?.venues.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
+          <label>会所 / 外送<select required
+            value={editor.service_kind === 'delivery' ? 'delivery' : editor.venue_id ? `venue:${editor.venue_id}` : ''}
+            onChange={e => chooseConsumptionSource(e.target.value)}>
+            <option value="">请选择</option>
+            {data?.venues.map(row => <option key={row.id} value={`venue:${row.id}`}>会所 · {row.name}</option>)}
+            <option value="delivery">外送 · 西港外送</option>
           </select></label>
-          <label>服务技师<select disabled={!editor.venue_id} value={editor.staff_id} onChange={e => field('staff_id', e.target.value)}>
+          {editor.service_kind !== 'delivery' ? <>
+            <label>服务技师<select disabled={!editor.venue_id} value={editor.staff_id} onChange={e => field('staff_id', e.target.value)}>
+              <option value="">暂不关联，后续可补录</option>
+              {data?.staff.filter(row => row.venue_id === Number(editor.venue_id)).map(row =>
+                <option key={row.id} value={row.id}>工号 {row.code} · 档案{row.id}{row.ended_at ? '（历史人员）' : ''}</option>)}
+            </select></label>
+            <button type="button" disabled={!editor.venue_id} onClick={() => setShowStaffPicker(value => !value)}>
+              {showStaffPicker ? '收起人员照片' : '从人员档案照片选择技师'}
+            </button>
+            {showStaffPicker && data?.venues.find(row => row.id === Number(editor.venue_id)) && <StaffGallery
+              key={editor.venue_id} venue={data.venues.find(row => row.id === Number(editor.venue_id))}
+              admin onSelect={member => { field('staff_id', member.id); setShowStaffPicker(false) }} />}
+            {!!editor.staff_id && <p className="admin-hint">已选择工号 {data?.staff.find(row => row.id === Number(editor.staff_id))?.code}
+              {' '}· 档案{editor.staff_id}；确认保存真实消费后才与客户关联。</p>}
+          </> : <label>外送人员<select value={editor.delivery_person_id}
+            onChange={e => field('delivery_person_id', e.target.value)}>
             <option value="">暂不关联，后续可补录</option>
-            {data?.staff.filter(row => row.venue_id === Number(editor.venue_id)).map(row =>
-              <option key={row.id} value={row.id}>工号 {row.code} · 档案{row.id}{row.ended_at ? '（历史人员）' : ''}</option>)}
-          </select></label>
-          <button type="button" disabled={!editor.venue_id} onClick={() => setShowStaffPicker(value => !value)}>
-            {showStaffPicker ? '收起人员照片' : '从人员档案照片选择技师'}
-          </button>
-          {showStaffPicker && data?.venues.find(row => row.id === Number(editor.venue_id)) && <StaffGallery
-            key={editor.venue_id} venue={data.venues.find(row => row.id === Number(editor.venue_id))}
-            admin onSelect={member => { field('staff_id', member.id); setShowStaffPicker(false) }} />}
-          {!!editor.staff_id && <p className="admin-hint">已选择工号 {data?.staff.find(row => row.id === Number(editor.staff_id))?.code}
-            {' '}· 档案{editor.staff_id}；确认保存真实消费后才与客户关联。</p>}
+            {data?.delivery_people?.map(row => <option key={row.id} value={row.id}>
+              {row.source_name} · {row.display_name} · 档案{row.id}
+            </option>)}
+          </select></label>}
           <label>消费时间（柬埔寨时间）<input required type="datetime-local" value={editor.occurred_at} onChange={e => field('occurred_at', e.target.value)} /></label>
           <label>消费项目<input required maxLength={128} value={editor.service} onChange={e => field('service', e.target.value)} /></label>
           <label>实际付款 USD<input required inputMode="decimal" pattern="\d{1,10}(\.\d{1,2})?" value={editor.amount} onChange={e => field('amount', e.target.value)} /></label>
@@ -387,9 +415,12 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
         </dl>}
         {confirmation.action === 'admin_consumption_save' && <p>
           {consumptionDate(confirmation.occurred_at)} · {confirmation.service}<br />
-          {data?.venues.find(row => row.id === Number(confirmation.venue_id))?.name}
-          {' · '}{confirmation.staff_id
-            ? `工号 ${data?.staff.find(row => row.id === Number(confirmation.staff_id))?.code} · 档案${confirmation.staff_id}` : '未关联技师'}<br />
+          {confirmation.service_kind === 'delivery'
+            ? `西港外送${confirmation.delivery_person_id
+              ? ` · ${data?.delivery_people.find(row => row.id === Number(confirmation.delivery_person_id))?.display_name || `外送档案 ${confirmation.delivery_person_id}`}`
+              : ' · 未关联外送人员'}`
+            : `${data?.venues.find(row => row.id === Number(confirmation.venue_id))?.name || '未选择会所'} · ${confirmation.staff_id
+              ? `工号 ${data?.staff.find(row => row.id === Number(confirmation.staff_id))?.code} · 档案${confirmation.staff_id}` : '未关联技师'}`}<br />
           实付 ${money(confirmation.amount)} · 已退 ${money(confirmation.refunded)}
         </p>}
         {confirmation.reason && <p>操作原因：{confirmation.reason}</p>}

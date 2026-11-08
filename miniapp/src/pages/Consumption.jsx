@@ -38,7 +38,7 @@ export default function Consumption() {
       {error && account && <button className="consumption-retry" type="button" disabled={busy}
         onClick={() => setReload(value => value + 1)}>重新读取</button>}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
-      <p className="consumption-intro">人工核实登记的会所消费，与钱包及订单分别记录。</p>
+      <p className="consumption-intro">人工核实登记的会所及外送消费，与钱包及订单分别记录。</p>
       {busy && <p role="status">正在读取消费记录…</p>}
       {data && <>
         <section className="membership-panel consumption-totals" aria-label="消费汇总">

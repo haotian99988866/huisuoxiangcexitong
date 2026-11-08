@@ -31,14 +31,31 @@ def ensure_tables():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
             cur.execute("""CREATE TABLE IF NOT EXISTS crm_consumptions (
                 id CHAR(32) PRIMARY KEY, user_id BIGINT NOT NULL,
-                venue_id INT NOT NULL, staff_id BIGINT NULL,
+                service_kind VARCHAR(16) NOT NULL DEFAULT 'venue',
+                venue_id INT NULL, staff_id BIGINT NULL, delivery_person_id BIGINT NULL,
                 service VARCHAR(128) NOT NULL, occurred_at DATETIME NOT NULL,
                 amount DECIMAL(12,2) NOT NULL, refunded DECIMAL(12,2) NOT NULL DEFAULT 0,
                 status VARCHAR(16) NOT NULL DEFAULT 'valid', note TEXT NOT NULL,
                 revision INT NOT NULL DEFAULT 1, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL,
                 INDEX idx_crm_customer (user_id,occurred_at),
+                INDEX idx_crm_delivery_person (user_id,delivery_person_id,status),
                 FOREIGN KEY (user_id) REFERENCES crm_customers(user_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            for name, definition in (
+                ("service_kind", "VARCHAR(16) NOT NULL DEFAULT 'venue'"),
+                ("delivery_person_id", "BIGINT NULL"),
+            ):
+                cur.execute(f"SHOW COLUMNS FROM crm_consumptions LIKE '{name}'")
+                if not cur.fetchone():
+                    cur.execute(f"ALTER TABLE crm_consumptions ADD COLUMN {name} {definition}")
+            cur.execute("SHOW COLUMNS FROM crm_consumptions LIKE 'venue_id'")
+            venue_column = cur.fetchone()
+            if venue_column and venue_column.get("Null") != "YES":
+                cur.execute("ALTER TABLE crm_consumptions MODIFY COLUMN venue_id INT NULL")
+            cur.execute("SHOW INDEX FROM crm_consumptions WHERE Key_name='idx_crm_delivery_person'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE crm_consumptions ADD INDEX idx_crm_delivery_person "
+                            "(user_id,delivery_person_id,status)")
             cur.execute("""CREATE TABLE IF NOT EXISTS crm_audit (
                 request_id CHAR(32) PRIMARY KEY, request_hash CHAR(64) NOT NULL,
                 actor_id BIGINT NOT NULL, user_id BIGINT NOT NULL, action VARCHAR(32) NOT NULL,
@@ -158,26 +175,81 @@ def _summary(cur, user_id):
 def _records(cur, user_id, page):
     cur.execute("SELECT COUNT(*) AS n FROM crm_consumptions WHERE user_id=%s", (user_id,))
     total = cur.fetchone()["n"]
-    cur.execute("""SELECT c.*,v.name AS venue_name,m.code AS staff_code
-        FROM crm_consumptions c JOIN venues v ON v.id=c.venue_id
-        LEFT JOIN staff_members m ON m.id=c.staff_id WHERE c.user_id=%s
+    cur.execute("""SELECT c.*,COALESCE(v.name,IF(c.service_kind='delivery','西港外送','会所已下架')) AS venue_name,
+        m.code AS staff_code,p.display_name AS delivery_person_name
+        FROM crm_consumptions c LEFT JOIN venues v ON v.id=c.venue_id
+        LEFT JOIN staff_members m ON m.id=c.staff_id
+        LEFT JOIN delivery_people p ON p.id=c.delivery_person_id WHERE c.user_id=%s
         ORDER BY c.occurred_at DESC,c.id DESC LIMIT 20 OFFSET %s""", (user_id, (page - 1) * 20))
     return _public(cur.fetchall()), total
 
 
 def _staff_history(cur, user_id, page=1, limit=20):
-    cur.execute("""SELECT COUNT(DISTINCT staff_id) AS total FROM crm_consumptions
-        WHERE user_id=%s AND status='valid' AND staff_id IS NOT NULL""", (user_id,))
+    cur.execute("""SELECT COUNT(*) AS total FROM (
+        SELECT 'venue' AS person_type,staff_id AS person_id FROM crm_consumptions
+        WHERE user_id=%s AND status='valid' AND staff_id IS NOT NULL GROUP BY staff_id
+        UNION ALL
+        SELECT 'delivery' AS person_type,delivery_person_id AS person_id FROM crm_consumptions
+        WHERE user_id=%s AND status='valid' AND delivery_person_id IS NOT NULL
+        GROUP BY delivery_person_id
+        ) people""", (user_id, user_id))
     total = cur.fetchone()["total"]
-    cur.execute("""SELECT c.staff_id,m.code AS staff_code,m.ended_at,v.name AS venue_name,
-        COUNT(*) AS visits,MIN(c.occurred_at) AS first_visit,MAX(c.occurred_at) AS last_visit,
-        SUM(c.amount) AS paid,SUM(c.refunded) AS refunded,SUM(c.amount-c.refunded) AS net
+    cur.execute("""SELECT history.* FROM (
+        SELECT 'venue' AS person_type,c.staff_id AS person_id,c.staff_id,NULL AS delivery_person_id,
+            m.code AS staff_code,NULL AS person_name,m.ended_at,v.name AS venue_name,
+            COUNT(*) AS visits,MIN(c.occurred_at) AS first_visit,MAX(c.occurred_at) AS last_visit,
+            SUM(c.amount) AS paid,SUM(c.refunded) AS refunded,SUM(c.amount-c.refunded) AS net
         FROM crm_consumptions c JOIN staff_members m ON m.id=c.staff_id
         JOIN venues v ON v.id=c.venue_id WHERE c.user_id=%s AND c.status='valid'
         GROUP BY c.staff_id,m.code,m.ended_at,v.name
-        ORDER BY last_visit DESC,c.staff_id DESC LIMIT %s OFFSET %s""",
-                (user_id, limit, (page - 1) * limit))
+        UNION ALL
+        SELECT 'delivery' AS person_type,c.delivery_person_id AS person_id,NULL AS staff_id,
+            c.delivery_person_id AS delivery_person_id,NULL AS staff_code,
+            COALESCE(NULLIF(p.display_name,''),CONCAT('外送档案 ',p.id)) AS person_name,
+            NULL AS ended_at,'西港外送' AS venue_name,COUNT(*) AS visits,
+            MIN(c.occurred_at) AS first_visit,MAX(c.occurred_at) AS last_visit,
+            SUM(c.amount) AS paid,SUM(c.refunded) AS refunded,SUM(c.amount-c.refunded) AS net
+        FROM crm_consumptions c JOIN delivery_people p ON p.id=c.delivery_person_id
+        WHERE c.user_id=%s AND c.status='valid' AND c.delivery_person_id IS NOT NULL
+        GROUP BY c.delivery_person_id,p.id,p.display_name
+        ) history
+        ORDER BY last_visit DESC,person_id DESC LIMIT %s OFFSET %s""",
+                (user_id, user_id, limit, (page - 1) * limit))
     return _public(cur.fetchall()), total
+
+
+def _consumption_source(cur, data):
+    kind = data.get("service_kind", "venue")
+    if kind == "venue":
+        venue_id = _positive_id(data.get("venue_id"), "会所")
+        if venue_id not in {1, 2, 4, 5, 6}:
+            raise ValueError("请选择有效会所")
+        cur.execute("SELECT id FROM venues WHERE id=%s", (venue_id,))
+        if cur.fetchone() is None:
+            raise ValueError("会所不存在")
+        staff_id = data.get("staff_id")
+        if staff_id is not None:
+            _positive_id(staff_id, "人员档案")
+        delivery_person_id = None
+    elif kind == "delivery":
+        if data.get("staff_id") not in (None, ""):
+            raise ValueError("外送消费不能关联会所技师档案")
+        venue_id, staff_id = None, None
+        delivery_person_id = data.get("delivery_person_id")
+        if delivery_person_id not in (None, ""):
+            _positive_id(delivery_person_id, "外送人员档案")
+            cur.execute(
+                "SELECT id FROM delivery_people WHERE id=%s AND venue_id IN (7,8,9,10) "
+                "AND deleted_at IS NULL AND merged_into_id IS NULL",
+                (delivery_person_id,),
+            )
+            if cur.fetchone() is None:
+                raise ValueError("请选择有效的外送人员档案")
+        else:
+            delivery_person_id = None
+    else:
+        raise ValueError("消费类型无效")
+    return kind, venue_id, staff_id, delivery_person_id
 
 
 def _page(value):
@@ -236,6 +308,14 @@ def detail(data):
             records, total = _records(cur, user_id, page)
             cur.execute("""SELECT id,name FROM venues WHERE id IN (1,2,4,5,6) AND status='active' ORDER BY id""")
             venues = cur.fetchall()
+            cur.execute("""SELECT p.id,p.venue_id,COALESCE(NULLIF(p.display_name,''),CONCAT('外送档案 ',p.id))
+                AS display_name,v.name AS source_name FROM delivery_people p
+                JOIN venues v ON v.id=p.venue_id
+                WHERE p.venue_id IN (7,8,9,10) AND p.deleted_at IS NULL AND p.merged_into_id IS NULL
+                ORDER BY p.venue_id,p.display_name,p.id LIMIT 1001""")
+            delivery_people = cur.fetchall()
+            if len(delivery_people) > 1000:
+                raise ValueError("外送人员档案超过1000位，暂时无法登记")
             cur.execute("""SELECT id,venue_id,code,ended_at FROM staff_members
                 WHERE blocked=0 AND (venue_id<>6 OR adult_confirmed=1) ORDER BY venue_id,code,id LIMIT 1001""")
             staff = cur.fetchall()
@@ -251,6 +331,7 @@ def detail(data):
             staff_history, staff_total = _staff_history(cur, user_id, staff_page)
         return {"customer": {**identity, **_public(profile)}, "summary": summary, "records": records,
                 "total": total, "page": page, "venues": venues, "staff": _public(staff),
+                "delivery_people": _public(delivery_people),
                 "audit": audit, "contacts": contacts, "staff_history": staff_history,
                 "staff_total": staff_total, "staff_page": staff_page}
     finally:
@@ -267,7 +348,8 @@ def mine(user_id, data):
             user_id = profile["user_id"] if profile else user_id
             summary = _summary(cur, user_id)
             records, total = _records(cur, user_id, page)
-        keys = ("id", "venue_name", "staff_code", "service", "occurred_at", "amount", "refunded", "status")
+        keys = ("id", "service_kind", "venue_name", "staff_code", "delivery_person_name",
+                "service", "occurred_at", "amount", "refunded", "status")
         return {"summary": summary, "records": [{key: row[key] for key in keys} for row in records],
                 "total": total, "page": page}
     finally:
@@ -366,16 +448,9 @@ def save(data, actor_id):
                     cur.execute("UPDATE crm_consumptions SET status='void',revision=revision+1,updated_at=%s WHERE id=%s",
                                 (now, record_id))
                 else:
-                    venue_id = _positive_id(data.get("venue_id"), "会所")
-                    if venue_id not in {1, 2, 4, 5, 6}:
-                        raise ValueError("本阶段仅登记会所消费，外送独立管理")
-                    cur.execute("SELECT id FROM venues WHERE id=%s", (venue_id,))
-                    if cur.fetchone() is None:
-                        raise ValueError("会所不存在")
-                    staff_id = data.get("staff_id")
+                    service_kind, venue_id, staff_id, delivery_person_id = _consumption_source(cur, data)
                     occurred = _occurred(data.get("occurred_at"))
                     if staff_id is not None:
-                        _positive_id(staff_id, "人员档案")
                         cur.execute("SELECT * FROM staff_members WHERE id=%s", (staff_id,))
                         staff = cur.fetchone()
                         if not staff or staff["venue_id"] != venue_id or staff["blocked"] or (
@@ -389,13 +464,16 @@ def save(data, actor_id):
                     amount, refunded = _money(data.get("amount"), "实付金额"), _money(data.get("refunded", "0"), "已退款金额")
                     if amount <= 0 or refunded > amount:
                         raise ValueError("实付金额必须大于0，已退款金额不能超过实付金额")
-                    cur.execute("""INSERT INTO crm_consumptions(id,user_id,venue_id,staff_id,service,occurred_at,
+                    cur.execute("""INSERT INTO crm_consumptions(id,user_id,service_kind,venue_id,staff_id,
+                        delivery_person_id,service,occurred_at,
                         amount,refunded,status,note,revision,created_at,updated_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,'valid',%s,1,%s,%s)
-                        ON DUPLICATE KEY UPDATE venue_id=VALUES(venue_id),staff_id=VALUES(staff_id),
+                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'valid',%s,1,%s,%s)
+                        ON DUPLICATE KEY UPDATE service_kind=VALUES(service_kind),venue_id=VALUES(venue_id),
+                        staff_id=VALUES(staff_id),delivery_person_id=VALUES(delivery_person_id),
                         service=VALUES(service),occurred_at=VALUES(occurred_at),amount=VALUES(amount),
                         refunded=VALUES(refunded),note=VALUES(note),revision=revision+1,updated_at=VALUES(updated_at)""",
-                                (record_id, user_id, venue_id, staff_id, service, occurred, amount, refunded, note, now, now))
+                                (record_id, user_id, service_kind, venue_id, staff_id, delivery_person_id,
+                                 service, occurred, amount, refunded, note, now, now))
                 cur.execute("SELECT * FROM crm_consumptions WHERE id=%s", (record_id,))
                 after = cur.fetchone()
             cur.execute("""INSERT INTO crm_audit(request_id,request_hash,actor_id,user_id,action,record_id,
@@ -450,8 +528,12 @@ def _contact_card(cur, user_id):
     profile = cur.fetchone()
     summary = _summary(cur, user_id)
     cur.execute("""SELECT c.service,c.occurred_at,c.amount-c.refunded AS net,
-        v.name AS venue,m.code FROM crm_consumptions c JOIN venues v ON v.id=c.venue_id
-        LEFT JOIN staff_members m ON m.id=c.staff_id WHERE c.user_id=%s AND c.status='valid'
+        COALESCE(v.name,IF(c.service_kind='delivery','西港外送','会所已下架')) AS venue,
+        m.code,p.display_name AS delivery_person_name
+        FROM crm_consumptions c LEFT JOIN venues v ON v.id=c.venue_id
+        LEFT JOIN staff_members m ON m.id=c.staff_id
+        LEFT JOIN delivery_people p ON p.id=c.delivery_person_id
+        WHERE c.user_id=%s AND c.status='valid'
         ORDER BY c.occurred_at DESC,c.id DESC LIMIT 3""", (user_id,))
     records = cur.fetchall()
     staff_history, staff_total = _staff_history(cur, user_id, limit=5)
@@ -466,16 +548,23 @@ def _contact_card(cur, user_id):
         lines.append(f"{label}：{escape(profile[field][:500] or '未登记')}")
     if any(len(profile[field]) > 500 for field in ("preferences", "avoidances", "notes")):
         lines.append("长备注已截取，完整内容请在管理台查看。")
-    lines.append(f"曾消费技师：{staff_total}位（按有效消费记录关联）")
+    lines.append(f"曾消费服务人员：{staff_total}位（按有效消费记录关联）")
     for staff in staff_history:
-        lines.append(f"技师：{staff['venue_name']} · 工号{staff['staff_code']} · 档案{staff['staff_id']}"
-                     f" · {staff['visits']}次 · 净累计 ${staff['net']}"
-                     f"{' · 历史人员' if staff['ended_at'] else ''}")
+        if staff["person_type"] == "delivery":
+            lines.append(f"外送人员：{staff['person_name']} · 档案{staff['delivery_person_id']}"
+                         f" · {staff['visits']}次 · 净累计 ${staff['net']}")
+        else:
+            lines.append(f"技师：{staff['venue_name']} · 工号{staff['staff_code']} · 档案{staff['staff_id']}"
+                         f" · {staff['visits']}次 · 净累计 ${staff['net']}"
+                         f"{' · 历史人员' if staff['ended_at'] else ''}")
     if staff_total > len(staff_history):
-        lines.append("仅列最近消费的5位技师，完整关联请查看客户档案。")
+        lines.append("仅列最近消费的5位服务人员，完整关联请查看客户档案。")
     for record in records:
         when = (record["occurred_at"] + timedelta(hours=7)).strftime("%m-%d %H:%M")
-        lines.append(f"最近：{when} · {escape(record['venue'])} · 工号{escape(record['code'] or '未关联')}"
+        person = (f"外送人员{record['delivery_person_name']}" if record["delivery_person_name"]
+                  else "未关联外送人员" if record.get("service_kind") == "delivery"
+                  else f"工号{record['code'] or '未关联'}")
+        lines.append(f"最近：{when} · {escape(record['venue'])} · {escape(person)}"
                      f" · {escape(record['service'])} · ${record['net']}")
     card = "\n".join(lines)
     if len(card.encode("utf-16-le")) > 7600:

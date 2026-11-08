@@ -33,7 +33,8 @@ class CustomerRecordTests(unittest.TestCase):
     def test_customer_view_never_returns_internal_profile_notes(self):
         conn = MagicMock()
         row = {key: "value" for key in (
-            "id", "venue_name", "staff_code", "service", "occurred_at", "amount", "refunded", "status")}
+            "id", "service_kind", "venue_name", "staff_code", "delivery_person_name",
+            "service", "occurred_at", "amount", "refunded", "status")}
         row.update({"note": "internal", "user_id": 42, "revision": 2})
         with patch.object(records, "get_conn", return_value=conn), \
                 patch.object(records, "_summary", return_value={"visits": 1}), \
@@ -41,9 +42,23 @@ class CustomerRecordTests(unittest.TestCase):
             result = records.mine(42, {"page": 1})
         self.assertNotIn("note", result["records"][0])
         self.assertNotIn("user_id", result["records"][0])
+        self.assertIn("service_kind", result["records"][0])
+        self.assertIn("delivery_person_name", result["records"][0])
         self.assertNotIn("preferences", result)
         self.assertNotIn("staff_history", result)
         conn.close.assert_called_once()
+
+    def test_consumption_rows_include_delivery_person_and_external_label(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {"n": 1}
+        cursor.fetchall.return_value = []
+        rows, total = records._records(cursor, 42, page=1)
+        self.assertEqual((rows, total), ([], 1))
+        query, args = cursor.execute.call_args.args
+        self.assertIn("LEFT JOIN venues", query)
+        self.assertIn("LEFT JOIN delivery_people", query)
+        self.assertIn("西港外送", query)
+        self.assertEqual(args, (42, 0))
 
     def test_internal_customer_id_is_not_a_telegram_id(self):
         self.assertEqual(records._customer_id(-123), -123)
@@ -140,5 +155,29 @@ class CustomerRecordTests(unittest.TestCase):
         query, args = cursor.execute.call_args.args
         self.assertIn("c.status='valid'", query)
         self.assertIn("GROUP BY c.staff_id", query)
+        self.assertIn("GROUP BY c.delivery_person_id", query)
         self.assertIn("SUM(c.amount-c.refunded)", query)
-        self.assertEqual(args, (42, 20, 20))
+        self.assertEqual(args, (42, 42, 20, 20))
+
+    def test_consumption_source_keeps_venue_and_delivery_people_separate(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {"id": 5}
+        self.assertEqual(records._consumption_source(cursor, {
+            "service_kind": "venue", "venue_id": 2, "staff_id": 5,
+        }), ("venue", 2, 5, None))
+        self.assertEqual(records._consumption_source(cursor, {
+            "service_kind": "delivery", "delivery_person_id": 17,
+        }), ("delivery", None, None, 17))
+        self.assertEqual(records._consumption_source(cursor, {
+            "service_kind": "delivery",
+        }), ("delivery", None, None, None))
+        with self.assertRaises(ValueError):
+            records._consumption_source(cursor, {"service_kind": "delivery", "staff_id": 5})
+
+    def test_delivery_consumption_source_requires_an_active_delivery_profile(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        with self.assertRaisesRegex(ValueError, "有效的外送人员档案"):
+            records._consumption_source(cursor, {
+                "service_kind": "delivery", "delivery_person_id": 17,
+            })

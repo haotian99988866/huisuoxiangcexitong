@@ -1,9 +1,12 @@
 import unittest
 
-from bot_profile import DESCRIPTION, SHORT_DESCRIPTION
+from bot_profile import DESCRIPTION, NAME, SHORT_DESCRIPTION
 
 
 class BotProfileTests(unittest.TestCase):
+    def test_bot_name(self):
+        self.assertEqual(NAME, "昊天机器人助手")
+
     def test_descriptions_fit_telegram_limits(self):
         for text, limit in ((DESCRIPTION, 512), (SHORT_DESCRIPTION, 120)):
             with self.subTest(limit=limit):

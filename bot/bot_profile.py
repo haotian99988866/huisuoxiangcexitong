@@ -6,10 +6,10 @@ from telebot import types
 
 load_dotenv(".env")
 
-NAME = "昊天生活助手"
+NAME = "昊天机器人助手"
 DESCRIPTION = (
-    "昊天生活通\n"
-    "西港生活服务，一站直达。\n\n"
+    "西港会所/外送\n"
+    "西港会所与外送信息，一站直达。\n\n"
     "会所出勤 · 西港外送 · 出勤提醒\n"
     "影视观影 · 在线音乐 · 昊天大事件\n"
     "Telegram会员 · 柬埔寨话费代充\n\n"
