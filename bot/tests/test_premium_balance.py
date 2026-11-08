@@ -20,6 +20,9 @@ class PremiumBalanceTests(unittest.TestCase):
         self.bot = Mock()
         self.bot.get_my_star_balance.return_value.amount = 10000
         self.bot.get_chat.return_value = Mock(type="private", username="receiver")
+        inquiry = patch("premium_balance.get_manual_inquiry", return_value=None)
+        inquiry.start()
+        self.addCleanup(inquiry.stop)
         admins = patch("visit_stats.admin_ids", return_value=[99])
         admins.start()
         self.addCleanup(admins.stop)
@@ -29,6 +32,29 @@ class PremiumBalanceTests(unittest.TestCase):
             {months: plan["price_usd"] for months, plan in premium_balance.PLANS.items()},
             {3: Decimal("15.99"), 6: Decimal("19.99"), 12: Decimal("33.99")})
         self.assertTrue(all("gift_stars" not in plan for plan in premium_balance.PLANS.values()))
+
+    def test_contact_request_replay_keeps_same_request_and_details(self):
+        inquiry = {
+            "order_id": ORDER_ID, "payer_id": 123, "recipient_id": 456,
+            "recipient_username": "receiver", "months": 3, "price_usd": Decimal("15.99"),
+            "product_kind": "premium", "phone": None, "topup_usd": None, "fee_usd": Decimal("0"),
+            "status": "contact_pending",
+        }
+        with patch("premium_balance.get_order", return_value=None), \
+                patch("premium_balance.get_manual_inquiry", return_value=inquiry):
+            result = premium_balance.create_order(self.bot, 123, "@receiver", 3, ORDER_ID)
+            self.assertEqual(result["status"], "contact_pending")
+            with self.assertRaisesRegex(ValueError, "其他服务"):
+                premium_balance.create_order(self.bot, 123, "@receiver", 6, ORDER_ID)
+
+    def test_contact_request_has_explicit_public_status(self):
+        result = premium_balance.order_public({
+            "order_id": ORDER_ID, "months": 3, "recipient_username": "receiver",
+            "price_usd": Decimal("15.99"), "status": "contact_pending",
+            "product_kind": "premium",
+        })
+        self.assertEqual(result["status"], "contact_pending")
+        self.assertEqual(result["price_usd"], "15.99")
 
     @patch("premium_balance.get_conn")
     def test_recent_ledger_combines_only_real_balance_movements_for_the_user(self, get_conn):
@@ -125,19 +151,19 @@ class PremiumBalanceTests(unittest.TestCase):
         conn = get_conn.return_value
         cur = conn.cursor.return_value.__enter__.return_value
         cur.fetchone.side_effect = [
-            {"enabled": 1, "owner_id": 99}, None, {"balance": Decimal("20.00")},
+            {"enabled": 1, "owner_id": 99}, None, None, {"balance": Decimal("20.00")},
         ]
         result = premium_balance.create_order(self.bot, 123, "@receiver", 3, ORDER_ID)
         self.assertEqual(result["price_usd"], "15.99")
         self.assertEqual(result["status"], "manual_pending")
         calls = cur.execute.call_args_list
         self.assertIn("FOR UPDATE", calls[0].args[0])
-        self.assertIn("FOR UPDATE", calls[2].args[0])
-        self.assertEqual(calls[3].args[1][6], 99)
-        self.assertEqual(calls[3].args[1][7], "premium")
-        self.assertEqual(calls[4].args[1], (Decimal("15.99"), 123))
-        self.assertEqual(calls[5].args[1], (ORDER_ID, 123, Decimal("-15.99")))
-        self.assertEqual(Decimal("20.00") - calls[4].args[1][0], Decimal("4.01"))
+        self.assertIn("FOR UPDATE", calls[3].args[0])
+        self.assertEqual(calls[4].args[1][6], 99)
+        self.assertEqual(calls[4].args[1][7], "premium")
+        self.assertEqual(calls[5].args[1], (Decimal("15.99"), 123))
+        self.assertEqual(calls[6].args[1], (ORDER_ID, 123, Decimal("-15.99")))
+        self.assertEqual(Decimal("20.00") - calls[5].args[1][0], Decimal("4.01"))
         conn.commit.assert_called_once()
         self.bot.gift_premium_subscription.assert_not_called()
         self.bot.get_my_star_balance.assert_not_called()
@@ -145,11 +171,10 @@ class PremiumBalanceTests(unittest.TestCase):
     @patch("premium_balance.get_order", return_value=None)
     @patch("premium_balance.validate_recipient", return_value=(456, "receiver"))
     @patch("premium_balance.get_conn")
-    def test_insufficient_wallet_missing_owner_and_disabled_sales_never_debit(self, get_conn, recipient, get_order):
+    def test_insufficient_wallet_creates_contact_request_without_debit(self, get_conn, recipient, get_order):
         for rows, message in (
-                ([{"enabled": 0}, None], "暂未开放"),
-                ([{"enabled": 1, "owner_id": None}, None], "负责人不可用"),
-                ([{"enabled": 1, "owner_id": 99}, None, {"balance": Decimal("15.98")}], "余额不足")):
+                ([{"enabled": 0}, None, None], "暂未开放"),
+                ([{"enabled": 1, "owner_id": None}, None, None], "负责人不可用")):
             with self.subTest(message=message):
                 conn = get_conn.return_value
                 conn.reset_mock()
@@ -160,6 +185,42 @@ class PremiumBalanceTests(unittest.TestCase):
                 self.assertFalse(any("UPDATE wallet_accounts" in call.args[0] for call in cur.execute.call_args_list))
                 conn.commit.assert_not_called()
                 conn.rollback.assert_called_once()
+        for balance in (Decimal("15.98"), None):
+            with self.subTest(balance=balance):
+                conn = get_conn.return_value
+                conn.reset_mock()
+                cur = conn.cursor.return_value.__enter__.return_value
+                cur.fetchone.side_effect = [
+                    {"enabled": 1, "owner_id": 99}, None, None,
+                    {"balance": balance} if balance is not None else None,
+                ]
+                result = premium_balance.create_order(self.bot, 123, "@receiver", 3, ORDER_ID)
+                self.assertEqual(result["status"], "contact_pending")
+                calls = cur.execute.call_args_list
+                self.assertTrue(any("INSERT INTO member_manual_inquiries" in call.args[0] for call in calls))
+                self.assertFalse(any("UPDATE wallet_accounts" in call.args[0] for call in calls))
+                self.assertFalse(any("INSERT INTO member_wallet_ledger" in call.args[0] for call in calls))
+                conn.commit.assert_called_once()
+        recipient.assert_not_called()
+
+    @patch("premium_balance.get_order", return_value=None)
+    @patch("premium_balance.get_manual_inquiry", return_value=None)
+    @patch("premium_balance.validate_recipient", return_value=(456, "receiver"))
+    @patch("premium_balance.get_conn")
+    def test_locked_inquiry_replay_cannot_cross_customer_accounts(
+            self, get_conn, recipient, get_inquiry, get_order):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.side_effect = [
+            {"enabled": 1, "owner_id": 99}, None,
+            {"order_id": ORDER_ID, "payer_id": 456, "recipient_username": "receiver",
+             "months": 3, "product_kind": "premium"},
+        ]
+        with self.assertRaisesRegex(ValueError, "申请编号冲突"):
+            premium_balance.create_order(self.bot, 123, "@receiver", 3, ORDER_ID)
+        conn.rollback.assert_called_once()
+        recipient.assert_not_called()
+        recipient.assert_not_called()
 
     @patch("premium_balance.get_order", return_value=None)
     @patch("premium_balance.validate_recipient", return_value=(456, "receiver"))
@@ -167,8 +228,10 @@ class PremiumBalanceTests(unittest.TestCase):
     def test_ledger_failure_rolls_back_order_and_debit(self, get_conn, recipient, get_order):
         conn = get_conn.return_value
         cur = conn.cursor.return_value.__enter__.return_value
-        cur.fetchone.side_effect = [{"enabled": 1, "owner_id": 99}, None, {"balance": Decimal("20")}]
-        cur.execute.side_effect = [None] * 5 + [RuntimeError("ledger failed")]
+        cur.fetchone.side_effect = [
+            {"enabled": 1, "owner_id": 99}, None, None, {"balance": Decimal("20")},
+        ]
+        cur.execute.side_effect = [None] * 6 + [RuntimeError("ledger failed")]
         with self.assertRaises(RuntimeError):
             premium_balance.create_order(self.bot, 123, "@receiver", 3, ORDER_ID)
         conn.rollback.assert_called_once()
@@ -328,12 +391,46 @@ class PremiumBalanceTests(unittest.TestCase):
             {"order_id": ORDER_ID, "status": "manual_pending"},
             {"order_id": "c" * 32, "status": "refund_pending"},
         ]
-        with patch("premium_balance.notify_manual_order") as notify, patch("premium_balance.refund_order") as refund:
+        with patch("premium_balance.notify_manual_order") as notify, \
+                patch("premium_balance.process_manual_inquiries") as inquiries, \
+                patch("premium_balance.refund_order") as refund:
             premium_balance.process_orders(self.bot)
         notify.assert_called_once_with(self.bot, ORDER_ID)
+        inquiries.assert_called_once_with(self.bot)
         refund.assert_called_once_with("c" * 32)
         self.bot.gift_premium_subscription.assert_not_called()
-        self.assertIn("notification_id IS NULL", cur.execute.call_args.args[0])
+        self.assertTrue(any("notification_id IS NULL" in call.args[0]
+                            for call in cur.execute.call_args_list))
+
+    @patch("relay.remember_relay")
+    @patch("premium_balance.get_manual_inquiry")
+    @patch("premium_balance.get_conn")
+    def test_manual_inquiry_notifies_owner_and_customer_with_reply_relay(
+            self, get_conn, get_inquiry, remember_relay):
+        get_inquiry.return_value = {
+            "order_id": ORDER_ID, "payer_id": 123, "payer_username": "customer",
+            "payer_name": "客人", "recipient_id": 123, "recipient_username": "",
+            "months": 0, "price_usd": Decimal("6"), "product_kind": "phone",
+            "phone": "+85512345678", "topup_usd": Decimal("5"), "fee_usd": Decimal("1"),
+            "balance_usd": Decimal("5.99"), "owner_id": 99, "status": "pending_contact",
+            "owner_message_id": None, "customer_message_id": None,
+        }
+        self.bot.send_message.side_effect = [
+            type("Message", (), {"message_id": 45})(),
+            type("Message", (), {"message_id": 46})(),
+        ]
+
+        self.assertTrue(premium_balance.notify_manual_inquiry(self.bot, ORDER_ID))
+
+        owner_call, customer_call = self.bot.send_message.call_args_list
+        self.assertEqual(owner_call.args[0], 99)
+        self.assertIn("充值手机号：+85512345678", owner_call.args[1])
+        self.assertIn("未扣余额", owner_call.args[1])
+        self.assertEqual(customer_call.args[0], 123)
+        self.assertIn("通过机器人私聊", customer_call.args[1])
+        remember_relay.assert_called_once_with(99, 45, 123)
+        cur = get_conn.return_value.cursor.return_value.__enter__.return_value
+        self.assertTrue(any("status='notified'" in call.args[0] for call in cur.execute.call_args_list))
 
     def test_phone_amount_bounds_and_format(self):
         self.assertEqual(premium_balance.phone_amount("5"), Decimal("5"))
@@ -356,7 +453,7 @@ class PremiumBalanceTests(unittest.TestCase):
                 conn.reset_mock()
                 cur = conn.cursor.return_value.__enter__.return_value
                 cur.fetchone.side_effect = [
-                    {"phone_enabled": 1, "owner_id": 99}, None, {"balance": Decimal("101")},
+                    {"phone_enabled": 1, "owner_id": 99}, None, None, {"balance": Decimal("101")},
                 ]
                 total = Decimal(amount) + Decimal("1")
                 result = premium_balance.create_order(
@@ -364,25 +461,30 @@ class PremiumBalanceTests(unittest.TestCase):
                     phone="012345678", amount=amount)
                 self.assertEqual(Decimal(result["price_usd"]), total)
                 calls = cur.execute.call_args_list
-                self.assertEqual(calls[3].args[1][7:], ("phone", "+85512345678", Decimal(amount), Decimal("1")))
-                self.assertEqual(calls[4].args[1], (total, 123))
-                self.assertEqual(calls[5].args[1], (ORDER_ID, 123, -total))
+                self.assertEqual(calls[4].args[1][7:], ("phone", "+85512345678", Decimal(amount), Decimal("1")))
+                self.assertEqual(calls[5].args[1], (total, 123))
+                self.assertEqual(calls[6].args[1], (ORDER_ID, 123, -total))
                 conn.commit.assert_called_once()
         self.bot.get_chat.assert_not_called()
         self.bot.gift_premium_subscription.assert_not_called()
 
     @patch("premium_balance.get_order", return_value=None)
     @patch("premium_balance.get_conn")
-    def test_phone_balance_must_also_cover_fee(self, get_conn, get_order):
+    def test_phone_balance_shortfall_creates_contact_request_without_debit(self, get_conn, get_order):
         conn = get_conn.return_value
         cur = conn.cursor.return_value.__enter__.return_value
-        cur.fetchone.side_effect = [{"phone_enabled": 1, "owner_id": 99}, None, {"balance": Decimal("5.99")}]
-        with self.assertRaisesRegex(ValueError, "余额不足"):
-            premium_balance.create_order(None, 123, None, None, ORDER_ID,
-                                         product_kind="phone", phone="012345678", amount="5")
-        self.assertEqual(cur.execute.call_count, 3)
-        conn.commit.assert_not_called()
-        conn.rollback.assert_called_once()
+        cur.fetchone.side_effect = [
+            {"phone_enabled": 1, "owner_id": 99}, None, None, {"balance": Decimal("5.99")},
+        ]
+        result = premium_balance.create_order(self.bot, 123, None, None, ORDER_ID,
+                                              product_kind="phone", phone="012345678", amount="5")
+        self.assertEqual(result["status"], "contact_pending")
+        self.assertEqual(result["price_usd"], Decimal("6"))
+        self.assertEqual(cur.execute.call_args_list[-1].args[1][-2:], (Decimal("5.99"), 99))
+        self.assertFalse(any("UPDATE wallet_accounts" in call.args[0] for call in cur.execute.call_args_list))
+        self.assertFalse(any("INSERT INTO member_wallet_ledger" in call.args[0]
+                             for call in cur.execute.call_args_list))
+        conn.commit.assert_called_once()
 
     @patch("premium_balance.get_order")
     @patch("premium_balance.get_conn")

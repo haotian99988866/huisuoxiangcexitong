@@ -22,6 +22,7 @@ export default function PhoneTopup() {
   const [pending, setPending] = useState(null)
   const [busy, setBusy] = useState(false)
   const [localError, setLocalError] = useState('')
+  const [contactRequestSent, setContactRequestSent] = useState(false)
   const [recoveryError, setRecoveryError] = useState(false)
   const [confirmationOpen, setConfirmationOpen] = useState(false)
   const submitting = useRef(false)
@@ -40,6 +41,7 @@ export default function PhoneTopup() {
     setConfirmationOpen(false)
     setRecoveryError(false)
     setLocalError('')
+    setContactRequestSent(false)
     if (!account) return
     try {
       const savedPending = sessionStorage.getItem(pendingKey(account.user_id))
@@ -101,7 +103,6 @@ export default function PhoneTopup() {
 
   async function purchase() {
     if (!ready || submitting.current) return
-    if (!pending && insufficient) { goRecharge(); return }
     if (!pending && (!catalog?.phone?.enabled || !normalizePhone(phone) || cents === null)) {
       setLocalError('请检查手机号、金额及服务开放状态。')
       return
@@ -119,6 +120,13 @@ export default function PhoneTopup() {
       }
       setPending(attempt)
       const order = await requestMember('phone_purchase', attempt)
+      if (order.status === 'contact_pending') {
+        sessionStorage.removeItem(pendingKey(userId))
+        setPending(null)
+        setContactRequestSent(true)
+        setConfirmationOpen(false)
+        return
+      }
       await finish(order, userId)
     } catch (failure) {
       if (failure.status === 400) {
@@ -139,9 +147,17 @@ export default function PhoneTopup() {
     setBusy(true)
     setLocalError('')
     try {
-      await finish(await requestMember('member_order', { order_id: pending.order_id }), account.user_id)
+      const order = await requestMember('phone_purchase', pending)
+      if (order.status === 'contact_pending') {
+        sessionStorage.removeItem(pendingKey(account.user_id))
+        setPending(null)
+        setContactRequestSent(true)
+        setConfirmationOpen(false)
+        return
+      }
+      await finish(order, account.user_id)
     } catch (failure) {
-      setLocalError(failure.status === 404 ? '暂未查到订单，请重试同一订单，不要重新生成订单。' : failure.message)
+      setLocalError(failure.message)
       if (failure.status === 401) reportFailure(failure)
     } finally { submitting.current = false; setBusy(false) }
   }
@@ -153,6 +169,9 @@ export default function PhoneTopup() {
     </header></AccountHeader>
     <p className="consumption-intro">余额付款 · 昊天人工代充</p>
     {(error || localError) && <p className="membership-error" role="alert">{localError || error}</p>}
+    {contactRequestSent && <p className="membership-notice" role="status">
+      余额不足申请已提交，系统正在通知昊天；没有扣除余额。请留意机器人私聊消息，昊天会通过机器人联系你确认付款和办理。
+    </p>}
     {!account ? <AccountAccess loading={loading} /> : <>
       {attention && <p className="membership-notice">你有一笔代充结果待核实订单，请勿重复下单。
         <Link to={`/orders/${attention.order_id}`}>查看订单</Link></p>}
@@ -171,9 +190,9 @@ export default function PhoneTopup() {
           {!catalog && !error && <p role="status">正在读取服务状态…</p>}
           {catalog && !catalog.phone?.enabled && <p role="status">话费代充暂未开放。</p>}
           {pending ? <div className="membership-actions">
-            <p role="status">有一笔扣款结果待确认，请勿重新下单。</p>
-            <button type="button" disabled={!ready || busy} onClick={checkPending}>查询这笔订单</button>
-            <button type="button" disabled={!ready || busy} onClick={() => setConfirmationOpen(true)}>重试同一订单</button>
+            <p role="status">有一笔订单或人工申请待确认，请沿用原编号核实，勿重复提交新申请。</p>
+            <button type="button" disabled={!ready || busy} onClick={checkPending}>核实这笔申请</button>
+            <button type="button" disabled={!ready || busy} onClick={() => setConfirmationOpen(true)}>重试同一申请</button>
           </div> : <button className="membership-primary" type="submit" disabled={!ready || busy || !catalog?.phone?.enabled}>
             核对充值信息
           </button>}
@@ -186,10 +205,11 @@ export default function PhoneTopup() {
         <h3>{normalizePhone(phone)}</h3>
         <p>话费 ${cents === null ? '—' : money(cents / 100)} + 手续费 ${fee === null ? '—' : money(fee)}</p>
         <p>合计：{total === null ? '—' : `$${money(total)}`}</p>
-        <p>请仔细核对手机号。余额扣款后人工代充，已完成不可退款；未代充成功则话费及手续费全额退回站内余额。</p>
+        <p>余额充足时立即扣款申请代充；余额不足时仅发送人工申请，不扣余额。充值成功后请留意机器人私聊。</p>
         <button type="button" className="membership-primary" disabled={!ready || busy || (!pending && !catalog?.phone?.enabled)}
-          onClick={purchase}>{busy ? '处理中…' : pending ? '重试同一订单' : insufficient ? '余额不足，先充值' : '确认扣款并申请代充'}</button>
-        {pending && <button type="button" disabled={!ready || busy} onClick={checkPending}>查询这笔订单</button>}
+        onClick={purchase}>{busy ? '处理中…' : pending ? '核实并继续处理' : insufficient ? '余额不足，发送人工处理申请' : '确认扣款并申请代充'}</button>
+        {!pending && insufficient && <button type="button" disabled={!ready || busy} onClick={goRecharge}>先去充值余额</button>}
+        {pending && <button type="button" disabled={!ready || busy} onClick={checkPending}>重试同一申请</button>}
       </MusicDialog>}
     </>}
   </main>

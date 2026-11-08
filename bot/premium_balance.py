@@ -141,6 +141,18 @@ def ensure_tables():
                 "user_id BIGINT NOT NULL,event VARCHAR(16) NOT NULL,amount DECIMAL(20,6) NOT NULL,"
                 "actor_id BIGINT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
                 "UNIQUE KEY idx_member_event(order_id,event)) ENGINE=InnoDB")
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS member_manual_inquiries ("
+                "order_id CHAR(32) PRIMARY KEY,payer_id BIGINT NOT NULL,recipient_id BIGINT NULL,"
+                "recipient_username VARCHAR(32) NOT NULL,months TINYINT NOT NULL,"
+                "price_usd DECIMAL(20,6) NOT NULL,product_kind VARCHAR(16) NOT NULL,"
+                "phone VARCHAR(16) NULL,topup_usd DECIMAL(20,6) NULL,fee_usd DECIMAL(20,6) NOT NULL DEFAULT 0,"
+                "balance_usd DECIMAL(20,6) NOT NULL,owner_id BIGINT NOT NULL,"
+                "status VARCHAR(24) NOT NULL DEFAULT 'pending_contact',"
+                "owner_message_id BIGINT NULL,customer_message_id BIGINT NULL,"
+                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                "INDEX idx_manual_inquiry_status(status,created_at),"
+                "INDEX idx_manual_inquiry_payer(payer_id,created_at)) ENGINE=InnoDB")
         conn.commit()
     finally:
         conn.close()
@@ -226,7 +238,7 @@ def create_order(bot, payer_id, username, months, order_id, *, product_kind="pre
         if type(months) is not int or months not in PLANS:
             raise ValueError("请选择有效套餐")
         normalized = normalize_username(username)
-        topup, phone = None, None
+        topup, phone, recipient_id = None, None, None
         price = PLANS[months]["price_usd"]
     else:
         raise ValueError("无效服务")
@@ -243,8 +255,11 @@ def create_order(bot, payer_id, username, months, order_id, *, product_kind="pre
         if not matches(existing):
             raise ValueError("订单编号已用于其他服务、金额或收件人，请先核实原订单")
         return existing
-    if product_kind == "premium":
-        recipient_id, normalized = validate_recipient(bot, username)
+    inquiry = get_manual_inquiry(order_id, payer_id)
+    if inquiry:
+        if not _inquiry_matches(inquiry, product_kind, months, normalized, phone, topup):
+            raise ValueError("申请编号已用于其他服务、金额或收件人，请先核实原申请")
+        return inquiry
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -257,6 +272,14 @@ def create_order(bot, payer_id, username, months, order_id, *, product_kind="pre
                     raise ValueError("订单编号冲突，请先核实原订单")
                 conn.rollback()
                 return existing
+            cur.execute("SELECT * FROM member_manual_inquiries WHERE order_id=%s FOR UPDATE", (order_id,))
+            inquiry = cur.fetchone()
+            if inquiry:
+                if (inquiry["payer_id"] != payer_id
+                        or not _inquiry_matches(inquiry, product_kind, months, normalized, phone, topup)):
+                    raise ValueError("申请编号冲突，请先核实原申请")
+                conn.rollback()
+                return _payer_profile(cur, inquiry)
             if not config or not config["phone_enabled" if product_kind == "phone" else "enabled"]:
                 raise ValueError("话费代充暂未开放" if product_kind == "phone" else "会员余额购买暂未开放")
             from visit_stats import admin_ids
@@ -265,7 +288,25 @@ def create_order(bot, payer_id, username, months, order_id, *, product_kind="pre
             cur.execute("SELECT balance FROM wallet_accounts WHERE user_id=%s FOR UPDATE", (payer_id,))
             account = cur.fetchone()
             if not account or account["balance"] < price:
-                raise ValueError("账户余额不足，请先充值并等待管理员核款")
+                balance = account["balance"] if account else Decimal("0")
+                cur.execute(
+                    "INSERT INTO member_manual_inquiries(order_id,payer_id,recipient_id,recipient_username,"
+                    "months,price_usd,product_kind,phone,topup_usd,fee_usd,balance_usd,owner_id) "
+                    "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (order_id, payer_id, recipient_id, normalized, months, price, product_kind,
+                     phone, topup, PHONE_FEE if product_kind == "phone" else Decimal("0"),
+                     balance, config["owner_id"]),
+                )
+                conn.commit()
+                return {
+                    "order_id": order_id, "payer_id": payer_id, "recipient_id": recipient_id,
+                    "recipient_username": normalized, "months": months, "price_usd": price,
+                    "status": "contact_pending", "product_kind": product_kind, "phone": phone,
+                    "topup_usd": topup, "fee_usd": PHONE_FEE if product_kind == "phone" else Decimal("0"),
+                    "balance_usd": balance, "owner_id": config["owner_id"],
+                }
+            if product_kind == "premium":
+                recipient_id, normalized = validate_recipient(bot, username)
             cur.execute(
                 "INSERT INTO member_orders(order_id,payer_id,recipient_id,recipient_username,"
                 "months,price_usd,gift_stars,status,owner_id,product_kind,phone,topup_usd,fee_usd) "
@@ -286,6 +327,28 @@ def create_order(bot, payer_id, username, months, order_id, *, product_kind="pre
     return {"order_id": order_id, "recipient_username": normalized, "months": months,
             "price_usd": str(price), "status": "manual_pending", "product_kind": product_kind,
             "phone": phone, "topup_usd": topup, "fee_usd": PHONE_FEE if product_kind == "phone" else 0}
+
+
+def _inquiry_matches(inquiry, product_kind, months, username, phone, topup):
+    return (inquiry["product_kind"] == product_kind
+            and inquiry["months"] == months
+            and inquiry["recipient_username"] == username
+            and (product_kind != "phone"
+                 or (inquiry["phone"] == phone and inquiry["topup_usd"] == topup)))
+
+
+def get_manual_inquiry(order_id, payer_id=None):
+    validate_order_id(order_id)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM member_manual_inquiries WHERE order_id=%s", (order_id,))
+            row = cur.fetchone()
+            if not row or (payer_id is not None and row["payer_id"] != payer_id):
+                return None
+            return _payer_profile(cur, row)
+    finally:
+        conn.close()
 
 
 def _payer_profile(cur, order):
@@ -474,6 +537,98 @@ def manual_order_text(order):
     )
 
 
+def manual_inquiry_text(inquiry):
+    name = " ".join((inquiry.get("payer_name") or "").split()) or "名称暂无记录"
+    username = inquiry.get("payer_username")
+    payer = f"@{username}" if username else "暂无用户名"
+    details = (
+        f"充值手机号：{inquiry['phone']}\n"
+        f"话费金额：${inquiry['topup_usd']} USD\n"
+        f"手续费：${inquiry['fee_usd']} USD\n"
+    ) if inquiry["product_kind"] == "phone" else (
+        f"开通账号：@{inquiry['recipient_username']}\n"
+        f"套餐时长：{inquiry['months']}个月\n"
+    )
+    product = "话费代充" if inquiry["product_kind"] == "phone" else "Telegram会员"
+    return (
+        f"💬 余额不足人工申请 {inquiry['order_id']}\n"
+        f"服务：{product}\n"
+        f"{details}"
+        f"应付合计：${inquiry['price_usd']} USD\n"
+        f"当前余额：${inquiry['balance_usd']} USD\n"
+        f"客人：{name}（{payer}）\n"
+        f"客人 ID：{inquiry['payer_id']}\n\n"
+        "此申请未扣余额、不是已付款订单。直接回复本消息，即可通过机器人私聊客人确认付款和办理。"
+    )
+
+
+def notify_manual_inquiry(bot, order_id):
+    inquiry = get_manual_inquiry(order_id)
+    if not inquiry or inquiry["status"] != "pending_contact":
+        return False
+    if inquiry["owner_message_id"] is None:
+        message = bot.send_message(
+            inquiry["owner_id"], manual_inquiry_text(inquiry),
+            disable_web_page_preview=True, timeout=10)
+        from relay import remember_relay
+        remember_relay(inquiry["owner_id"], message.message_id, inquiry["payer_id"])
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE member_manual_inquiries SET owner_message_id=%s WHERE order_id=%s",
+                            (message.message_id, order_id))
+            conn.commit()
+        finally:
+            conn.close()
+    if inquiry["customer_message_id"] is None:
+        customer_message = bot.send_message(
+            inquiry["payer_id"],
+            f"申请编号：{order_id}\n"
+            "已将你的会员/话费申请转交昊天。此申请未扣除账户余额；昊天会通过机器人私聊你确认付款和办理。",
+            timeout=10,
+        )
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE member_manual_inquiries SET customer_message_id=%s WHERE order_id=%s",
+                            (customer_message.message_id, order_id))
+            conn.commit()
+        finally:
+            conn.close()
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE member_manual_inquiries SET status='notified' "
+                "WHERE order_id=%s AND owner_message_id IS NOT NULL AND customer_message_id IS NOT NULL",
+                (order_id,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return True
+
+
+def process_manual_inquiries(bot):
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT order_id FROM member_manual_inquiries "
+                "WHERE status='pending_contact' ORDER BY created_at LIMIT 50")
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    for row in rows:
+        try:
+            notify_manual_inquiry(bot, row["order_id"])
+        except Exception:
+            logger.exception(
+                "Manual contact request notification failed; retained for retry order=%s",
+                row["order_id"],
+            )
+
+
 def manual_keyboard(order_id, decision=None, product_kind="premium"):
     keyboard = types.InlineKeyboardMarkup()
     phone = product_kind == "phone"
@@ -539,6 +694,7 @@ def process_orders(bot):
             logger.exception("Member order worker failed order=%s; retained for reconciliation", row["order_id"])
             if row["status"] != "manual_pending":
                 _notify_admins(bot, f"会员订单 {row['order_id']} 处理异常，请检查订单及官方交易记录。")
+    process_manual_inquiries(bot)
 
 
 def start_worker(bot):

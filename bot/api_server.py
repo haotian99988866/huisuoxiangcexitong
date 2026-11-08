@@ -1341,13 +1341,14 @@ def webhook():
                 bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
                 if not bot_token:
                     raise RuntimeError("Telegram bot token is not configured")
+                bot = telebot.TeleBot(bot_token)
                 if action == "phone_purchase":
                     order = create_order(
-                        None, user_id, None, None, data.get("order_id"), product_kind="phone",
+                        bot, user_id, None, None, data.get("order_id"), product_kind="phone",
                         phone=data.get("phone"), amount=data.get("amount"))
                 else:
                     order = create_order(
-                        telebot.TeleBot(bot_token), user_id, data.get("recipient_username"),
+                        bot, user_id, data.get("recipient_username"),
                         data.get("months"), data.get("order_id"))
                 result = order_public(order)
             return jsonify(result)

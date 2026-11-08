@@ -22,6 +22,7 @@ export default function Membership() {
   const [pending, setPending] = useState(null)
   const [busy, setBusy] = useState(false)
   const [localError, setLocalError] = useState('')
+  const [contactRequestSent, setContactRequestSent] = useState(false)
   const [recoveryError, setRecoveryError] = useState(false)
   const [confirmationOpen, setConfirmationOpen] = useState(false)
   const submitting = useRef(false)
@@ -37,6 +38,7 @@ export default function Membership() {
     setConfirmationOpen(false)
     setRecoveryError(false)
     setLocalError('')
+    setContactRequestSent(false)
     if (!account) return
     try {
       const savedPending = sessionStorage.getItem(pendingKey(account.user_id))
@@ -81,7 +83,6 @@ export default function Membership() {
   async function purchase(event) {
     event.preventDefault()
     if (submitting.current || !account || recoveryError) return
-    if (!pending && insufficient) { goRecharge(); return }
     if (!pending && !catalog?.enabled) {
       setLocalError('正式会员余额购买暂未开放，请勿付款。')
       return
@@ -97,6 +98,11 @@ export default function Membership() {
       const order = await requestMember('member_purchase', attempt)
       sessionStorage.removeItem(pendingKey(userId))
       setPending(null)
+      if (order.status === 'contact_pending') {
+        setContactRequestSent(true)
+        setConfirmationOpen(false)
+        return
+      }
       navigate(`/orders/${order.order_id}`)
     } catch (failure) {
       if (failure.status === 400) {
@@ -114,14 +120,17 @@ export default function Membership() {
     setBusy(true)
     setLocalError('')
     try {
-      const order = await requestMember('member_order', { order_id: pending.order_id })
+      const order = await requestMember('member_purchase', pending)
       sessionStorage.removeItem(pendingKey(account.user_id))
       setPending(null)
+      if (order.status === 'contact_pending') {
+        setContactRequestSent(true)
+        setConfirmationOpen(false)
+        return
+      }
       navigate(`/orders/${order.order_id}`)
     } catch (failure) {
-      setLocalError(failure.status === 404
-        ? '暂未查到订单，请重试同一订单；系统不会重复扣款。'
-        : failure.message)
+      setLocalError(failure.message)
       if (failure.status === 401) reportFailure(failure)
     } finally { submitting.current = false; setBusy(false) }
   }
@@ -133,6 +142,9 @@ export default function Membership() {
     </header></AccountHeader>
     <p className="consumption-intro">余额付款 · 昊天人工开通</p>
     {(error || localError) && <p className="membership-error" role="alert">{localError || error}</p>}
+    {contactRequestSent && <p className="membership-notice" role="status">
+      余额不足申请已提交，系统正在通知昊天；没有扣除余额。请留意机器人私聊消息，昊天会通过机器人联系你确认付款和办理。
+    </p>}
     {!account ? <AccountAccess loading={loading} /> : <>
       {attention && <p className="membership-notice" role="status">
         你有一笔开通结果待核实的订单，请勿重复购买。<Link to={`/orders/${attention.order_id}`}>查看订单</Link>
@@ -167,14 +179,16 @@ export default function Membership() {
           <p>收件人先向机器人发送 /start，无需密码。</p>
           {catalog && !catalog.enabled && <p role="status">正式会员购买暂未开放，不会扣款开通。</p>}
           {pending ? <div role="status">
-            <p className="membership-reference">待确认订单：{pending.order_id}。重试沿用同一订单，请勿重新下单。</p>
-            <button type="button" disabled={busy} onClick={checkPending}>查询这笔订单</button>
-          </div> : insufficient ? <p>余额不足，还差 ${money(Number(selected.price_usd) - Number(account.balance))} USD。充值需人工核款，到账后请返回确认购买。</p> : null}
-          <p>确认即扣余额，由昊天人工开通。</p>
+            <p className="membership-reference">待确认申请：{pending.order_id}。核实或重试会沿用同一编号，不会重复扣款。</p>
+            <button type="button" disabled={busy} onClick={checkPending}>核实并继续处理</button>
+          </div> : insufficient && catalog?.enabled ? <p>余额不足，还差 ${money(Number(selected.price_usd) - Number(account.balance))} USD。提交人工申请不会扣余额，昊天会通过机器人私聊确认；也可以先充值。</p> : null}
+          <p>{insufficient ? '提交人工申请不会扣除余额，由昊天通过机器人私聊确认付款和开通。' : '确认后扣除余额，由昊天人工开通。'}</p>
           <details className="account-details"><summary>开通与退款规则</summary><p>请核对用户名，已开通通常无法撤回。明确未开通时由昊天确认退回站内余额；结果不明先核实，请勿重复购买。</p></details>
           <div className="membership-actions">
             <button type="button" disabled={busy} onClick={() => refresh().catch(reportFailure)}>刷新余额</button>
-            {!pending && insufficient ? <button type="button" className="membership-primary" disabled={busy || recoveryError} onClick={goRecharge}>余额不足，去充值</button>
+            {!pending && insufficient && catalog?.enabled ? <><button type="submit" className="membership-primary" disabled={busy || recoveryError || !selected}>
+                {busy ? '正在发送…' : '余额不足，发送人工处理申请'}
+              </button><button type="button" disabled={busy || recoveryError} onClick={goRecharge}>先去充值余额</button></>
               : !pending && selected && catalog && !catalog.enabled ? <button type="button" className="membership-primary"
                 disabled={busy || recoveryError} onClick={() => setLocalError('会员购买暂未开放：余额已到账，但当前不能开通会员，不会扣款。')}>
                 购买暂未开放

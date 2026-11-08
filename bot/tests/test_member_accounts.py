@@ -143,11 +143,12 @@ class MemberApiTests(unittest.TestCase):
                 patch("premium_balance.create_order", return_value={
                     "order_id": "b" * 32, "months": 3, "recipient_username": "receiver",
                     "price_usd": "15.99", "status": "paid",
-                }) as create, patch("telebot.TeleBot"):
+                }) as create, patch("telebot.TeleBot") as telegram_bot:
             response = self.post("member_purchase", months=3, recipient_username="@receiver",
                                  order_id="b" * 32, user_id=999, price_usd="0.01")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(create.call_args.args[1:], (123, "@receiver", 3, "b" * 32))
+        self.assertIs(create.call_args.args[0], telegram_bot.return_value)
         self.assertEqual(response.json["price_usd"], "15.99")
 
     def test_order_lookup_is_scoped_to_authenticated_user(self):
@@ -161,14 +162,15 @@ class MemberApiTests(unittest.TestCase):
         with patch("member_accounts.authenticate", return_value=123), \
                 patch("premium_balance.create_order", return_value={
                     "order_id": "b" * 32, "months": 0, "recipient_username": "",
-                    "price_usd": "6.00", "status": "manual_pending", "product_kind": "phone",
+                    "price_usd": "6.00", "status": "contact_pending", "product_kind": "phone",
                     "phone": "+85512345678", "topup_usd": "5.00", "fee_usd": "1.00",
-                }) as create:
+                }) as create, patch("telebot.TeleBot") as telegram_bot:
             response = self.post("phone_purchase", phone="012345678", amount="5",
                                  order_id="b" * 32, user_id=999, fee_usd="0", price_usd="0.01")
         self.assertEqual(response.status_code, 200)
-        create.assert_called_once_with(None, 123, None, None, "b" * 32, product_kind="phone",
+        create.assert_called_once_with(telegram_bot.return_value, 123, None, None, "b" * 32, product_kind="phone",
                                        phone="012345678", amount="5")
+        self.assertEqual(response.json["status"], "contact_pending")
         self.assertEqual(response.json["price_usd"], "6.00")
         self.assertEqual(response.json["fee_usd"], "1.00")
         self.assertEqual(response.headers["Cache-Control"], "private, no-store")
