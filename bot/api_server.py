@@ -920,6 +920,9 @@ def webhook():
                   "admin_staff_detail", "admin_staff_description", "admin_staff_delete",
                   "admin_customers", "admin_customer_detail",
                   "admin_customer_save", "admin_customer_create", "admin_customer_bind",
+                  "admin_finance_dashboard", "admin_finance_transaction", "admin_finance_budget",
+                  "admin_finance_goal", "admin_finance_account", "admin_finance_category",
+                  "admin_finance_commissions", "admin_finance_void",
                   "admin_delivery_staff", "admin_delivery_staff_consent",
                   "admin_delivery_staff_save", "admin_delivery_staff_merge",
                   "admin_delivery_staff_match",
@@ -950,6 +953,26 @@ def webhook():
             if action == "admin_operations_health":
                 from operations_health import snapshot as operations_health
                 response = jsonify(operations_health())
+                response.headers["Cache-Control"] = "private, no-store"
+                return response
+            if action.startswith("admin_finance_"):
+                import finance
+                finance.ensure_tables()
+                handlers = {
+                    "admin_finance_transaction": finance.save_transaction,
+                    "admin_finance_budget": finance.set_budget,
+                    "admin_finance_goal": finance.add_goal,
+                    "admin_finance_account": finance.add_account,
+                    "admin_finance_category": finance.add_category,
+                    "admin_finance_commissions": finance.save_commission_items,
+                    "admin_finance_void": finance.void_transaction,
+                }
+                if action == "admin_finance_dashboard":
+                    response = jsonify(finance.dashboard(data, user["id"]))
+                elif action in handlers:
+                    response = jsonify(handlers[action](data, user["id"]))
+                else:
+                    raise ValueError("财务操作无效")
                 response.headers["Cache-Control"] = "private, no-store"
                 return response
             if action == "admin_hotels":
@@ -983,7 +1006,8 @@ def webhook():
                 from customer_records import directory, detail as customer_record_detail, save as save_customer_record, RecordConflict
                 try:
                     result = directory(data) if action == "admin_customers" else (
-                        customer_record_detail(data) if action == "admin_customer_detail" else save_customer_record(data, user["id"]))
+                        customer_record_detail(data, user["id"]) if action == "admin_customer_detail"
+                        else save_customer_record(data, user["id"]))
                     return jsonify(result)
                 except RecordConflict as exc:
                     return jsonify({"error": str(exc)}), 409
@@ -1874,6 +1898,8 @@ if __name__ == "__main__":
     ensure_subscription_center()
     from customer_records import ensure_tables as ensure_customer_record_tables
     ensure_customer_record_tables()
+    from finance import ensure_tables as ensure_finance_tables
+    ensure_finance_tables()
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))
     logger.info("Starting API server on %s:%s", host, port)

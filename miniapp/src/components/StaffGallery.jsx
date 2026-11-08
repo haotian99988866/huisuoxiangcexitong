@@ -20,7 +20,7 @@ async function requestStaff(action, fields, signal) {
   return result
 }
 
-export default function StaffGallery({ venue, admin = false, onSelect }) {
+export default function StaffGallery({ venue, admin = false, onSelect, search = '', selectedId = null, allowSkip = false }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -122,6 +122,8 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
   const photo = detail?.photos[imageIndex]
   const ordinaryMassage = venue.id === 1
   const changed = admin && detail && description !== detail.description
+  const visibleMembers = data?.members.filter(member =>
+    !search.trim() || String(member.code).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) || []
   const closeDetail = () => {
     if (busy) return
     if (changed && !window.confirm('说明尚未提交，确定放弃修改并关闭吗？')) return
@@ -179,9 +181,13 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
         <SubscriptionFeedback subscription={subscription} />
       </>}
       {!data.roster_available && <p className="staff-meta">当前班次尚未发布出勤，照片仍可查看；未出勤天数依据最近发布记录。</p>}
-      {!data.members.length && <p className="staff-meta">暂无人员。档案随每日出勤与可识别照片自动积累。</p>}
+      {onSelect && allowSkip && <button type="button" className="staff-skip"
+        onClick={() => onSelect(null)}>暂不关联技师，后续可补录</button>}
+      {!visibleMembers.length && <p className="staff-meta">
+        {search.trim() ? '没有匹配的工号。' : '暂无人员。档案随每日出勤与可识别照片自动积累。'}
+      </p>}
       <div className="staff-grid">
-        {data.members.map(member => <article className="staff-card" key={member.id}>
+        {visibleMembers.map(member => <article className="staff-card" key={member.id}>
           <button type="button" className="staff-open" onClick={() => setSelected(member)}>
             <div className="staff-cover">
               {member.cover && !member.blocked && !failedImages.has(member.cover)
@@ -200,7 +206,9 @@ export default function StaffGallery({ venue, admin = false, onSelect }) {
           </button>
           {!admin && <SubscriptionControl id={member.id} onDuty={Boolean(member.duty_label)} subscription={subscription} />}
           {onSelect && <button type="button" className="staff-replace" disabled={busy || member.blocked}
-            onClick={() => onSelect(member)}>选择此技师</button>}
+            aria-pressed={selectedId === member.id} onClick={() => onSelect(member)}>
+            {selectedId === member.id ? '已选择此技师' : '选择此技师'}
+          </button>}
           {admin && !onSelect && <button type="button" className="staff-replace" disabled={busy}
             onClick={() => setReplacement(member)}>此工号已换人</button>}
         </article>)}

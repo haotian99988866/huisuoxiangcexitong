@@ -8,7 +8,8 @@
     {"board":"7号牌","member":439,"half":219},
     {"board":"8号牌","member":469,"half":239},
     {"board":"9号牌","member":499,"half":249},
-    {"board":"名玺牌","member":599,"half":299}
+    {"board":"名玺牌","member":599,"half":299},
+    {"board":"日韩牌","member":539,"half":null}
   ],
   "kaidiTechnicianCategories": [
     {"name":"5牌","codes":["530","508","567","513"],"price":99},
@@ -20,7 +21,7 @@
     {"name":"0牌","codes":["068","039","022"],"price":299},
     {"name":"2牌","codes":[],"price":339},
     {"name":"车模","codes":["6666","7777"],"price":369},
-    {"name":"日韩","codes":[]}
+    {"name":"日韩","codes":[],"price":499}
   ],
   "atlanticTechnicianCategories": [
     {"name":"至尊","price":99},
@@ -36,12 +37,14 @@
   ],
   "dihaoTechnicianCategories": [
     {"name":"0牌","price":99},
-    {"name":"1牌","price":149},
-    {"name":"2牌","price":189},
-    {"name":"6牌艺人","price":229},
-    {"name":"7牌公主","price":269},
+    {"name":"1牌","price":129},
+    {"name":"2牌","price":149},
+    {"name":"3牌","price":169},
+    {"name":"6牌艺人","price":199},
+    {"name":"7牌公主","price":229},
     {"name":"8牌佳丽","price":329},
     {"name":"9牌贵妃","price":369},
+    {"name":"俄罗斯","price":429},
     {"name":"韩国牌","codes":["韩国08"]}
   ]
 }

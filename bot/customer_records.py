@@ -33,6 +33,9 @@ def ensure_tables():
                 id CHAR(32) PRIMARY KEY, user_id BIGINT NOT NULL,
                 service_kind VARCHAR(16) NOT NULL DEFAULT 'venue',
                 venue_id INT NULL, staff_id BIGINT NULL, delivery_person_id BIGINT NULL,
+                commission_owner_id BIGINT NULL, commission_service_key VARCHAR(64) NULL,
+                commission_base_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+                commission_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
                 service VARCHAR(128) NOT NULL, occurred_at DATETIME NOT NULL,
                 amount DECIMAL(12,2) NOT NULL, refunded DECIMAL(12,2) NOT NULL DEFAULT 0,
                 status VARCHAR(16) NOT NULL DEFAULT 'valid', note TEXT NOT NULL,
@@ -44,6 +47,10 @@ def ensure_tables():
             for name, definition in (
                 ("service_kind", "VARCHAR(16) NOT NULL DEFAULT 'venue'"),
                 ("delivery_person_id", "BIGINT NULL"),
+                ("commission_owner_id", "BIGINT NULL"),
+                ("commission_service_key", "VARCHAR(64) NULL"),
+                ("commission_base_amount", "DECIMAL(12,2) NOT NULL DEFAULT 0"),
+                ("commission_amount", "DECIMAL(12,2) NOT NULL DEFAULT 0"),
             ):
                 cur.execute(f"SHOW COLUMNS FROM crm_consumptions LIKE '{name}'")
                 if not cur.fetchone():
@@ -56,6 +63,10 @@ def ensure_tables():
             if not cur.fetchone():
                 cur.execute("ALTER TABLE crm_consumptions ADD INDEX idx_crm_delivery_person "
                             "(user_id,delivery_person_id,status)")
+            cur.execute("SHOW INDEX FROM crm_consumptions WHERE Key_name='idx_crm_commission_month'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE crm_consumptions ADD INDEX idx_crm_commission_month "
+                            "(commission_owner_id,status,occurred_at)")
             cur.execute("""CREATE TABLE IF NOT EXISTS crm_audit (
                 request_id CHAR(32) PRIMARY KEY, request_hash CHAR(64) NOT NULL,
                 actor_id BIGINT NOT NULL, user_id BIGINT NOT NULL, action VARCHAR(32) NOT NULL,
@@ -234,14 +245,20 @@ def _consumption_source(cur, data):
     elif kind == "delivery":
         if data.get("staff_id") not in (None, ""):
             raise ValueError("外送消费不能关联会所技师档案")
-        venue_id, staff_id = None, None
+        venue_id = _positive_id(data.get("venue_id"), "外送来源")
+        if venue_id not in {7, 8, 9, 10}:
+            raise ValueError("请选择有效外送来源")
+        cur.execute("SELECT id FROM venues WHERE id=%s", (venue_id,))
+        if cur.fetchone() is None:
+            raise ValueError("外送来源不存在")
+        staff_id = None
         delivery_person_id = data.get("delivery_person_id")
         if delivery_person_id not in (None, ""):
             _positive_id(delivery_person_id, "外送人员档案")
             cur.execute(
-                "SELECT id FROM delivery_people WHERE id=%s AND venue_id IN (7,8,9,10) "
+                "SELECT id FROM delivery_people WHERE id=%s AND venue_id=%s "
                 "AND deleted_at IS NULL AND merged_into_id IS NULL",
-                (delivery_person_id,),
+                (delivery_person_id, venue_id),
             )
             if cur.fetchone() is None:
                 raise ValueError("请选择有效的外送人员档案")
@@ -250,6 +267,12 @@ def _consumption_source(cur, data):
     else:
         raise ValueError("消费类型无效")
     return kind, venue_id, staff_id, delivery_person_id
+
+
+def _delivery_sources(cur):
+    cur.execute("""SELECT id,name FROM venues
+        WHERE id IN (7,8,9,10) AND status='active' ORDER BY id""")
+    return cur.fetchall()
 
 
 def _page(value):
@@ -293,7 +316,7 @@ def directory(data):
         conn.close()
 
 
-def detail(data):
+def detail(data, owner_id=None):
     user_id = _customer_id(data.get("user_id"))
     page = _page(data.get("page", 1))
     staff_page = _page(data.get("staff_page", 1))
@@ -308,6 +331,7 @@ def detail(data):
             records, total = _records(cur, user_id, page)
             cur.execute("""SELECT id,name FROM venues WHERE id IN (1,2,4,5,6) AND status='active' ORDER BY id""")
             venues = cur.fetchall()
+            delivery_sources = _delivery_sources(cur)
             cur.execute("""SELECT p.id,p.venue_id,COALESCE(NULLIF(p.display_name,''),CONCAT('外送档案 ',p.id))
                 AS display_name,v.name AS source_name FROM delivery_people p
                 JOIN venues v ON v.id=p.venue_id
@@ -329,9 +353,15 @@ def detail(data):
             contacts = _public(cur.fetchall())
             summary = _summary(cur, user_id)
             staff_history, staff_total = _staff_history(cur, user_id, staff_page)
+        commission_items = []
+        if owner_id is not None:
+            from finance import commission_catalog
+            commission_items = commission_catalog(owner_id)
         return {"customer": {**identity, **_public(profile)}, "summary": summary, "records": records,
-                "total": total, "page": page, "venues": venues, "staff": _public(staff),
+                "total": total, "page": page, "venues": venues,
+                "delivery_sources": delivery_sources, "staff": _public(staff),
                 "delivery_people": _public(delivery_people),
+                "commission_items": commission_items,
                 "audit": audit, "contacts": contacts, "staff_history": staff_history,
                 "staff_total": staff_total, "staff_page": staff_page}
     finally:
@@ -361,6 +391,9 @@ def save(data, actor_id):
     if action not in {"admin_customer_save", "admin_customer_create", "admin_customer_bind",
                       "admin_consumption_save", "admin_consumption_void"}:
         raise ValueError("客户操作无效")
+    if action == "admin_consumption_save":
+        from finance import ensure_tables
+        ensure_tables()
     request_id = data.get("request_id")
     if not isinstance(request_id, str) or not HEX_ID.fullmatch(request_id):
         raise ValueError("缺少有效操作编号，请重新打开表单")
@@ -464,15 +497,39 @@ def save(data, actor_id):
                     amount, refunded = _money(data.get("amount"), "实付金额"), _money(data.get("refunded", "0"), "已退款金额")
                     if amount <= 0 or refunded > amount:
                         raise ValueError("实付金额必须大于0，已退款金额不能超过实付金额")
+                    from finance import commission_after_refund, commission_item
+                    commission_owner_id = (before.get("commission_owner_id") or actor_id) if before else actor_id
+                    from finance import _ensure_defaults
+                    _ensure_defaults(cur, commission_owner_id)
+                    commission = commission_item(cur, commission_owner_id, venue_id, service)
+                    same_item = bool(before and before.get("commission_service_key")
+                                     and before["service"] == service
+                                     and before["venue_id"] == venue_id
+                                     and before["commission_owner_id"] == commission_owner_id)
+                    base_commission = (
+                        before["commission_base_amount"] if same_item
+                        else commission["commission_amount"] if commission else Decimal("0")
+                    )
+                    commission_key = (
+                        before["commission_service_key"] if same_item
+                        else commission["service_key"] if commission else None
+                    )
+                    final_commission = commission_after_refund(base_commission, refunded)
                     cur.execute("""INSERT INTO crm_consumptions(id,user_id,service_kind,venue_id,staff_id,
-                        delivery_person_id,service,occurred_at,
+                        delivery_person_id,commission_owner_id,commission_service_key,
+                        commission_base_amount,commission_amount,service,occurred_at,
                         amount,refunded,status,note,revision,created_at,updated_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'valid',%s,1,%s,%s)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'valid',%s,1,%s,%s)
                         ON DUPLICATE KEY UPDATE service_kind=VALUES(service_kind),venue_id=VALUES(venue_id),
                         staff_id=VALUES(staff_id),delivery_person_id=VALUES(delivery_person_id),
+                        commission_owner_id=VALUES(commission_owner_id),
+                        commission_service_key=VALUES(commission_service_key),
+                        commission_base_amount=VALUES(commission_base_amount),
+                        commission_amount=VALUES(commission_amount),
                         service=VALUES(service),occurred_at=VALUES(occurred_at),amount=VALUES(amount),
                         refunded=VALUES(refunded),note=VALUES(note),revision=revision+1,updated_at=VALUES(updated_at)""",
                                 (record_id, user_id, service_kind, venue_id, staff_id, delivery_person_id,
+                                 commission_owner_id, commission_key, base_commission, final_commission,
                                  service, occurred, amount, refunded, note, now, now))
                 cur.execute("SELECT * FROM crm_consumptions WHERE id=%s", (record_id,))
                 after = cur.fetchone()

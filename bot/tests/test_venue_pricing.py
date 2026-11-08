@@ -23,10 +23,17 @@ class VenuePricingTests(unittest.TestCase):
     def test_venue_specific_categories_and_unknown_prices(self):
         self.assertEqual(staff_price(4, "6666", [], [])[0], Decimal("369"))
         self.assertEqual(staff_price(4, "022", [], [])[0], Decimal("299"))
+        self.assertEqual(staff_price(4, "J01", ["category:日韩"], [])[0], Decimal("499"))
         self.assertEqual(staff_price(5, "022", ["category:皇后"], [])[0], Decimal("229"))
         self.assertIsNone(staff_price(5, "022", [], [])[0])
         self.assertEqual(staff_price(6, "822", [], [])[0], Decimal("329"))
+        self.assertEqual(staff_price(6, "129", [], [])[0], Decimal("129"))
+        self.assertEqual(staff_price(6, "300", [], [])[0], Decimal("169"))
+        self.assertEqual(staff_price(6, "999", ["category:俄罗斯"], [])[0], Decimal("429"))
         self.assertIsNone(staff_price(6, "韩国08", [], [])[0])
+
+    def test_unpriced_mingxi_board_is_not_used_for_technician_estimate(self):
+        self.assertIsNone(staff_price(2, "000", ["board:日韩牌"], [])[0])
 
     def test_dihao_photo_category_preserves_existing_rules(self):
         self.assertEqual(dihao_category_for_photo("822", ""), "8牌佳丽")

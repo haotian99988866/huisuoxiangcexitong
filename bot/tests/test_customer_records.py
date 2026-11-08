@@ -165,19 +165,33 @@ class CustomerRecordTests(unittest.TestCase):
         self.assertEqual(records._consumption_source(cursor, {
             "service_kind": "venue", "venue_id": 2, "staff_id": 5,
         }), ("venue", 2, 5, None))
+        cursor.reset_mock()
+        cursor.fetchone.side_effect = [{"id": 7}]
         self.assertEqual(records._consumption_source(cursor, {
-            "service_kind": "delivery", "delivery_person_id": 17,
-        }), ("delivery", None, None, 17))
+            "service_kind": "delivery", "venue_id": 7, "delivery_person_id": "",
+        }), ("delivery", 7, None, None))
+        cursor.reset_mock()
+        cursor.fetchone.side_effect = [{"id": 8}, {"id": 17}]
         self.assertEqual(records._consumption_source(cursor, {
-            "service_kind": "delivery",
-        }), ("delivery", None, None, None))
+            "service_kind": "delivery", "venue_id": 8, "delivery_person_id": 17,
+        }), ("delivery", 8, None, 17))
         with self.assertRaises(ValueError):
-            records._consumption_source(cursor, {"service_kind": "delivery", "staff_id": 5})
+            records._consumption_source(cursor, {
+                "service_kind": "delivery", "venue_id": 7, "staff_id": 5,
+            })
+
+    def test_delivery_source_list_is_independent_of_commission_catalog(self):
+        cursor = MagicMock()
+        sources = [{"id": venue_id, "name": f"外送 {venue_id}"} for venue_id in (7, 8, 9, 10)]
+        cursor.fetchall.return_value = sources
+        self.assertEqual(records._delivery_sources(cursor), sources)
+        (query,) = cursor.execute.call_args.args
+        self.assertIn("status='active'", query)
 
     def test_delivery_consumption_source_requires_an_active_delivery_profile(self):
         cursor = MagicMock()
-        cursor.fetchone.return_value = None
+        cursor.fetchone.side_effect = [{"id": 7}, None]
         with self.assertRaisesRegex(ValueError, "有效的外送人员档案"):
             records._consumption_source(cursor, {
-                "service_kind": "delivery", "delivery_person_id": 17,
+                "service_kind": "delivery", "venue_id": 7, "delivery_person_id": 17,
             })

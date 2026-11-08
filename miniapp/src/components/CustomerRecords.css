@@ -43,6 +43,8 @@
 .music-sheet.crm-editor-sheet { --ink-accent: #28746f; --ink-wash: #edf7f5; width: min(calc(100% - 40px), 600px); max-height: 88dvh; inset: 0; margin: auto; border: 1px solid var(--ink-line); border-radius: 24px; background: var(--ink-reading); box-shadow: 0 24px 80px #20273426; }
 .music-sheet.crm-editor-sheet::backdrop { background: #20273466; backdrop-filter: blur(3px); }
 .crm-editor-sheet .music-sheet-content { padding: 0 28px; }
+.crm-editor-sheet .dialog-panel-body { overflow-x: hidden; touch-action: pan-y pinch-zoom; }
+.crm-editor-sheet .dialog-panel-body > *, .crm-editor-sheet .crm-form { min-width: 0; max-width: 100%; }
 .crm-editor-sheet .music-sheet-handle { display: none; }
 .crm-editor-sheet .music-section-heading { position: sticky; top: 0; z-index: 2; padding: 22px 0 16px; margin-bottom: 0; background: var(--ink-reading); }
 .crm-editor-sheet .music-section-heading h2 { margin: 0; font-size: 20px; font-weight: 650; }
@@ -56,6 +58,15 @@
 .crm-editor-sheet details { margin: 16px 0; font-size: 13px; }
 .crm-editor-sheet summary { min-height: 44px; display: list-item; align-content: center; cursor: pointer; color: var(--ink-accent); }
 .crm-editor-sheet .crm-form input, .crm-editor-sheet .crm-form select, .crm-editor-sheet .crm-form textarea { font-size: 16px; }
+.crm-source-picker { margin: 8px 0 14px; }
+.crm-source-picker legend { padding: 0; font-size: 13px; }
+.crm-source-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.crm-editor-sheet .crm-source-options button { min-width: 0; min-height: 44px; padding: 9px 12px; border: 1px solid var(--ink-line); border-radius: 10px; background: var(--ink-reading); color: var(--ink-muted); font: inherit; }
+.crm-editor-sheet .crm-source-options button[aria-pressed="true"] { border-color: var(--ink-accent); background: var(--ink-wash); color: var(--ink-accent); font-weight: 600; }
+.crm-editor-sheet .crm-person-picker { min-width: 0; margin: 8px 0 14px; padding: 10px 12px 12px; border: 1px solid var(--ink-line); border-radius: 12px; }
+.crm-editor-sheet .crm-person-picker legend { padding: 0 5px; font-size: 13px; font-weight: 600; }
+.crm-editor-sheet .crm-person-picker label { margin: 10px 0; }
+.crm-editor-sheet .crm-person-picker button { max-width: 100%; white-space: normal; }
 .crm-editor-sheet .crm-confirm { border: 0; padding: 0; }
 .crm-profile-heading { display: flex; align-items: center; gap: 14px; }
 .crm-avatar { display: grid; place-items: center; width: 48px; height: 48px; flex-shrink: 0; border: 1px solid #e6dccd; border-radius: 15px; background: var(--ink-wash); color: var(--ink-accent); font-size: 20px; font-weight: 600; }

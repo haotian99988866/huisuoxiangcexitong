@@ -1,0 +1,30 @@
+.admin-finance { padding-bottom: 24px; }
+.finance-month { width: 140px; min-width: 140px; margin: 0 !important; }
+.finance-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.finance-form, .finance-inline-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; align-items: end; }
+.finance-form label, .finance-inline-form label { margin: 4px 0; min-width: 0; }
+.finance-wide { grid-column: 1 / -1; }
+.finance-list p, .finance-goals p { margin: 8px 0; padding: 8px 0; border-bottom: 1px solid var(--ink-line); font-size: 14px; }
+.finance-goals progress { width: 100%; height: 8px; accent-color: var(--ink-accent); }
+.finance-debt { display: grid; gap: 5px; padding: 10px 0; border-bottom: 1px solid var(--ink-line); font-size: 13px; }
+.finance-debt span, .finance-debt small { color: var(--ink-muted); }
+.finance-budget { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--ink-line); }
+.finance-budget label { margin: 0; }
+.finance-budget span { color: var(--ink-muted); font-size: 12px; }
+.finance-budget progress { grid-column: 1 / -1; width: 100%; height: 8px; accent-color: var(--ink-accent); }
+.finance-over { grid-column: 1 / -1; color: #a93636; font-size: 13px; }
+.finance-commission-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+.finance-commission-list label { display: grid; grid-template-columns: minmax(0, 1fr) 100px; gap: 8px; align-items: center; margin: 4px 0; font-size: 12px; }
+.finance-commission-list input { margin-top: 0 !important; }
+.finance-transactions article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--ink-line); }
+.finance-transactions article div { display: grid; gap: 3px; }
+.finance-transactions small { color: var(--ink-muted); font-size: 11px; }
+.finance-transactions article > strong { white-space: nowrap; font-size: 13px; }
+.finance-transactions article button { min-height: 36px; padding: 5px 8px; font-size: 12px; }
+@media (max-width: 600px) {
+  .finance-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-finance > .admin-header { align-items: flex-start; }
+  .finance-form, .finance-inline-form, .finance-commission-list { grid-template-columns: 1fr; }
+  .finance-budget { grid-template-columns: minmax(0, 1fr) auto; }
+  .finance-budget span { grid-column: 1 / -1; }
+}

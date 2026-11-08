@@ -7,7 +7,7 @@ import re
 with (Path(__file__).resolve().parent.parent / "shared" / "venue-prices.json").open(encoding="utf-8") as source:
     PRICES = json.load(source)
 
-DIHAO_CATEGORIES = {"0": "0牌", "1": "1牌", "2": "2牌", "6": "6牌艺人",
+DIHAO_CATEGORIES = {"0": "0牌", "1": "1牌", "2": "2牌", "3": "3牌", "6": "6牌艺人",
                     "7": "7牌公主", "8": "8牌佳丽", "9": "9牌贵妃"}
 
 
@@ -35,14 +35,18 @@ def staff_price(venue_id, code, tags, services):
                 candidates.append((Decimal(str(service["price"])), service["name"]))
     elif venue_id == 2:
         for board in PRICES["mingxiBoardPrices"]:
-            if "board:" + board["board"] in tags:
+            if "board:" + board["board"] in tags and board.get("half") is not None:
                 candidates.append((Decimal(str(board["half"])), f"{board['board']} · 45分钟"))
     else:
         key = {4: "kaidiTechnicianCategories", 5: "atlanticTechnicianCategories",
                6: "dihaoTechnicianCategories"}[venue_id]
         category = None
         if venue_id == 4:
-            category = "车模" if code in {"6666", "7777"} else code[0] + "牌" if code.isdigit() and len(code) <= 3 else None
+            known = [tag[9:] for tag in tags if tag.startswith("category:")]
+            category = known[0] if len(known) == 1 else (
+                "车模" if code in {"6666", "7777"}
+                else code[0] + "牌" if code.isdigit() and len(code) <= 3 else None
+            )
         elif venue_id == 5:
             known = [tag[9:] for tag in tags if tag.startswith("category:")]
             category = known[0] if len(known) == 1 else None
