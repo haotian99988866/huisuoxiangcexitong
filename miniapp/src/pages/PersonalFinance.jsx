@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import FinanceAdmin from '../components/FinanceAdmin'
+import { subscribeFullscreen } from '../utils/twa'
 import './Admin.css'
 
 const ENTRY_KINDS = new Set(['expense', 'income', 'transfer'])
@@ -11,6 +13,8 @@ const VIEWS = {
 }
 
 export default function PersonalFinance() {
+  const [fullscreen, setFullscreen] = useState(false)
+  useEffect(() => subscribeFullscreen(setFullscreen), [])
   const [searchParams] = useSearchParams()
   const requestedView = searchParams.get('view')
   const requestedKind = searchParams.get('kind')
@@ -18,7 +22,7 @@ export default function PersonalFinance() {
     ? requestedKind : null
   const initialView = VIEWS[requestedView] || 'overview'
 
-  return <main className="admin-console personal-finance-page" aria-label="个人财务">
+  return <main className={`admin-console personal-finance-page${fullscreen ? ' personal-finance-fullscreen' : ''}`} aria-label="个人财务">
     <FinanceAdmin
       key={`${requestedView || 'overview'}:${initialEntryKind || ''}`}
       initialView={initialView}

@@ -73,9 +73,15 @@ def process_inventory():
     escaped_root = str(ROOT).replace("'", "''")
     query = (
         "$root='" + escaped_root + "';"
+        "$previewPids=@(Get-NetTCPConnection -State Listen -ErrorAction Stop | "
+        "Where-Object { $_.LocalPort -eq 4173 } | "
+        "Select-Object -ExpandProperty OwningProcess);"
         "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and "
         "((($_.CommandLine.Contains($root)) -and "
         "($_.Name -match '^(python|pythonw|node)\\.exe$')) -or "
+        "(($_.Name -eq 'node.exe') -and "
+        "($previewPids -contains $_.ProcessId) -and "
+        "($_.CommandLine -match '(?i)vite[\\\\/].*preview|vite\\.js\"?\\s+preview')) -or "
         "(($_.Name -eq 'cloudflared.exe') -and "
         "($_.CommandLine -match '(?i)\\btunnel\\b.*\\brun\\b.*\\bhuisuo\\b'))) } | "
         "Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"

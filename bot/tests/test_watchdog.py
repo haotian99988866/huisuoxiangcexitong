@@ -1,4 +1,5 @@
 import sys
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,26 @@ from deploy import watchdog
 
 
 class WatchdogTests(unittest.TestCase):
+    def test_inventory_includes_relative_preview_using_listening_process_id(self):
+        row = {
+            "ProcessId": 15752,
+            "Name": "node.exe",
+            "CommandLine": (
+                r'"C:\Program Files\nodejs\node.exe" '
+                r'node_modules\vite\bin\vite.js preview'
+            ),
+        }
+        response = MagicMock(returncode=0, stdout=json.dumps(row))
+        with patch.object(watchdog.subprocess, "run", return_value=response) as run:
+            rows = watchdog.process_inventory()
+        query = run.call_args.args[0][-1]
+        self.assertIn("Get-NetTCPConnection -State Listen -ErrorAction Stop", query)
+        self.assertIn("$_.LocalPort -eq 4173", query)
+        self.assertIn("$previewPids -contains $_.ProcessId", query)
+        self.assertIn("$_.Name -eq 'node.exe'", query)
+        self.assertEqual(rows, [row])
+        self.assertTrue(watchdog.classify_processes(rows)["preview"])
+
     def test_classifies_existing_service_processes(self):
         rows = [
             {"Name": "python.exe", "CommandLine": f'"{ROOT}\\bot\\api_server.py"'},

@@ -33,9 +33,9 @@
 .crm-editor-actions { display: flex; gap: 12px; margin-top: 20px; }
 .crm-editor-actions button { flex: 1; min-width: 0; }
 .admin-console .crm-primary, .music-sheet .crm-primary { background: var(--ink-accent); border-color: var(--ink-accent); color: white; }
-.crm-customer-list { display: grid; gap: 8px; margin-top: 16px; }
-.admin-console .crm-customer-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; padding: 14px 12px; text-align: left; background: var(--ink-reading); }
-.crm-customer-item > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.crm-customer-list { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 8px; margin-top: 16px; }
+.admin-console .crm-customer-item { display: flex; box-sizing: border-box; min-width: 0; max-width: 100%; justify-content: space-between; align-items: center; gap: 10px; width: 100%; padding: 14px 12px; text-align: left; white-space: normal; background: var(--ink-reading); }
+.crm-customer-item > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
 .crm-customer-item strong { font-size: 14px; }
 .crm-customer-item small { display: block; font-size: 11px; line-height: 1.7; color: var(--ink-muted); }
 .crm-customer-status { flex-shrink: 0; font-size: 12px; color: var(--ink-accent); }

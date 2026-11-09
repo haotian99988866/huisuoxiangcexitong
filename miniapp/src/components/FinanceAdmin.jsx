@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { requestAdmin } from '../utils/admin'
 import { newMemberOrderId } from '../utils/membership'
+import { financeCategoryAnalysis } from '../utils/financeAnalysis'
 import MusicDialog from './MusicDialog'
 import MusicIcon from './MusicIcon'
 import './FinanceAdmin.css'
 
 const cambodiaToday = () => new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
 const today = () => cambodiaToday()
-const money = value => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const ENTRY_TITLES = { expense: '支出', income: '收入', transfer: '转账' }
 const emptyEntry = () => ({
   kind: 'expense', amount: '', principal: '', interest: '0', happened_on: today(),
@@ -16,9 +16,14 @@ const emptyEntry = () => ({
 })
 
 export default function FinanceAdmin({ initialView = 'overview', initialEntryKind = null }) {
+  const [amountsVisible, setAmountsVisible] = useState(false)
   const [data, setData] = useState(null)
   const [month, setMonth] = useState(today().slice(0, 7))
   const [activeView, setActiveView] = useState(initialView)
+  const alwaysShowAmounts = ['records', 'today', 'analysis', 'planning', 'settings'].includes(activeView)
+  const money = value => amountsVisible || alwaysShowAmounts
+    ? Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '••••'
   const [dailySummary, setDailySummary] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [lastUpdated, setLastUpdated] = useState(null)
@@ -381,17 +386,8 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
   const dailyTransactions = activeView === 'today'
     ? transactionRows.filter(row => String(row.display_date || '').slice(0, 10) === cambodiaToday())
     : transactionRows
-  const categoryAnalysis = ['expense', 'income'].map(categoryKind => {
-    const rows = (data?.budgets || [])
-      .filter(row => row.kind === categoryKind && Number(row.spent) > 0)
-      .sort((left, right) => Number(right.spent) - Number(left.spent))
-    return {
-      kind: categoryKind,
-      title: categoryKind === 'expense' ? '支出分类' : '收入分类',
-      rows,
-      total: rows.reduce((sum, row) => sum + Number(row.spent), 0),
-    }
-  })
+  const categoryAnalysis = financeCategoryAnalysis(data)
+  const ledgerSummary = activeView === 'today' ? dailySummary : data?.summary
   const transactionLabel = row => {
     if (row.kind === 'balance_add') return '补充账户金额'
     if (row.kind === 'commission') {
@@ -480,8 +476,14 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
     today: '今日收支',
     records: '本月账单',
   }[activeView] || '个人财务总览'
+  const privacyButton = <button type="button" className="finance-privacy"
+    aria-pressed={!amountsVisible} onClick={() => setAmountsVisible(value => !value)}>
+    <MusicIcon name={amountsVisible ? 'eye' : 'eyeOff'} size={18} />
+    {amountsVisible ? '隐藏金额' : '显示金额'}
+  </button>
 
   return <section className={`admin-finance${initialEntryKind ? ' is-direct-entry' : ''}`}>
+    {activeView !== 'overview' && !alwaysShowAmounts && <div className="finance-privacy-bar">{privacyButton}<span>金额单位 USD</span></div>}
     {['records', 'today'].includes(activeView) ? <header className="finance-record-page-header">
       <button type="button" aria-label="返回财务总览" onClick={() => setActiveView('overview')}>
         <MusicIcon name="back" size={20} />
@@ -496,39 +498,42 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
         <div><h2>{viewTitle}</h2><p>提成自动计入日常账户余额</p></div>
         {refreshButton}
       </div>
+      {activeView === 'overview' && data && <section className="finance-wealth" aria-label="资产总览">
+        <span>个人净资产 · USD</span>
+        <button type="button" className="finance-wealth-amount"
+          aria-label={amountsVisible ? '隐藏金额' : '显示金额'}
+          aria-pressed={amountsVisible} onClick={() => setAmountsVisible(value => !value)}>
+          <strong>${money(data.summary.net_worth)}</strong>
+          <MusicIcon name={amountsVisible ? 'eye' : 'eyeOff'} size={21} />
+        </button>
+        <p>点击金额显示或隐藏 · 账户余额 + 待收 − 待还</p>
+        <div><span>账户总余额</span>
+          <button type="button" className="finance-wealth-balance"
+            aria-label={amountsVisible ? '隐藏账户金额' : '显示账户金额'}
+            onClick={() => setAmountsVisible(value => !value)}>
+            ${money(data.summary.account_balance)}
+          </button>
+        </div>
+      </section>}
       <div className="finance-main-period">{monthPicker}
         <span>{lastUpdated ? `更新于 ${lastUpdated.toLocaleTimeString('zh-CN', { hour12: false })}` : '正在同步…'}</span>
       </div>
     </header>}
-    {!['records', 'today'].includes(activeView) && <nav className="finance-tabs" aria-label="个人财务功能">
+    <nav className="finance-tabs" aria-label="个人财务功能">
       {[
         ['overview', '总览'], ['records', '本月'],
         ['today', '今日'], ['analysis', '分类分析'],
         ['planning', '预算债务'], ['settings', '账户设置'],
       ].map(([id, label]) => <button key={id} type="button" aria-pressed={activeView === id}
-        onClick={() => setActiveView(id)}>{label}</button>)}
-    </nav>}
+        onClick={() => {
+          if (id === 'today') setMonth(cambodiaToday().slice(0, 7))
+          setActiveView(id)
+        }}>{label}</button>)}
+    </nav>
     {error && activeView !== 'planning' && <p role="alert" className="admin-error">{error}</p>}
     {notice && <p role="status" className="admin-notice">{notice}</p>}
     {!data && !error && <p role="status">正在读取财务数据…</p>}
     {data && <>
-      {activeView === 'overview' && <section className="finance-quick-actions" aria-label="快速记账">
-        <button className="finance-add-entry" type="button" onClick={() => startEntry('expense')}>
-          <span className="finance-add-icon" aria-hidden="true">＋</span>
-          <span><strong>记一笔</strong><small>收支 / 借还款</small></span>
-        </button>
-        <button className="finance-transfer-entry" type="button" onClick={() => startEntry('transfer')}>
-          账户转账
-        </button>
-      </section>}
-      {activeView === 'overview' && <section className="admin-stats finance-stats" aria-label="月度财务概览">
-        <div className="finance-stat-net"><span>本月结余</span><strong>${money(data.summary.net)}</strong></div>
-        <div className="finance-stat-income"><span>本月收入</span><strong>${money(data.summary.income)}</strong>
-          <small>提成 ${money(data.summary.commission)} · 其他 ${money(data.summary.other_income)}</small>
-        </div>
-        <div className="finance-stat-expense"><span>本月支出</span><strong>${money(data.summary.expense)}</strong></div>
-      </section>}
-
       {activeView === 'overview' && <>
         <section className="finance-overview-grid">
           <article className="admin-card">
@@ -539,18 +544,29 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
               <div><span>待还借款</span><strong>${money(data.summary.payable)}</strong></div>
               <div><span>待收借款</span><strong>${money(data.summary.receivable)}</strong></div>
             </div>
-            <div className="finance-net-worth"><span>个人净资产</span>
-              <strong>${money(data.summary.net_worth)}</strong>
-              <small>账户余额 + 待收借款 − 待还借款</small></div>
             <button type="button" className="finance-account-topup" onClick={() => startEntry('balance_add')}>
               ＋ 补充账户金额
             </button>
           </article>
           <article className="admin-card">
-            <h3>消费提成自动同步</h3>
-            <p>本月已登记提成 <strong>${money(data.summary.commission)}</strong></p>
-            <p className="admin-hint">会所或外送消费的固定提成会自动计入收入，并同步到“日常账户”；退款、消费修改或作废后会随 CRM 记录更新。</p>
+            <h3>{month.replace('-', '年')}月收支</h3>
+            <section className="finance-ledger-summary" aria-label="月度财务概览">
+              <div><span>收入</span><strong className="is-inflow">${money(data.summary.income)}</strong></div>
+              <div><span>支出</span><strong className="is-outflow">${money(data.summary.expense)}</strong></div>
+              <div><span>结余</span><strong>${money(data.summary.net)}</strong></div>
+            </section>
+            <p className="admin-hint">自动提成 ${money(data.summary.commission)} · 其他收入 ${money(data.summary.other_income)}</p>
+            <button type="button" className="finance-account-topup" onClick={() => setActiveView('analysis')}>
+              查看收支分析
+            </button>
           </article>
+        </section>
+        <section className="finance-quick-actions" aria-label="快速记账">
+          <button className="finance-add-entry" type="button" onClick={() => startEntry('expense')}>
+            <span className="finance-add-icon" aria-hidden="true">＋</span>
+            <span><strong>记一笔</strong><small>收支 / 借还款</small></span>
+          </button>
+          <button className="finance-transfer-entry" type="button" onClick={() => startEntry('transfer')}>账户转账</button>
         </section>
         <button type="button" className="finance-view-ledger" onClick={() => setActiveView('records')}>
           <span><strong>收支明细</strong><small>查看本月所有收入、支出和提成记录</small></span>
@@ -558,35 +574,25 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
         </button>
       </>}
 
-      {activeView === 'records' && <>
-        <section className="finance-ledger-summary" aria-label={`${month} 收支汇总`}>
-          <div><span>收入</span><strong className="is-inflow">${money(data.summary.income)}</strong></div>
-          <div><span>支出</span><strong className="is-outflow">${money(data.summary.expense)}</strong></div>
-          <div><span>结余</span><strong>${money(data.summary.net)}</strong></div>
+      {['records', 'today'].includes(activeView) && (ledgerSummary ? <>
+        <section className="finance-ledger-summary" aria-label={activeView === 'today' ? '今日收支汇总' : `${month} 收支汇总`}>
+          <div><span>收入</span><strong className="is-inflow">${money(ledgerSummary.income)}</strong></div>
+          <div><span>支出</span><strong className="is-outflow">${money(ledgerSummary.expense)}</strong></div>
+          <div><span>结余</span><strong>${money(ledgerSummary.net)}</strong></div>
         </section>
+        <p className="finance-ledger-note">其中自动入账提成 ${money(ledgerSummary.commission)}</p>
         <p className="finance-ledger-note">借入、借出及归还本金不会计入收入或支出，但会保留在下方流水中；余额补充也不计收入；利息计入对应收支。</p>
-        <div className="finance-ledger-heading"><h3>{month.replace('-', '年')}月账单</h3>
+        <div className="finance-ledger-heading"><h3>{activeView === 'today' ? '今日流水' : `${month.replace('-', '年')}月账单`}</h3>
           <button type="button" onClick={() => startEntry('expense')}>＋ 记一笔</button></div>
         {transactionList}
-      </>}
+      </> : !error && <p role="status">正在读取今日收支…</p>)}
 
       {activeView === 'today' && <>
-        {dailySummary && <section className="admin-stats finance-stats" aria-label="今日收支概览">
-          <div className="finance-stat-income"><span>今日收入</span><strong>${money(dailySummary.income)}</strong>
-            <small>其中提成 ${money(dailySummary.commission)}</small></div>
-          <div className="finance-stat-expense"><span>今日支出</span><strong>${money(dailySummary.expense)}</strong></div>
-          <div className="finance-stat-net"><span>今日结余</span><strong>${money(dailySummary.net)}</strong></div>
-        </section>}
         {dailySummary && <section className="admin-card">
           <h3>账户与净资产</h3>
           <p>账户余额 <strong>${money(dailySummary.account_balance)}</strong></p>
           <p>个人净资产 <strong>${money(dailySummary.net_worth)}</strong></p>
         </section>}
-        <section className="admin-card">
-          <div className="finance-ledger-heading"><h3>今日流水</h3>
-            <button type="button" onClick={() => startEntry('expense')}>＋ 记一笔</button></div>
-          {dailySummary ? transactionList : !error && <p role="status">正在读取今日收支…</p>}
-        </section>
         {dailySummary && <section className="admin-card">
           <h3>今日支出分类</h3>
           {dailySummary.categories.length
@@ -618,6 +624,7 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
       {entryOpen && <MusicDialog
         className={`account-sheet finance-entry-sheet${initialEntryKind ? ' finance-entry-direct' : ''}`}
         title={`${ENTRY_TITLES[kind] || '记账'}记账`}
+        headerContent={!alwaysShowAmounts && <div className="finance-privacy-bar">{privacyButton}<span>编辑金额正常显示</span></div>}
         scrollBody onClose={closeEntry}
         footer={<div className="finance-entry-actions">
           <button type="button" disabled={busy} onClick={closeEntry}>关闭</button>
@@ -841,7 +848,7 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
                 </label>
                 <span>已用 ${money(row.spent)}{budgetEditing ? ' / 限额' : ''}</span>
                 {budgetEditing && Number(row.budget) > 0 &&
-                  <progress max={Number(row.budget)} value={Math.min(Number(row.spent), Number(row.budget))} />}
+                  <progress max="100" value={Math.min(Number(row.spent) / Number(row.budget) * 100, 100)} />}
                 {budgetEditing && Number(row.budget) > 0 && Number(row.spent) > Number(row.budget) &&
                   <strong className="finance-over">超过限额 ${money(Number(row.spent) - Number(row.budget))}</strong>}
               </div>
@@ -855,7 +862,7 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
           return <div key={row.id}>
             <p>{row.name}：已存 ${money(row.saved)} / 目标 ${money(row.target)} ·
               {remaining ? `还差 $${money(remaining)}` : '已达成'} · {row.target_date || '未设日期'}</p>
-            <progress max={Number(row.target)} value={Math.min(Number(row.saved), Number(row.target))} />
+            <progress max="100" value={Number(row.target) > 0 ? Math.max(0, Math.min(Number(row.saved) / Number(row.target) * 100, 100)) : 0} />
           </div>
         })}</div>
         <form className="finance-inline-form" onSubmit={saveGoal}>

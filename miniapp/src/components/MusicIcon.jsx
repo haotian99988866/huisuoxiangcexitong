@@ -15,6 +15,8 @@ const paths = {
   list: 'M9 6h12M9 12h12M9 18h12M3 6h.01M3 12h.01M3 18h.01',
   down: 'm5 9 7 7 7-7',
   check: 'm5 12 4 4L19 6',
+  eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  eyeOff: 'm3 3 18 18M10 5.2A12 12 0 0 1 12 5c6 0 10 7 10 7a21 21 0 0 1-3 3.8M6.3 6.3A23 23 0 0 0 2 12s4 7 10 7a13 13 0 0 0 5.7-1.3M10 10a3 3 0 0 0 4 4',
 }
 
 export default function MusicIcon({ name, size = 20 }) {
