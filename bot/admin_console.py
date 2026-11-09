@@ -35,6 +35,21 @@ def authenticate(init_data, token):
     return user
 
 
+def authenticate_admin_request(init_data, action, primary_token, finance_token=None,
+                               finance_owner_id=None):
+    user = authenticate(init_data, primary_token)
+    if user is not None:
+        return user
+    if not isinstance(action, str) or not action.startswith("admin_finance_"):
+        return None
+    if not isinstance(finance_owner_id, str) or not finance_owner_id.isdecimal():
+        return None
+    user = authenticate(init_data, finance_token)
+    if user is None or user["id"] != int(finance_owner_id):
+        return None
+    return user
+
+
 def is_tenant_session(init_data):
     return dict(parse_qsl(init_data)).get("start_param", "").startswith("tenant_")
 

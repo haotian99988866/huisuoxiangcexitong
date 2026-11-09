@@ -127,6 +127,39 @@ class AdminConsoleTests(unittest.TestCase):
         response = self.post(init_data=signed().replace("Test", "Changed"))
         self.assertEqual(response.status_code, 401)
 
+    def test_finance_bot_signature_is_limited_to_its_owner_and_finance_actions(self):
+        finance_token = "finance-test-token"
+
+        def signed_with(token, user_id):
+            values = {
+                "auth_date": str(int(time.time())),
+                "user": json.dumps({"id": user_id, "first_name": "Test"}),
+            }
+            check = "\n".join(f"{key}={values[key]}" for key in sorted(values))
+            secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+            values["hash"] = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+            return urlencode(values)
+
+        owner_init_data = signed_with(finance_token, 123)
+        other_user_init_data = signed_with(finance_token, 456)
+        with patch.dict(os.environ, {
+            "FINANCE_BOT_TOKEN": finance_token, "FINANCE_BOT_OWNER_ID": "123",
+        }), patch("finance.ensure_tables"), \
+                patch("finance.daily_summary", return_value={"day": "2026-03-15"}) as daily_summary:
+            response = self.post(
+                "admin_finance_daily_summary", owner_init_data, day="2026-03-15",
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json["day"], "2026-03-15")
+            daily_summary.assert_called_once_with({"action": "admin_finance_daily_summary",
+                                                   "init_data": owner_init_data,
+                                                   "day": "2026-03-15"}, 123)
+
+            response = self.post("admin_finance_daily_summary", other_user_init_data, day="2026-03-15")
+            self.assertEqual(response.status_code, 401)
+            response = self.post("admin_dashboard", owner_init_data)
+            self.assertEqual(response.status_code, 401)
+
     def test_tenant_header_is_rejected_even_for_owner(self):
         with patch.object(api_server, "load_tenant", return_value=tenant()), \
                 patch.object(admin_console, "dashboard") as dashboard:

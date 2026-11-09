@@ -5,21 +5,21 @@ import MusicDialog from './MusicDialog'
 import MusicIcon from './MusicIcon'
 import './FinanceAdmin.css'
 
-const today = () => {
-  const date = new Date()
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
+const cambodiaToday = () => new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
+const today = () => cambodiaToday()
 const money = value => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const ENTRY_TITLES = { expense: '支出', income: '收入', transfer: '转账' }
 const emptyEntry = () => ({
   kind: 'expense', amount: '', principal: '', interest: '0', happened_on: today(),
   account_id: '', target_account_id: '', category_id: '', debt_id: '',
   counterparty: '', due_on: '', note: '',
 })
 
-export default function FinanceAdmin() {
+export default function FinanceAdmin({ initialView = 'overview', initialEntryKind = null }) {
   const [data, setData] = useState(null)
   const [month, setMonth] = useState(today().slice(0, 7))
-  const [activeView, setActiveView] = useState('overview')
+  const [activeView, setActiveView] = useState(initialView)
+  const [dailySummary, setDailySummary] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -119,6 +119,16 @@ export default function FinanceAdmin() {
   }, [month, refreshKey])
 
   useEffect(() => {
+    if (activeView !== 'today') return undefined
+    let active = true
+    setDailySummary(null)
+    requestAdmin('admin_finance_daily_summary', { day: cambodiaToday() })
+      .then(result => { if (active) setDailySummary(result) })
+      .catch(failure => { if (active) setError(failure.message) })
+    return () => { active = false }
+  }, [activeView, refreshKey])
+
+  useEffect(() => {
     if (!data || sessionStorage.getItem(pendingTransactionKey)) return
     setEntry(current => {
       const currentCategory = data.categories.find(row => String(row.id) === current.category_id)
@@ -180,6 +190,21 @@ export default function FinanceAdmin() {
     setNotice('')
     setEntryOpen(true)
   }
+  const closeEntry = () => {
+    if (busy) return
+    const webApp = window.Telegram?.WebApp
+    if (webApp?.initData && typeof webApp.close === 'function') {
+      webApp.close()
+      return
+    }
+    setEntryOpen(false)
+  }
+  const initialEntryStarted = useRef(false)
+  useEffect(() => {
+    if (!initialEntryKind || initialEntryStarted.current) return
+    initialEntryStarted.current = true
+    startEntry(initialEntryKind)
+  }, [initialEntryKind])
   const saveEntry = async event => {
     event.preventDefault()
     const previous = sessionStorage.getItem(pendingTransactionKey)
@@ -353,6 +378,20 @@ export default function FinanceAdmin() {
   const kind = entry.kind
   const visibleCategories = data?.categories.filter(row => row.kind === kind) || []
   const transactionRows = data?.transactions || []
+  const dailyTransactions = activeView === 'today'
+    ? transactionRows.filter(row => String(row.display_date || '').slice(0, 10) === cambodiaToday())
+    : transactionRows
+  const categoryAnalysis = ['expense', 'income'].map(categoryKind => {
+    const rows = (data?.budgets || [])
+      .filter(row => row.kind === categoryKind && Number(row.spent) > 0)
+      .sort((left, right) => Number(right.spent) - Number(left.spent))
+    return {
+      kind: categoryKind,
+      title: categoryKind === 'expense' ? '支出分类' : '收入分类',
+      rows,
+      total: rows.reduce((sum, row) => sum + Number(row.spent), 0),
+    }
+  })
   const transactionLabel = row => {
     if (row.kind === 'balance_add') return '补充账户金额'
     if (row.kind === 'commission') {
@@ -381,7 +420,7 @@ export default function FinanceAdmin() {
     }
     return description.join(' · ')
   }
-  const transactionGroups = transactionRows.reduce((groups, row, index) => {
+  const transactionGroups = dailyTransactions.reduce((groups, row, index) => {
     const date = String(row.display_date || '').slice(0, 10)
     if (!groups[date]) groups[date] = []
     groups[date].push({ ...row, key: row.id || `${row.kind}-${index}` })
@@ -424,7 +463,9 @@ export default function FinanceAdmin() {
       <h3>{displayDay(date)}</h3>
       <div>{rows.map(renderTransaction)}</div>
     </section>)}
-    {!transactionRows.length && <p className="finance-empty">这个月还没有收支记录</p>}
+    {!dailyTransactions.length && <p className="finance-empty">
+      {activeView === 'today' ? '今天还没有收支记录' : '这个月还没有收支记录'}
+    </p>}
   </div>
   const refreshButton = <button type="button" className={`finance-refresh${refreshing ? ' is-refreshing' : ''}`}
     aria-label={refreshing ? '正在刷新财务数据' : '刷新财务数据'} title={refreshing ? '正在刷新' : '刷新'}
@@ -434,29 +475,35 @@ export default function FinanceAdmin() {
   const monthPicker = <label className="finance-month"><span>账单月份</span>
     <input type="month" value={month} onChange={event => setMonth(event.target.value)} />
   </label>
+  const viewTitle = {
+    analysis: '分类分析',
+    today: '今日收支',
+    records: '本月账单',
+  }[activeView] || '个人财务总览'
 
-  return <section className="admin-finance">
-    {activeView === 'records' ? <header className="finance-record-page-header">
+  return <section className={`admin-finance${initialEntryKind ? ' is-direct-entry' : ''}`}>
+    {['records', 'today'].includes(activeView) ? <header className="finance-record-page-header">
       <button type="button" aria-label="返回财务总览" onClick={() => setActiveView('overview')}>
         <MusicIcon name="back" size={20} />
       </button>
-      <div><h2>收支明细</h2><p>收入、支出和自动同步提成都在这里</p></div>
+      <div><h2>{viewTitle}</h2><p>收入、支出和自动同步提成都在这里</p></div>
       {refreshButton}
-      <div className="finance-record-period">{monthPicker}
+      <div className="finance-record-period">{activeView === 'today' ? cambodiaToday() : monthPicker}
         <span>{lastUpdated ? `更新于 ${lastUpdated.toLocaleTimeString('zh-CN', { hour12: false })}` : '正在同步…'}</span>
       </div>
     </header> : <header className="finance-main-header">
       <div className="finance-main-title">
-        <div><h2>个人财务</h2><p>提成自动计入日常账户余额</p></div>
+        <div><h2>{viewTitle}</h2><p>提成自动计入日常账户余额</p></div>
         {refreshButton}
       </div>
       <div className="finance-main-period">{monthPicker}
         <span>{lastUpdated ? `更新于 ${lastUpdated.toLocaleTimeString('zh-CN', { hour12: false })}` : '正在同步…'}</span>
       </div>
     </header>}
-    {activeView !== 'records' && <nav className="finance-tabs" aria-label="个人财务功能">
+    {!['records', 'today'].includes(activeView) && <nav className="finance-tabs" aria-label="个人财务功能">
       {[
-        ['overview', '总览'], ['records', '收支明细'],
+        ['overview', '总览'], ['records', '本月'],
+        ['today', '今日'], ['analysis', '分类分析'],
         ['planning', '预算债务'], ['settings', '账户设置'],
       ].map(([id, label]) => <button key={id} type="button" aria-pressed={activeView === id}
         onClick={() => setActiveView(id)}>{label}</button>)}
@@ -523,10 +570,57 @@ export default function FinanceAdmin() {
         {transactionList}
       </>}
 
-      {entryOpen && <MusicDialog className="account-sheet finance-entry-sheet" title="记一笔"
-        scrollBody onClose={() => { if (!busy) setEntryOpen(false) }}
+      {activeView === 'today' && <>
+        {dailySummary && <section className="admin-stats finance-stats" aria-label="今日收支概览">
+          <div className="finance-stat-income"><span>今日收入</span><strong>${money(dailySummary.income)}</strong>
+            <small>其中提成 ${money(dailySummary.commission)}</small></div>
+          <div className="finance-stat-expense"><span>今日支出</span><strong>${money(dailySummary.expense)}</strong></div>
+          <div className="finance-stat-net"><span>今日结余</span><strong>${money(dailySummary.net)}</strong></div>
+        </section>}
+        {dailySummary && <section className="admin-card">
+          <h3>账户与净资产</h3>
+          <p>账户余额 <strong>${money(dailySummary.account_balance)}</strong></p>
+          <p>个人净资产 <strong>${money(dailySummary.net_worth)}</strong></p>
+        </section>}
+        <section className="admin-card">
+          <div className="finance-ledger-heading"><h3>今日流水</h3>
+            <button type="button" onClick={() => startEntry('expense')}>＋ 记一笔</button></div>
+          {dailySummary ? transactionList : !error && <p role="status">正在读取今日收支…</p>}
+        </section>
+        {dailySummary && <section className="admin-card">
+          <h3>今日支出分类</h3>
+          {dailySummary.categories.length
+            ? dailySummary.categories.map(row => <p className="finance-analysis-item" key={row.name}>
+              <span>{row.name}</span><strong>${money(row.amount)}</strong>
+            </p>)
+            : <p className="admin-hint">今天暂无支出记录。</p>}
+        </section>}
+      </>}
+
+      {activeView === 'analysis' && <>
+        {categoryAnalysis.map(group => <section className="admin-card" key={group.kind}>
+          <div className="finance-ledger-heading"><h3>{group.title} · {month}</h3>
+            <strong>${money(group.total)}</strong></div>
+          {group.rows.length
+            ? <div className="finance-analysis-list">{group.rows.map(row => {
+              const share = group.total ? Number(row.spent) / group.total * 100 : 0
+              return <div className="finance-analysis-row" key={row.id}>
+                <div className="finance-analysis-item">
+                  <span>{row.name}</span><strong>${money(row.spent)}</strong>
+                </div>
+                <progress max="100" value={share} aria-label={`${row.name} ${share.toFixed(1)}%`} />
+              </div>
+            })}</div>
+            : <p className="admin-hint">本月暂无{group.title.slice(0, 2)}记录。</p>}
+        </section>)}
+      </>}
+
+      {entryOpen && <MusicDialog
+        className={`account-sheet finance-entry-sheet${initialEntryKind ? ' finance-entry-direct' : ''}`}
+        title={`${ENTRY_TITLES[kind] || '记账'}记账`}
+        scrollBody onClose={closeEntry}
         footer={<div className="finance-entry-actions">
-          <button type="button" disabled={busy} onClick={() => setEntryOpen(false)}>取消</button>
+          <button type="button" disabled={busy} onClick={closeEntry}>关闭</button>
           <button className="finance-save" type="button" disabled={busy}
             onClick={() => entryFormRef.current?.requestSubmit()}>
             {busy ? '保存中…' : '保存记录'}
@@ -535,7 +629,6 @@ export default function FinanceAdmin() {
       {error && <p role="alert" className="admin-error">{error}</p>}
       {notice && <p role="status" className="admin-notice">{notice}</p>}
       <section className="admin-card">
-        <h3>记一笔</h3>
         <p className="finance-entry-hint">
           {kind === 'expense' ? '记下今天的花销，默认使用日常账户和“其他”分类。' :
             kind === 'income' ? '这里只记其他收入；客人消费提成已自动同步，不要重复录入。' :
@@ -607,7 +700,7 @@ export default function FinanceAdmin() {
           <label className="finance-wide">备注<input maxLength={1000} value={entry.note}
             onChange={event => changeEntry('note', event.target.value)} /></label>
         </form>
-        <p className="admin-hint">保存后可以继续登记下一笔；账户和分类会保留，方便连续记账。</p>
+        {!initialEntryKind && <p className="admin-hint">保存后可以继续登记下一笔；账户和分类会保留，方便连续记账。</p>}
       </section>
       </MusicDialog>}
 

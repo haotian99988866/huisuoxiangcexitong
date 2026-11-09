@@ -7,6 +7,7 @@ const localDay = () => Math.floor((Date.now() + 7 * 3600000) / 86400000)
 
 export default function AnalyticsTracker() {
   const location = useLocation()
+  const isPersonalFinance = location.pathname === '/personal-finance'
   const session = useRef(null)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState('')
@@ -21,15 +22,16 @@ export default function AnalyticsTracker() {
 
   useEffect(() => {
     if (!allowed) return
+    setError('')
     let active = true
     const update = value => { if (active) setRecording(value.recording) }
     const unsubscribe = subscribeAnalytics(update)
     loadAnalyticsPreferences().then(update).catch(failure => {
       console.error('[Analytics preferences]', failure)
-      if (active) setError('浏览统计连接失败，可在“我的”中重试；页面仍可正常使用。')
+      if (active && !isPersonalFinance) setError('浏览统计连接失败，可在“我的”中重试；页面仍可正常使用。')
     })
     return () => { active = false; unsubscribe() }
-  }, [allowed])
+  }, [allowed, isPersonalFinance])
 
   useEffect(() => {
     if (!allowed || !recording) return
@@ -59,7 +61,7 @@ export default function AnalyticsTracker() {
         } catch (failure) {
           failures++
           console.error('[Analytics heartbeat]', failure)
-          if (failures >= 2) setError('浏览统计暂时连接失败，部分停留时长可能未记录；不影响使用。')
+          if (failures >= 2 && !isPersonalFinance) setError('浏览统计暂时连接失败，部分停留时长可能未记录；不影响使用。')
         }
       }
       if (keepalive) deliver()
@@ -88,7 +90,7 @@ export default function AnalyticsTracker() {
       window.removeEventListener('pagehide', exit)
       send(true)
     }
-  }, [allowed, recording, screen, day, location.pathname, location.search])
+  }, [allowed, isPersonalFinance, recording, screen, day, location.pathname, location.search])
 
   return error ? <div className="analytics-connection" role="status">{error}</div> : null
 }

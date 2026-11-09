@@ -67,6 +67,18 @@ try {
     $appDirectory = Join-Path $root 'miniapp'
     Start-ServiceProcess $py '\bapi_server\.py(?:["\s]|$)' 'api_server.py' $botDirectory 'api'
     Start-ServiceProcess $py '\bmain\.py(?:["\s]|$)' 'main.py' $botDirectory 'bot'
+    $financeTokenInFile = Select-String -Path (Join-Path $botDirectory '.env') `
+        -Pattern '^\s*FINANCE_BOT_TOKEN\s*=\s*\S+' -Quiet -ErrorAction SilentlyContinue
+    $financeOwnerInFile = Select-String -Path (Join-Path $botDirectory '.env') `
+        -Pattern '^\s*FINANCE_BOT_OWNER_ID\s*=\s*\d+' -Quiet -ErrorAction SilentlyContinue
+    $financeTokenConfigured = [bool]$env:FINANCE_BOT_TOKEN -or [bool]$financeTokenInFile
+    $financeOwnerConfigured = [bool]$env:FINANCE_BOT_OWNER_ID -or [bool]$financeOwnerInFile
+    if ($financeTokenConfigured -and $financeOwnerConfigured) {
+        Start-ServiceProcess $py '\bfinance_bot\.py(?:["\s]|$)' `
+            'finance_bot.py' $botDirectory 'finance-bot'
+    } else {
+        Write-Host 'Personal finance bot is not configured; skipping it.'
+    }
     Start-ServiceProcess $node 'vite[\\/].*preview|vite\.js"?\s+preview' `
         'node_modules\vite\bin\vite.js preview' $appDirectory 'preview'
     Wait-Endpoint 'http://127.0.0.1:4173/' $false

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import VenueList from './pages/VenueList'
 import VenueDetail from './pages/VenueDetail'
 import TechnicianList from './pages/TechnicianList'
@@ -9,6 +9,7 @@ import Recharge from './pages/Recharge'
 import Membership from './pages/Membership'
 import PhoneTopup from './pages/PhoneTopup'
 import Personal from './pages/Personal'
+import PersonalFinance from './pages/PersonalFinance'
 import Admin from './pages/Admin'
 import Music from './pages/Music'
 import Announcements from './pages/Announcements'
@@ -60,6 +61,8 @@ export default function App() {
 }
 
 function Content() {
+  const location = useLocation()
+  const isPersonalFinance = location.pathname === '/personal-finance'
   const routes = (
     <>
       <StartParamRedirect />
@@ -72,6 +75,7 @@ function Content() {
         <Route path="/membership" element={<Membership />} />
         <Route path="/phone-topup" element={<PhoneTopup />} />
         <Route path="/personal" element={<Personal />} />
+        <Route path="/personal-finance" element={<PersonalFinance />} />
         <Route path="/services" element={<Services />} />
         <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/hotels" element={<Hotels />} />
@@ -91,6 +95,8 @@ function Content() {
   return <div className="ink-app">
     <AnalyticsTracker />
     <ContactProfileNotice />
-    {isTenantEntry() ? routes : <MusicPlayer><AppNavigation>{routes}</AppNavigation></MusicPlayer>}
+    {isTenantEntry() ? routes : <MusicPlayer>
+      {isPersonalFinance ? routes : <AppNavigation>{routes}</AppNavigation>}
+    </MusicPlayer>}
   </div>
 }

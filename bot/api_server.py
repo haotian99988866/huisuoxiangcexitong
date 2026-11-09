@@ -920,7 +920,8 @@ def webhook():
                   "admin_staff_detail", "admin_staff_description", "admin_staff_delete",
                   "admin_customers", "admin_customer_detail",
                   "admin_customer_save", "admin_customer_create", "admin_customer_bind",
-                  "admin_finance_dashboard", "admin_finance_transaction", "admin_finance_budget",
+                  "admin_finance_dashboard", "admin_finance_daily_summary",
+                  "admin_finance_transaction", "admin_finance_budget",
                   "admin_finance_goal", "admin_finance_account", "admin_finance_category",
                   "admin_finance_account_opening",
                   "admin_finance_category_update", "admin_finance_category_delete",
@@ -933,12 +934,18 @@ def webhook():
                   "admin_delivery_staff_attachment",
                   "admin_delivery_staff_delete", "admin_delivery_staff_attachment_delete",
                   "admin_consumption_save", "admin_consumption_void"}:
-        from admin_console import authenticate, allowed_admin, dashboard, is_tenant_session, save_from_request
+        from admin_console import (
+            authenticate_admin_request, allowed_admin, dashboard, is_tenant_session,
+            save_from_request,
+        )
         from tenants import TenantConflict
         init_data = data.get("init_data")
         local_debug = _local_admin_debug(data)
-        user = {"id": -1, "first_name": "Local development"} if local_debug else authenticate(
-            init_data, os.getenv("TELEGRAM_BOT_TOKEN")
+        user = {"id": -1, "first_name": "Local development"} if local_debug else (
+            authenticate_admin_request(
+                init_data, action, os.getenv("TELEGRAM_BOT_TOKEN"),
+                os.getenv("FINANCE_BOT_TOKEN"), os.getenv("FINANCE_BOT_OWNER_ID"),
+            )
         )
         if user is None:
             response = jsonify({"error": "请从 Telegram 重新打开主入口，以验证管理员身份"})
@@ -976,6 +983,8 @@ def webhook():
                 }
                 if action == "admin_finance_dashboard":
                     response = jsonify(finance.dashboard(data, user["id"]))
+                elif action == "admin_finance_daily_summary":
+                    response = jsonify(finance.daily_summary(data, user["id"]))
                 elif action in handlers:
                     response = jsonify(handlers[action](data, user["id"]))
                 else:

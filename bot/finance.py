@@ -522,6 +522,61 @@ def dashboard(data, owner_id):
         }
     finally:
         conn.close()
+
+
+def daily_summary(data, owner_id):
+    day = _date(data.get("day"), "日期")
+    start = datetime.combine(day, datetime.min.time()) - timedelta(hours=7)
+    end = start + timedelta(days=1)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT
+                COALESCE(SUM(CASE WHEN kind='income' THEN amount
+                    WHEN kind='debt_collect' THEN interest ELSE 0 END),0) AS income,
+                COALESCE(SUM(CASE WHEN kind='expense' THEN amount
+                    WHEN kind='debt_repay' THEN interest ELSE 0 END),0) AS expense
+                FROM finance_transactions
+                WHERE owner_id=%s AND status='valid' AND happened_on=%s""",
+                        (owner_id, day))
+            totals = cur.fetchone()
+            cur.execute("""SELECT COALESCE(SUM(commission_amount),0) AS total
+                FROM crm_consumptions WHERE status='valid' AND commission_owner_id=%s
+                  AND occurred_at >= %s AND occurred_at < %s""", (owner_id, start, end))
+            commission = cur.fetchone()["total"]
+            cur.execute("""SELECT c.name,
+                    COALESCE(SUM(CASE
+                      WHEN t.kind='expense' THEN t.amount
+                      WHEN t.kind='debt_repay' THEN t.interest
+                      ELSE 0 END),0) AS amount
+                FROM finance_transactions t
+                LEFT JOIN finance_categories c ON c.id=t.category_id AND c.owner_id=t.owner_id
+                WHERE t.owner_id=%s AND t.status='valid' AND t.happened_on=%s
+                  AND t.kind IN ('expense','debt_repay')
+                GROUP BY c.id,c.name HAVING amount>0 ORDER BY amount DESC LIMIT 5""",
+                        (owner_id, day))
+            categories = cur.fetchall()
+            accounts = _account_balances(cur, owner_id)
+            debts = _debts(cur, owner_id)
+        income = totals["income"] + commission
+        expense = totals["expense"]
+        account_balance = sum((row["balance"] for row in accounts), Decimal(0))
+        payable = sum((row["outstanding"] for row in debts if row["direction"] == "payable"), Decimal(0))
+        receivable = sum((row["outstanding"] for row in debts if row["direction"] == "receivable"), Decimal(0))
+        return {
+            "day": day.isoformat(),
+            "income": str(income.quantize(CENT)),
+            "commission": str(commission.quantize(CENT)),
+            "expense": str(expense.quantize(CENT)),
+            "net": str((income - expense).quantize(CENT)),
+            "account_balance": str(account_balance.quantize(CENT)),
+            "net_worth": str((account_balance + receivable - payable).quantize(CENT)),
+            "categories": [{**row, "amount": str(row["amount"])} for row in categories],
+        }
+    finally:
+        conn.close()
+
+
 def set_budget(data, owner_id):
     month = _month(data.get("month"))
     if "items" in data:
