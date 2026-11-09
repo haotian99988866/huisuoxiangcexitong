@@ -63,6 +63,7 @@ export default function VenueRecommendations({ venueId }) {
   const [failedImages, setFailedImages] = useState(new Set())
   const [dimensions, setDimensions] = useState({})
   const [railWidth, setRailWidth] = useState(0)
+  const [mediaHeight, setMediaHeight] = useState(180)
   const [visible, setVisible] = useState(false)
   const [foreground, setForeground] = useState(document.visibilityState === 'visible')
   const rail = useRef(null)
@@ -106,20 +107,30 @@ export default function VenueRecommendations({ venueId }) {
   const hasItems = items.length > 0
   useEffect(() => {
     if (!hasItems || !rail.current || !section.current) return
-    setRailWidth(rail.current.clientWidth)
-    const resize = new ResizeObserver(() => setRailWidth(rail.current?.clientWidth || 0))
+    const resizeViewport = () => {
+      const width = rail.current.clientWidth
+      const top = section.current.getBoundingClientRect().top + window.scrollY
+      const navigation = document.querySelector('nav[aria-label="主导航"]')
+      const bottom = navigation ? window.innerHeight - navigation.getBoundingClientRect().top : 65
+      setRailWidth(width)
+      // Reserve the caption (46px), attendance row (44px), and spacing (12px).
+      setMediaHeight(Math.min(180, Math.max(64, window.innerHeight - top - bottom - width * 2 / 3 - 102)))
+    }
+    resizeViewport()
+    window.addEventListener('resize', resizeViewport)
+    const resize = new ResizeObserver(resizeViewport)
     resize.observe(rail.current)
     const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { threshold: 0.25 })
     observer.observe(section.current)
-    return () => { resize.disconnect(); observer.disconnect() }
-  }, [hasItems])
+    return () => { resize.disconnect(); observer.disconnect(); window.removeEventListener('resize', resizeViewport) }
+  }, [hasItems, venueId])
   useEffect(() => {
     if (selectedId && !selected) setSelectedId(null)
   }, [selectedId, selected])
   const itemIds = items.map(item => item.id).join(',')
   const ratio = item => dimensions[`${item.id}-${item.revision}`] || (
     item.media_width && item.media_height ? item.media_width / item.media_height : 1)
-  const cardWidth = item => Math.min(railWidth, Math.max(180, 260 * ratio(item)))
+  const cardWidth = item => Math.min(railWidth, Math.max(96, mediaHeight * ratio(item)))
   const recordDimensions = (item, width, height) => {
     if (!width || !height) return
     const key = `${item.id}-${item.revision}`
@@ -161,7 +172,7 @@ export default function VenueRecommendations({ venueId }) {
   if (error) return <div className="venue-recommendation-error" role="alert">{error}
     <button type="button" onClick={() => setReload(value => value + 1)}>重试推荐</button></div>
   if (!items.length) return null
-  return <section ref={section} className="venue-recommendations" aria-label="精选推荐" aria-roledescription="轮播"
+  return <section ref={section} className="venue-recommendations" style={{ '--recommendation-height': `${mediaHeight}px` }} aria-label="精选推荐" aria-roledescription="轮播"
     onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}
     onFocus={() => setPaused(true)} onBlur={event => {
       if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false)
@@ -200,7 +211,7 @@ export default function VenueRecommendations({ venueId }) {
     {selected && <MusicDialog className="venue-recommendation-sheet" title={selected.title} scrollBody onClose={() => setSelectedId(null)}
       footer={<div className="venue-recommendation-contact-panel">
         <p>联系{contactName()} · Telegram：{new URL(contactUrl()).pathname.replace('/', '@')}</p>
-        <CopyBooking key={selected.id} url={contact} openChat />
+        <CopyBooking key={selected.id} url={contact} />
       </div>}>
       {failedImages.has(selected.id) ? <p role="alert">推荐图暂不可用，请稍后重试。</p>
         : selected.media_type === 'video' ? <video src={image(selected)} muted playsInline controls aria-label={selected.title}

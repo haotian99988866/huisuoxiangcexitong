@@ -1,22 +1,19 @@
-.venue-recommendations { margin: 0 0 12px; min-width: 0; }
+.venue-recommendations { margin: 0 0 4px; min-width: 0; }
 .venue-recommendation-rail { box-sizing: border-box; display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .venue-recommendation-rail::-webkit-scrollbar { display: none; }
 .venue-recommendation-slide { box-sizing: border-box; flex: 0 0 auto; min-width: 0; padding: 0; border: 1px solid var(--ink-line); border-radius: 14px; overflow: hidden; background: var(--ink-reading); color: var(--ink-text); text-align: left; scroll-snap-align: center; font: inherit; }
 .venue-recommendation-photo { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
-.venue-recommendation-slide img, .venue-recommendation-slide video, .venue-recommendation-image-error { display: block; width: 100%; height: auto; max-height: 340px; aspect-ratio: var(--media-ratio, 1); object-fit: contain; background: var(--ink-surface); }
+.venue-recommendation-slide img, .venue-recommendation-slide video, .venue-recommendation-image-error { display: block; width: 100%; height: var(--recommendation-height); aspect-ratio: var(--media-ratio, 1); object-fit: contain; background: var(--ink-surface); }
 .venue-recommendation-video { position: relative; }
 .venue-recommendation-video p { margin: 0; padding: 8px; color: #b42318; font-size: 11px; }
 .venue-recommendation-play { width: 100%; min-height: 44px; padding: 8px; border: 0; color: var(--ink-accent); background: var(--ink-reading); font: inherit; font-size: 11px; cursor: pointer; }
 .venue-recommendation-image-error { display: grid; place-items: center; font-size: 12px; color: var(--ink-muted); }
-.venue-recommendation-caption { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; width: 100%; min-height: 44px; padding: 9px 10px; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.venue-recommendation-caption { box-sizing: border-box; display: flex; align-items: center; gap: 4px; width: 100%; height: 44px; padding: 4px 6px; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
 .venue-recommendation-caption small { flex: 0 0 auto; color: var(--ink-accent); font-size: 10px; }
-.venue-recommendation-caption strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.venue-recommendation-caption strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .venue-recommendation-sheet img, .venue-recommendation-sheet video { width: 100%; max-height: 65dvh; object-fit: contain; }
 .venue-recommendation-description { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.8; }
 .venue-recommendation-contact-panel > p { margin: 0; color: var(--ink-text); font-size: 13px; overflow-wrap: anywhere; text-align: center; }
-.ink-app .venue-recommendation-sheet .venue-recommendation-contact,
-.ink-app .staff-sheet .venue-recommendation-contact { box-sizing: border-box; width: 100%; min-height: 46px; margin: 6px 0 0; padding: 11px 12px; border: 1px solid var(--ink-accent); border-radius: 12px; background: var(--ink-accent); color: #fff; font: inherit; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; cursor: pointer; }
-.venue-recommendation-sheet .venue-recommendation-contact:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: 2px; }
 .venue-recommendation-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: #b42318; margin-bottom: 12px; }
 .venue-recommendation-error button { min-height: 44px; flex: 0 0 auto; border: 0; background: none; color: var(--ink-accent); cursor: pointer; }
 .venue-recommendations button:focus-visible { outline: 2px solid var(--ink-accent); outline-offset: -3px; }

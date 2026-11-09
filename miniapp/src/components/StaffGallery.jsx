@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import MusicDialog from './MusicDialog'
-import { API_BASE_URL, openTelegramLink } from '../utils/twa'
-import { mediaUrl, tenantHeaders, contactName, contactUrl } from '../utils/tenant'
+import { API_BASE_URL } from '../utils/twa'
+import { mediaUrl, tenantHeaders, contactName } from '../utils/tenant'
+import CopyBooking from './CopyBooking'
 import { requestAdmin } from '../utils/admin'
 import { bookingUrl } from '../utils/booking'
 import { useAnalyticsScreen } from '../utils/analytics'
@@ -182,15 +183,14 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     <div className="staff-heading">
       <h2>{photoFirst ? <>{attendanceOnly ? data?.shift || venue.current_shift || '本班' : '相册'}
         {data && <span className="mingxi-personnel-count"> · {attendanceOnly ? visibleMembers.length : data.total}位</span>}</> : '人员档案'}</h2>
+      {photoFirst && <span className="staff-heading-note">{attendanceOnly ? '发布不代表实时在岗' : '点击照片查看相册'}</span>}
       <button type="button" disabled={busy} onClick={() => setAttempt(value => value + 1)}>刷新</button>
     </div>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {notice && <p className="membership-notice" role="status">{notice}</p>}
     {!data && !error && <p role="status">正在读取人员档案…</p>}
     {data && <>
-      <p className="staff-meta">{photoFirst
-        ? attendanceOnly ? '出勤发布不代表实时在岗' : '点击照片查看完整相册'
-        : `全部人员 · ${data.total}位 · ${data.shift}`}</p>
+      {!photoFirst && <p className="staff-meta">{`全部人员 · ${data.total}位 · ${data.shift}`}</p>}
       {!admin && !photoFirst && <>
         <p className="staff-meta">{subscription.authenticated
           ? '可持续订阅未出勤档案，白班、晚班每班新发布出勤时提醒一次，直到取消。'
@@ -259,13 +259,16 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
         <div className="staff-customer-buttons">
           <SubscriptionControl id={selected.id} onDuty={Boolean(selected.duty_label)} subscription={subscription} />
           {(!ordinaryMassage || customerDuty?.published_at || (!customerDuty && selected.duty_label)) &&
-            <button type="button" className="staff-customer-primary" onClick={() => openTelegramLink(ordinaryMassage ? contactUrl() : bookingUrl({
+            <CopyBooking key={`${selected.id}-${photo?.id || ''}`} url={bookingUrl({
               title: `你好，我想咨询${venue.name} · 工号${selected.code}`,
-              details: [`人员档案编号：${selected.id}`],
+              details: [
+                `人员档案编号：${selected.id}`,
+                ordinaryMassage && '仅咨询正规按摩服务',
+                selected.price_usd != null && `价格：$${money(selected.price_usd)} 起 · ${selected.price_detail}`,
+                ...(selected.price_options || []).map(option => `${option.board} · ${option.minutes}分钟 · ${option.label} $${money(option.price_usd)}`),
+              ],
               links: photo ? [new URL(mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`), window.location.origin).href] : [],
-            }))}>
-              联系{contactName()}{ordinaryMassage ? ' · 正规按摩咨询' : '咨询'}
-            </button>}
+            })} />}
         </div>
         <SubscriptionFeedback subscription={subscription} />
         {!photoFirst && <p className="staff-meta">{subscription.authenticated

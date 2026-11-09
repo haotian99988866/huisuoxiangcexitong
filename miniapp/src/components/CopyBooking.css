@@ -1,0 +1,4 @@
+.copy-contact { width: 100%; min-width: 0; margin-top: 10px; font-size: 12px; color: var(--ink-muted, #888); text-align: center; }
+.copy-contact-hint { margin: 0 0 6px; line-height: 1.5; }
+.ink-app .copy-contact .copy-contact-button { box-sizing: border-box; width: 100%; min-height: 46px; margin: 0; padding: 11px 12px; border: 1px solid #28746f; border-radius: 12px; background: #28746f; color: #fff; font: inherit; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; cursor: pointer; }
+.ink-app .copy-contact .copy-contact-button:focus-visible { outline: 2px solid #28746f; outline-offset: 2px; }

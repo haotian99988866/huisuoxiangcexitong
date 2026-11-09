@@ -55,41 +55,11 @@ const lazyFillStyle = {
   position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover'
 }
 
-const contactButtonStyle = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '5px',
-  padding: '8px 18px',
-  minHeight: '44px',
-  borderRadius: '20px',
-  background: 'var(--ink-accent)',
-  color: '#fffef5',
-  fontSize: '13px',
-  fontWeight: 600,
-  textDecoration: 'none',
-  whiteSpace: 'nowrap'
-}
-
-function ContactButton() {
-  const isIOS = window.Telegram?.WebApp?.platform === 'ios'
-  return (
-    <span style={{ display: 'inline-flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', maxWidth: '100%' }}>
-      <a
-        href={contactUrl()}
-        target="_blank"
-        rel="noreferrer"
-        style={contactButtonStyle}
-      >
-        <ModuleIcon name="contact" />{isIOS ? '直接联系' : '联系'}{contactName()}
-      </a>
-      {isIOS && (
-        <a href={contactUrl()} target="_blank" rel="noreferrer" data-telegram-browser="true"
-          style={{ ...contactButtonStyle, background: 'var(--ink-surface)', color: 'var(--ink-accent)', border: '1px solid var(--ink-line)' }}>
-          通过网页联系{contactName()}
-        </a>
-      )}
-    </span>
-  )
+function ContactButton({ title }) {
+  return <CopyBooking url={bookingUrl({
+    title: `你好，我想咨询：${title}`,
+    links: [window.location.href],
+  })} />
 }
 
 function NoticeCard({ icon, title, updatedAt, children }) {
@@ -109,7 +79,7 @@ function NoticeCard({ icon, title, updatedAt, children }) {
       <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.7, color: 'var(--ink-muted)' }}>
         {children}
       </p>
-      <ContactButton />
+      <ContactButton title={title} />
       {updatedAt && (
         <div style={{ marginTop: '14px', fontSize: '11px', color: 'var(--ink-muted)' }}>
           最近更新：{updatedAt}
@@ -230,7 +200,11 @@ const ktvPriceLines = text => (text || '')
 
 const ktvBookingUrl = video => {
   const room = video.room_number ? `${video.room_number}号房` : '包房'
-  return `${contactUrl()}?text=${encodeURIComponent(`你好，我想预定名玺水汇KTV ${room}`)}`
+  return bookingUrl({
+    title: `你好，我想预定名玺水汇KTV ${room}`,
+    links: [new URL(mediaUrl(`${API_BASE_URL}/ktv-videos/${video.id}`), window.location.origin).href],
+    details: [video.caption],
+  })
 }
 
 const attendanceHeadingRowStyle = {
@@ -1209,25 +1183,6 @@ export default function VenueList() {
                       </div>
                     )}
                     <CopyBooking url={deliveryBookingUrl} />
-                    <a
-                      href={deliveryBookingUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        display: 'block',
-                        textAlign: 'center',
-                        background: 'var(--ink-accent)',
-                        color: '#fff',
-                        fontWeight: 700,
-                        fontSize: '16px',
-                        padding: '12px',
-                        marginTop: '10px',
-                        borderRadius: '12px',
-                        textDecoration: 'none',
-                      }}
-                    >
-                      联系预约
-                    </a>
                   </div>
                   {!hasTelegramBackButton && (
                   <button
@@ -1315,7 +1270,7 @@ export default function VenueList() {
                         )}
                       </div>
                       <div style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        display: 'grid',
                         gap: '6px', padding: '10px'
                       }}>
                         <div style={{
@@ -1324,14 +1279,7 @@ export default function VenueList() {
                         }}>
                           {info.hall}{video.room_number ? ` ${video.room_number}` : ''}
                         </div>
-                        <a
-                          href={ktvBookingUrl(video)}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ ...ktvBookingButtonStyle, marginTop: 0, padding: '5px 12px', fontSize: '12px', flexShrink: 0 }}
-                        >
-                          预定
-                        </a>
+                        <CopyBooking url={ktvBookingUrl(video)} compact />
                       </div>
                     </div>
                     )
@@ -1382,9 +1330,7 @@ export default function VenueList() {
                     onClick={event => event.stopPropagation()}
                     style={{ display: 'flex', gap: '12px', justifyContent: 'center', padding: '14px' }}
                   >
-                    <a href={ktvBookingUrl(ktvVideo)} target="_blank" rel="noreferrer" style={ktvBookingButtonStyle}>
-                      包房预定
-                    </a>
+                    <CopyBooking key={ktvVideo.id} url={ktvBookingUrl(ktvVideo)} compact />
                     <button
                       type="button"
                       onClick={() => closeKtvVideo()}
@@ -1417,7 +1363,7 @@ export default function VenueList() {
               )}
               <div style={{ marginTop: '20px', padding: '20px', textAlign: 'center', background: 'var(--home-surface)', borderRadius: '14px' }}>
                 <p style={{ color: 'var(--ink-accent)', marginBottom: '12px' }}>想了解更多包房、消费价格或预订详情？</p>
-                <ContactButton />
+                <ContactButton title="名玺水汇KTV包房、消费价格及预订详情" />
               </div>
             </div>
           ) : ['4', '5', '6'].includes(String(selectedVenue.id)) && onDutyCount > 0 ? (
@@ -1853,28 +1799,6 @@ export default function VenueList() {
             )}
 
             <CopyBooking url={contactManagerUrl} />
-            <a
-              href={contactManagerUrl}
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                minHeight: '46px',
-                marginTop: '10px',
-                borderRadius: '12px',
-                background: 'var(--ink-accent)',
-                color: '#fff',
-                fontSize: '15px',
-                fontWeight: 700,
-                textDecoration: 'none'
-              }}
-            >
-              <ModuleIcon name="contact" />
-              联系业务经理{contactName()}
-            </a>
           </section>
         </div>
       )}

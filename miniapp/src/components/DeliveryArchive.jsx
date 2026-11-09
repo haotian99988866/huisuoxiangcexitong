@@ -71,12 +71,13 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
     <div className="staff-heading">
       <h2>{photoFirst ? <>{attendanceOnly ? data?.shift || venue.current_shift || '晚班' : '相册'}
         {data && <span className="mingxi-personnel-count"> · {people.length}位</span>}</> : '人员档案'}</h2>
+      {photoFirst && <span className="staff-heading-note">{attendanceOnly ? '仅晚班 · 发布非实时在岗' : '点击照片查看相册'}</span>}
       <button type="button" onClick={() => setAttempt(value => value + 1)}>刷新</button>
     </div>
     {error && <p role="alert" className="membership-error">{error}</p>}
     {!data && !error && <p role="status">正在读取人员档案…</p>}
     {data && <>
-      {photoFirst ? <p className="staff-meta">{attendanceOnly ? '仅晚班展示出勤，出勤发布不代表实时在岗' : '点击照片查看完整相册'}</p> : <>
+      {!photoFirst && <>
       <p className="staff-meta">全部人员 · {data.people.length} 份档案 · {data.shift_date} {data.shift}。
         未见照片不代表实际缺勤。</p>
       <p className="staff-meta">{subscription.authenticated
@@ -125,9 +126,7 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
           {!photoFirst && <p className="staff-meta">{subscription.authenticated
             ? '持续订阅，每个晚班提醒一次，可随时取消。请先在机器人聊天中点击开始。'
             : '请从 Telegram 主入口打开，才能订阅。'}仅提醒订阅后的频道照片新发布，出勤发布不代表实时在岗。</p>}
-        </div><CopyBooking key={selected.id} url={contact} openChat={photoFirst} />
-        {!photoFirst && <a className="account-primary-link" href={contact}
-          target="_blank" rel="noreferrer">联系预约</a>}</>}>
+        </div><CopyBooking key={selected.id} url={contact} /></>}>
         <p className="staff-meta">{dutyLabel(selected)}</p>
         <div className="staff-detail-media">
         {photoFirst && selected.media.length > 1 && <div className="staff-pages">
