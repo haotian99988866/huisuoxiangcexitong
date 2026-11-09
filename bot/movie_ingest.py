@@ -660,7 +660,31 @@ async def _movie_worker(user, bot, directory, sources):
             store.close()
 
 
+async def monitor_connection(client, role):
+    await asyncio.shield(client.disconnected)
+    raise ConnectionError(f"Media {role} disconnected; recreate sessions before resuming")
+
+
 async def run_source(directory, config=None):
+    from channel_sync import is_connection_failure
+    while True:
+        delay = 30
+        try:
+            await _run_source_once(directory, config)
+        except errors.FloodWaitError as error:
+            delay = max(delay, error.seconds + 1)
+            logger.warning("Media startup rate limited; retrying in %s seconds", delay)
+        except Exception as error:
+            if not is_connection_failure(error):
+                raise
+            logger.exception("Media connection lost; sessions closed and progress retained;"
+                             " reconnecting in %s seconds", delay)
+        else:
+            raise RuntimeError("Media workers stopped unexpectedly without a connection failure")
+        await asyncio.sleep(delay)
+
+
+async def _run_source_once(directory, config=None):
     from channel_sync import credentials
     from telethon import TelegramClient
     from telethon.sessions import MemorySession
@@ -698,11 +722,13 @@ async def run_source(directory, config=None):
         if (await user.get_me()).bot or str((await bot.get_me()).id) != os.environ.get(
                 "TELEGRAM_BOT_TOKEN", "").partition(":")[0]:
             raise ValueError("Reader or publisher identity does not match configuration")
-        if config is not None:
-            await movie_worker(user, bot, directory, sources=(config,))
-        else:
-            from music_ingest import music_worker
-            async with asyncio.TaskGroup() as tasks:
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(monitor_connection(user, "reader"))
+            tasks.create_task(monitor_connection(bot, "publisher"))
+            if config is not None:
+                tasks.create_task(movie_worker(user, bot, directory, sources=(config,)))
+            else:
+                from music_ingest import music_worker
                 tasks.create_task(music_worker(user, bot, directory))
                 tasks.create_task(movie_worker(user, bot, directory,
                                                sources=tuple(item for item in SOURCES if not item.short_drama)))

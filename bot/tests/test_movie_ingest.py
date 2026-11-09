@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from telethon import errors, types
+import movie_ingest
 
 from movie_ingest import (MovieStore, SOURCES, SOURCE_ID, TARGET_ID, movie_worker, store_path,
                           clean_movie_caption, process_job, resolve_album_caption,
@@ -484,3 +485,57 @@ class MovieIngestTests(unittest.IsolatedAsyncioTestCase):
         row = check.connection.execute("SELECT * FROM jobs").fetchone()
         self.assertEqual(row["status"], "uncertain")
         self.assertIsNone(check.pending())
+
+
+class MediaConnectionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_disconnect_cancels_worker_and_releases_resources(self):
+        disconnected = asyncio.get_running_loop().create_future()
+        client = SimpleNamespace(disconnected=disconnected)
+        started = asyncio.Event()
+        stopped = asyncio.Event()
+
+        async def worker():
+            try:
+                started.set()
+                await asyncio.Future()
+            finally:
+                stopped.set()
+
+        with self.assertRaises(ExceptionGroup) as raised:
+            async with asyncio.TaskGroup() as tasks:
+                tasks.create_task(worker())
+                tasks.create_task(movie_ingest.monitor_connection(client, "reader"))
+                await started.wait()
+                disconnected.set_result(None)
+        self.assertTrue(stopped.is_set())
+        self.assertIsInstance(raised.exception.exceptions[0], ConnectionError)
+
+    async def test_transport_failure_recreates_sessions_after_delay(self):
+        failure = ExceptionGroup("media disconnected", [ConnectionError("offline")])
+        with patch("movie_ingest._run_source_once", side_effect=[failure, asyncio.CancelledError]) as run, \
+                patch("movie_ingest.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            with self.assertRaises(asyncio.CancelledError):
+                await movie_ingest.run_source(Path("state"), movie_ingest.DRAMA_SOURCE)
+        self.assertEqual(run.await_count, 2)
+        for call in run.await_args_list:
+            self.assertEqual(call.args, (Path("state"), movie_ingest.DRAMA_SOURCE))
+        sleep.assert_awaited_once_with(30)
+
+    async def test_permission_and_identity_errors_are_not_retried(self):
+        for failure in (ValueError("identity changed"), RuntimeError("permission denied"),
+                        ExceptionGroup("mixed", [ConnectionError("offline"), ValueError("identity")])):
+            with self.subTest(failure=type(failure).__name__):
+                with patch("movie_ingest._run_source_once", side_effect=failure) as run, \
+                        patch("movie_ingest.asyncio.sleep", new_callable=AsyncMock) as sleep:
+                    with self.assertRaises(type(failure)):
+                        await movie_ingest.run_source(Path("state"))
+                run.assert_awaited_once()
+                sleep.assert_not_awaited()
+
+    async def test_startup_flood_wait_respects_server_delay(self):
+        failure = errors.FloodWaitError(request=None, capture=120)
+        with patch("movie_ingest._run_source_once", side_effect=[failure, asyncio.CancelledError]), \
+                patch("movie_ingest.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            with self.assertRaises(asyncio.CancelledError):
+                await movie_ingest.run_source(Path("state"))
+        sleep.assert_awaited_once_with(121)
