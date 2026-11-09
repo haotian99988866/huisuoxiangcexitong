@@ -501,7 +501,7 @@ def save(data, actor_id):
                     commission_owner_id = (before.get("commission_owner_id") or actor_id) if before else actor_id
                     from finance import _ensure_defaults
                     _ensure_defaults(cur, commission_owner_id)
-                    commission = commission_item(cur, commission_owner_id, venue_id, service)
+                    commission = commission_item(cur, commission_owner_id, venue_id, service, service_kind)
                     same_item = bool(before and before.get("commission_service_key")
                                      and before["service"] == service
                                      and before["venue_id"] == venue_id

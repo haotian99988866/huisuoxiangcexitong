@@ -102,14 +102,27 @@ def ensure_tables():
         with conn.cursor() as cur:
             cur.execute("""CREATE TABLE IF NOT EXISTS finance_accounts (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY, owner_id BIGINT NOT NULL,name VARCHAR(80) NOT NULL,
-                account_type VARCHAR(16) NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE,
+                account_type VARCHAR(16) NOT NULL, opening_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at DATETIME NOT NULL, UNIQUE KEY uq_finance_account_name(owner_id,name)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("SHOW COLUMNS FROM finance_accounts LIKE 'opening_balance'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE finance_accounts ADD COLUMN "
+                            "opening_balance DECIMAL(12,2) NOT NULL DEFAULT 0")
             cur.execute("""CREATE TABLE IF NOT EXISTS finance_categories (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY, owner_id BIGINT NOT NULL,kind VARCHAR(16) NOT NULL,
-                name VARCHAR(48) NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE,
+                name VARCHAR(48) NOT NULL, is_default BOOLEAN NOT NULL DEFAULT FALSE,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at DATETIME NOT NULL, UNIQUE KEY uq_finance_category(owner_id,kind,name)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("SHOW COLUMNS FROM finance_categories LIKE 'is_default'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE finance_categories ADD COLUMN "
+                            "is_default BOOLEAN NOT NULL DEFAULT FALSE")
+            cur.execute("""UPDATE finance_categories SET is_default=TRUE
+                WHERE (kind='income' AND name IN ('其他收入','利息收入'))
+                   OR (kind='expense' AND name IN ('餐饮','交通','住房','账单','购物','娱乐','医疗','利息','其他'))""")
             cur.execute("""CREATE TABLE IF NOT EXISTS finance_transactions (
                 id CHAR(32) PRIMARY KEY, owner_id BIGINT NOT NULL,request_hash CHAR(64) NOT NULL,
                 kind VARCHAR(20) NOT NULL,
@@ -207,13 +220,20 @@ def _ensure_defaults(cur, owner_id):
     for name, kind in (("日常账户", "cash"), ("储蓄账户", "savings")):
         cur.execute("""INSERT IGNORE INTO finance_accounts(owner_id,name,account_type,created_at)
             VALUES(%s,%s,%s,%s)""", (owner_id, name, kind, now))
-    for kind, names in (
+    defaults = (
         ("income", ("其他收入", "利息收入")),
         ("expense", ("餐饮", "交通", "住房", "账单", "购物", "娱乐", "医疗", "利息", "其他")),
-    ):
+    )
+    for kind, names in defaults:
+        cur.execute("SELECT COUNT(*) AS n FROM finance_categories "
+                    "WHERE owner_id=%s AND kind=%s AND is_default=TRUE", (owner_id, kind))
+        has_defaults = cur.fetchone()["n"] > 0
+        if has_defaults:
+            continue
         for name in names:
-            cur.execute("""INSERT IGNORE INTO finance_categories(owner_id,kind,name,created_at)
-                VALUES(%s,%s,%s,%s)""", (owner_id, kind, name, now))
+            cur.execute("""INSERT IGNORE INTO finance_categories
+                (owner_id,kind,name,is_default,created_at) VALUES(%s,%s,%s,TRUE,%s)""",
+                        (owner_id, kind, name, now))
     for venue_id, key, name, amount, price in COMMISSION_CATALOG:
         cur.execute("""INSERT IGNORE INTO finance_commission_items
             (owner_id,venue_id,service_key,service_name,listed_price,commission_amount,updated_at)
@@ -244,12 +264,20 @@ def _category(cur, category_id, kind, owner_id):
     return category
 
 
-def commission_item(cur, owner_id, venue_id, service_name):
+def commission_item(cur, owner_id, venue_id, service_name, service_kind="venue"):
     cur.execute("""SELECT service_key,service_name,commission_amount FROM finance_commission_items
         WHERE owner_id=%s AND venue_id=%s AND service_name=%s""",
                 (owner_id, venue_id, service_name))
     row = cur.fetchone()
-    return row
+    if row or service_kind != "delivery":
+        return row
+    fallback_key = "delivery-order" if venue_id in {7, 8, 9} else "small-6" if venue_id == 10 else None
+    if not fallback_key:
+        return None
+    cur.execute("""SELECT service_key,service_name,commission_amount FROM finance_commission_items
+        WHERE owner_id=%s AND venue_id=%s AND service_key=%s""",
+                (owner_id, venue_id, fallback_key))
+    return cur.fetchone()
 
 
 def commission_after_refund(base_amount, refunded_amount):
@@ -313,7 +341,8 @@ def save_commission_items(data, owner_id):
 
 
 def _account_balances(cur, owner_id):
-    cur.execute("""SELECT a.id,a.name,a.account_type,
+    cur.execute("""SELECT a.id,a.name,a.account_type,a.opening_balance,
+        a.opening_balance +
         COALESCE(SUM(CASE
           WHEN t.kind='income' AND t.account_id=a.id THEN t.amount
           WHEN t.kind='expense' AND t.account_id=a.id THEN -t.amount
@@ -321,14 +350,21 @@ def _account_balances(cur, owner_id):
           WHEN t.kind='transfer' AND t.target_account_id=a.id THEN t.amount
           WHEN t.kind='borrow' AND t.account_id=a.id THEN t.principal
           WHEN t.kind='lend' AND t.account_id=a.id THEN -t.principal
+          WHEN t.kind='balance_add' AND t.account_id=a.id THEN t.amount
           WHEN t.kind='debt_repay' AND t.account_id=a.id THEN -(t.principal+t.interest)
           WHEN t.kind='debt_collect' AND t.account_id=a.id THEN t.principal+t.interest
-          ELSE 0 END),0) AS balance
+          ELSE 0 END),0)
+          + CASE WHEN a.name=%s THEN COALESCE((
+            SELECT SUM(c.commission_amount) FROM crm_consumptions c
+            WHERE c.commission_owner_id=a.owner_id AND c.status='valid'
+              AND c.commission_amount>0
+          ),0) ELSE 0 END AS balance
         FROM finance_accounts a LEFT JOIN finance_transactions t
           ON t.status='valid' AND t.owner_id=a.owner_id
           AND (t.account_id=a.id OR t.target_account_id=a.id)
-        WHERE a.active=1 AND a.owner_id=%s GROUP BY a.id,a.name,a.account_type ORDER BY a.id""",
-                (owner_id,))
+        WHERE a.active=1 AND a.owner_id=%s
+        GROUP BY a.id,a.name,a.account_type,a.opening_balance ORDER BY a.id""",
+                ("日常账户", owner_id))
     return cur.fetchall()
 
 
@@ -357,6 +393,9 @@ def dashboard(data, owner_id):
                   ON b.category_id=c.id AND b.month=%s AND b.owner_id=c.owner_id
                 WHERE c.active=1 AND c.owner_id=%s ORDER BY c.kind,c.id""", (month, owner_id))
             categories = cur.fetchall()
+            cur.execute("""SELECT id,kind,name,is_default,active FROM finance_categories
+                WHERE owner_id=%s ORDER BY kind,id""", (owner_id,))
+            all_categories = cur.fetchall()
             accounts = _account_balances(cur, owner_id)
             debts = _debts(cur, owner_id)
             commission_items = _commission_items(cur, owner_id)
@@ -366,13 +405,20 @@ def dashboard(data, owner_id):
                 LEFT JOIN finance_categories c ON c.id=t.category_id AND c.owner_id=t.owner_id
                 LEFT JOIN finance_accounts a ON a.id=t.account_id AND a.owner_id=t.owner_id
                 LEFT JOIN finance_accounts ta ON ta.id=t.target_account_id AND ta.owner_id=t.owner_id
-                WHERE t.status='valid' AND t.owner_id=%s AND DATE_FORMAT(t.happened_on,'%%Y-%%m')=%s
+                WHERE (t.status='valid' OR (t.kind='balance_add' AND t.status='void'))
+                  AND t.owner_id=%s AND DATE_FORMAT(t.happened_on,'%%Y-%%m')=%s
                 ORDER BY t.happened_on DESC,t.created_at DESC LIMIT 100""", (owner_id, month))
             transactions = cur.fetchall()
-            cur.execute("""SELECT c.id,c.service,c.venue_id,c.commission_amount,
+            cur.execute("""SELECT c.id,c.service,c.service_kind,c.venue_id,c.commission_amount,
+                    c.commission_service_key,c.delivery_person_id,m.code AS staff_code,
+                    COALESCE(NULLIF(dp.display_name,''),CONCAT('外送档案 ',c.delivery_person_id))
+                        AS delivery_person_name,
                     DATE_ADD(c.occurred_at,INTERVAL 7 HOUR) AS occurred_at,v.name AS source_name
                 FROM crm_consumptions c JOIN venues v ON v.id=c.venue_id
-                WHERE c.status='valid' AND c.commission_owner_id=%s AND c.commission_amount>0
+                LEFT JOIN staff_members m ON m.id=c.staff_id
+                LEFT JOIN delivery_people dp ON dp.id=c.delivery_person_id
+                WHERE c.status='valid' AND c.commission_owner_id=%s
+                  AND (c.commission_amount>0 OR c.staff_id IS NOT NULL OR c.delivery_person_id IS NOT NULL)
                   AND c.occurred_at >= %s AND c.occurred_at < %s
                 ORDER BY c.occurred_at DESC,c.id DESC LIMIT 100""",
                         (owner_id, commission_start, commission_end))
@@ -390,20 +436,26 @@ def dashboard(data, owner_id):
                   AND occurred_at >= %s AND occurred_at < %s""",
                         (owner_id, commission_start, commission_end))
             commission_total = cur.fetchone()["total"]
-            cur.execute("""SELECT c.id,c.name,COALESCE(b.amount,0) AS budget,
-                    COALESCE(SUM(CASE WHEN t.kind='debt_repay' THEN t.interest ELSE t.amount END),0) AS spent
+            cur.execute("""SELECT c.id,c.kind,c.name,COALESCE(b.amount,0) AS budget,
+                    COALESCE(SUM(CASE
+                      WHEN c.kind='expense' AND t.kind='expense' THEN t.amount
+                      WHEN c.kind='expense' AND t.kind='debt_repay' THEN t.interest
+                      WHEN c.kind='income' AND t.kind='income' THEN t.amount
+                      WHEN c.kind='income' AND t.kind='debt_collect' THEN t.interest
+                      ELSE 0 END),0) AS spent
                 FROM finance_categories c LEFT JOIN finance_budgets b
                   ON b.category_id=c.id AND b.month=%s AND b.owner_id=c.owner_id
                 LEFT JOIN finance_transactions t ON t.category_id=c.id AND t.status='valid'
-                  AND t.owner_id=c.owner_id AND t.kind IN ('expense','debt_repay')
+                  AND t.owner_id=c.owner_id AND t.kind IN ('income','expense','debt_repay','debt_collect')
                   AND DATE_FORMAT(t.happened_on,'%%Y-%%m')=%s
-                WHERE c.owner_id=%s AND c.kind='expense' AND c.active=1
-                GROUP BY c.id,c.name,b.amount ORDER BY c.id""", (month, month, owner_id))
+                WHERE c.owner_id=%s AND c.kind IN ('income','expense') AND c.active=1
+                GROUP BY c.id,c.kind,c.name,b.amount ORDER BY c.kind,c.id""", (month, month, owner_id))
             budgets = cur.fetchall()
             cur.execute("""SELECT g.id,g.name,g.target,g.target_date,a.id AS account_id,
-                    a.name AS account_name,COALESCE(SUM(CASE
+                    a.name AS account_name,a.opening_balance+COALESCE(SUM(CASE
                       WHEN t.kind='income' AND t.account_id=a.id THEN t.amount
                       WHEN t.kind='expense' AND t.account_id=a.id THEN -t.amount
+                      WHEN t.kind='balance_add' AND t.account_id=a.id THEN t.amount
                       WHEN t.kind='transfer' AND t.account_id=a.id THEN -t.amount
                       WHEN t.kind='transfer' AND t.target_account_id=a.id THEN t.amount
                       WHEN t.kind='borrow' AND t.account_id=a.id THEN t.principal
@@ -415,13 +467,16 @@ def dashboard(data, owner_id):
                 LEFT JOIN finance_transactions t ON t.status='valid'
                   AND t.owner_id=g.owner_id AND (t.account_id=a.id OR t.target_account_id=a.id)
                 WHERE g.owner_id=%s
-                GROUP BY g.id,g.name,g.target,g.target_date,a.id,a.name ORDER BY g.created_at""", (owner_id,))
+                GROUP BY g.id,g.name,g.target,g.target_date,a.id,a.name,a.opening_balance
+                ORDER BY g.created_at""", (owner_id,))
             goals = cur.fetchall()
         income = totals["income"] + commission_total
         expense = totals["expense"]
         total_saved = sum((row["balance"] for row in accounts if row["account_type"] == "savings"), Decimal(0))
+        total_account_balance = sum((row["balance"] for row in accounts), Decimal(0))
         payable = sum((row["outstanding"] for row in debts if row["direction"] == "payable"), Decimal(0))
         receivable = sum((row["outstanding"] for row in debts if row["direction"] == "receivable"), Decimal(0))
+        net_worth = total_account_balance + receivable - payable
         entries = []
         for row in transactions:
             item = {**row, "entry_kind": row["kind"], "display_date": row["happened_on"]}
@@ -430,21 +485,27 @@ def dashboard(data, owner_id):
             entries.append({
                 **row, "kind": "commission", "entry_kind": "commission",
                 "amount": row["commission_amount"], "category_name": "客人提成",
-                "account_name": "已收提成", "display_date": row["occurred_at"],
+                "account_name": "日常账户（自动入账）", "display_date": row["occurred_at"],
             })
         entries.sort(key=lambda row: (str(row["display_date"]), str(row.get("created_at", ""))), reverse=True)
         return {
             "month": month,
             "summary": {
                 "income": str(income.quantize(CENT)),
+                "commission": str(commission_total.quantize(CENT)),
+                "other_income": str(totals["income"].quantize(CENT)),
                 "expense": str(expense.quantize(CENT)),
                 "net": str((income - expense).quantize(CENT)),
                 "saved": str(total_saved.quantize(CENT)),
+                "account_balance": str(total_account_balance.quantize(CENT)),
+                "net_worth": str(net_worth.quantize(CENT)),
                 "payable": str(payable.quantize(CENT)),
                 "receivable": str(receivable.quantize(CENT)),
             },
-            "accounts": [{**row, "balance": str(row["balance"])} for row in accounts],
+            "accounts": [{**row, "opening_balance": str(row["opening_balance"]),
+                          "balance": str(row["balance"])} for row in accounts],
             "categories": [{**row, "budget": str(row["budget"])} for row in categories],
+            "all_categories": all_categories,
             "budgets": [{**row, "budget": str(row["budget"]), "spent": str(row["spent"])}
                         for row in budgets],
             "goals": [{**row, "target": str(row["target"]), "saved": str(row["saved"])}
@@ -463,21 +524,36 @@ def dashboard(data, owner_id):
         conn.close()
 def set_budget(data, owner_id):
     month = _month(data.get("month"))
-    category_id = data.get("category_id")
-    amount = _money(data.get("amount"), "月度限额", allow_zero=True)
+    if "items" in data:
+        items = data.get("items")
+        if not isinstance(items, list) or any(
+                not isinstance(item, dict) or "category_id" not in item or "amount" not in item
+                for item in items):
+            raise ValueError("预算项目格式无效")
+        updates = [
+            (item["category_id"], item.get("kind", "expense"),
+             _money(item["amount"], "月度限额", allow_zero=True))
+            for item in items
+        ]
+    else:
+        updates = [(data.get("category_id"), "expense",
+                    _money(data.get("amount"), "月度限额", allow_zero=True))]
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             _ensure_defaults(cur, owner_id)
-            _category(cur, category_id, "expense", owner_id)
-            if amount == 0:
-                cur.execute("DELETE FROM finance_budgets WHERE owner_id=%s AND month=%s AND category_id=%s",
-                            (owner_id, month, category_id))
-            else:
-                cur.execute("""INSERT INTO finance_budgets(owner_id,month,category_id,amount,updated_at)
-                    VALUES(%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE amount=VALUES(amount),
-                    updated_at=VALUES(updated_at)""",
-                            (owner_id, month, category_id, amount, _now_utc()))
+            for category_id, kind, amount in updates:
+                if kind not in ("income", "expense"):
+                    raise ValueError("预算类型无效")
+                _category(cur, category_id, kind, owner_id)
+                if amount == 0:
+                    cur.execute("DELETE FROM finance_budgets WHERE owner_id=%s AND month=%s AND category_id=%s",
+                                (owner_id, month, category_id))
+                else:
+                    cur.execute("""INSERT INTO finance_budgets(owner_id,month,category_id,amount,updated_at)
+                        VALUES(%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE amount=VALUES(amount),
+                        updated_at=VALUES(updated_at)""",
+                                (owner_id, month, category_id, amount, _now_utc()))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -526,12 +602,14 @@ def add_account(data, owner_id):
     kind = data.get("account_type")
     if kind not in {"cash", "savings"}:
         raise ValueError("请选择日常账户或储蓄账户")
+    opening_balance = _money(data.get("opening_balance", "0"), "期初余额", allow_zero=True)
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             _ensure_defaults(cur, owner_id)
-            cur.execute("INSERT INTO finance_accounts(owner_id,name,account_type,created_at) VALUES(%s,%s,%s,%s)",
-                        (owner_id, name, kind, _now_utc()))
+            cur.execute("""INSERT INTO finance_accounts
+                (owner_id,name,account_type,opening_balance,created_at) VALUES(%s,%s,%s,%s,%s)""",
+                        (owner_id, name, kind, opening_balance, _now_utc()))
             account_id = cur.lastrowid
         conn.commit()
     except pymysql.err.IntegrityError as exc:
@@ -545,6 +623,30 @@ def add_account(data, owner_id):
     finally:
         conn.close()
     return {"ok": True, "account_id": account_id}
+
+
+def set_account_opening_balance(data, owner_id):
+    account_id = data.get("account_id")
+    if type(account_id) is not int or account_id <= 0:
+        raise ValueError("请选择有效账户")
+    opening_balance = _money(data.get("opening_balance"), "期初余额", allow_zero=True)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM finance_accounts WHERE id=%s AND owner_id=%s AND active=1",
+                        (account_id, owner_id))
+            if not cur.fetchone():
+                raise ValueError("账户不存在或已停用")
+            cur.execute("""UPDATE finance_accounts SET opening_balance=%s
+                WHERE id=%s AND owner_id=%s AND active=1""",
+                        (opening_balance, account_id, owner_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True}
 
 
 def add_category(data, owner_id):
@@ -572,10 +674,104 @@ def add_category(data, owner_id):
     return {"ok": True}
 
 
+def update_category(data, owner_id):
+    category_id = data.get("category_id")
+    if type(category_id) is not int or category_id <= 0:
+        raise ValueError("请选择有效分类")
+    name = _text(data.get("name"), "分类名称", 48)
+    kind = data.get("kind")
+    if kind not in {"income", "expense"}:
+        raise ValueError("分类类型无效")
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT id,kind,name FROM finance_categories
+                WHERE id=%s AND owner_id=%s AND active=1 FOR UPDATE""", (category_id, owner_id))
+            category = cur.fetchone()
+            if not category:
+                raise ValueError("分类不存在或已删除")
+            if (category["kind"], category["name"]) in {
+                    ("expense", "利息"), ("income", "利息收入")}:
+                raise ValueError("利息分类用于借款记录，不能修改")
+            if kind != category["kind"]:
+                cur.execute("""SELECT
+                    (SELECT COUNT(*) FROM finance_transactions
+                     WHERE owner_id=%s AND category_id=%s) +
+                    (SELECT COUNT(*) FROM finance_budgets
+                     WHERE owner_id=%s AND category_id=%s) AS n""",
+                            (owner_id, category_id, owner_id, category_id))
+                if cur.fetchone()["n"]:
+                    raise ValueError("该分类已有流水或预算，不能更改收支类型")
+            cur.execute("""UPDATE finance_categories SET name=%s,kind=%s
+                WHERE id=%s AND owner_id=%s AND active=1""",
+                        (name, kind, category_id, owner_id))
+        conn.commit()
+    except pymysql.err.IntegrityError as exc:
+        conn.rollback()
+        if exc.args[0] == 1062:
+            raise ValueError("该分类名称已存在") from exc
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+def delete_category(data, owner_id):
+    category_id = data.get("category_id")
+    if type(category_id) is not int or category_id <= 0:
+        raise ValueError("请选择有效分类")
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT id,kind,name FROM finance_categories
+                WHERE id=%s AND owner_id=%s AND active=1 FOR UPDATE""", (category_id, owner_id))
+            category = cur.fetchone()
+            if not category:
+                raise ValueError("分类不存在或已删除")
+            if (category["kind"], category["name"]) in {
+                    ("expense", "利息"), ("income", "利息收入")}:
+                raise ValueError("利息分类用于借款记录，不能删除")
+            cur.execute("UPDATE finance_categories SET active=FALSE "
+                        "WHERE id=%s AND owner_id=%s AND active=1", (category_id, owner_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+def restore_category(data, owner_id):
+    category_id = data.get("category_id")
+    if type(category_id) is not int or category_id <= 0:
+        raise ValueError("请选择有效分类")
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM finance_categories WHERE id=%s AND owner_id=%s AND active=0 FOR UPDATE",
+                        (category_id, owner_id))
+            if not cur.fetchone():
+                raise ValueError("已删除分类不存在")
+            cur.execute("UPDATE finance_categories SET active=TRUE WHERE id=%s AND owner_id=%s AND active=0",
+                        (category_id, owner_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
 def save_transaction(data, owner_id):
     request_id = _id(data.get("request_id"), "记账操作")
     kind = data.get("kind")
-    if kind not in {"income", "expense", "transfer", "borrow", "lend", "debt_repay", "debt_collect"}:
+    if kind not in {"income", "expense", "transfer", "borrow", "lend", "debt_repay",
+                    "debt_collect", "balance_add"}:
         raise ValueError("请选择有效的记账类型")
     happened_on = _date(data.get("happened_on"), "记账日期")
     note = _text(data.get("note", ""), "备注", 1000, required=False)
@@ -610,6 +806,9 @@ def save_transaction(data, owner_id):
                 target_account_id = _account(cur, data.get("target_account_id"), owner_id)["id"]
                 if account_id == target_account_id:
                     raise ValueError("转出和转入账户不能相同")
+            elif kind == "balance_add":
+                amount = _money(data.get("amount"), "补充金额")
+                account_id = _account(cur, data.get("account_id"), owner_id)["id"]
             elif kind in {"borrow", "lend"}:
                 principal = amount = _money(data.get("amount"), "本金")
                 account_id = _account(cur, data.get("account_id"), owner_id)["id"]
