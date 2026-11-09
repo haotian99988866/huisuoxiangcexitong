@@ -5,6 +5,7 @@ import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Annou
 import ModuleTabs from '../components/ModuleTabs'
 import ModuleIcon from '../components/ModuleIcon'
 import StaffGallery from '../components/StaffGallery'
+import VenueRecommendations from '../components/VenueRecommendations'
 import DeliveryArchive from '../components/DeliveryArchive'
 import venuePrices from '../../../shared/venue-prices.json'
 import CopyBooking from '../components/CopyBooking'
@@ -411,6 +412,7 @@ export default function VenueList() {
     ? deliveryCategories.reduce((sum, venue) => sum + (venue.delivery_posts || []).length, 0)
     : selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
+  const isMingxiPilot = Number(selectedVenue?.id) === 2
   const rosterGridStyle = technicianList.length <= 9
     ? roomyTechnicianGridStyle
     : technicianGridStyle
@@ -765,7 +767,7 @@ export default function VenueList() {
           <div style={{
             padding: '0 2px'
           }}>
-            <div style={{
+            <div className={isMingxiPilot ? 'mingxi-personnel-toolbar' : undefined} style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -810,8 +812,14 @@ export default function VenueList() {
                 ))
               )}
             </select>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto' }}>
-              {hasStaffArchive && <button
+            {isMingxiPilot && <nav className="mingxi-personnel-tabs" aria-label="名玺人员浏览">
+              {[[false, attendanceViewLabel], [true, '人员相册']].map(([archive, label]) =>
+                <button key={label} type="button" aria-pressed={showStaffArchive === archive}
+                  aria-controls="venue-personnel-content"
+                  onClick={() => { setShowStaffArchive(archive); setSelectedTechnicianCode('') }}>{label}</button>)}
+            </nav>}
+            {!isMingxiPilot && <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto' }}>
+              {hasStaffArchive && !isMingxiPilot && <button
                 type="button"
                 onClick={() => {
                   setShowStaffArchive(value => !value)
@@ -855,7 +863,7 @@ export default function VenueList() {
                 </>
               )}
             </div>}
-            </div>
+            </div>}
           </div>
           </div>
           {!isFullscreen && <AnnouncementCard />}
@@ -911,10 +919,11 @@ export default function VenueList() {
         </div>
       ) : (
         <div id="venue-personnel-content">
+          {isMingxiPilot && <VenueRecommendations venueId={selectedVenue.id} />}
           {hasStaffArchive && showStaffArchive
             ? isDelivery
               ? <DeliveryArchive key={deliveryCategoryKey(selectedVenue)} venue={selectedVenue} />
-              : <StaffGallery key={selectedVenue.id} venue={selectedVenue} />
+              : <StaffGallery key={selectedVenue.id} venue={selectedVenue} photoFirst={isMingxiPilot} />
             : <>
           {/* 今日在岗技师 / 未发布提示 */}
           {isDeliveryDayShift ? (
@@ -1466,6 +1475,8 @@ export default function VenueList() {
                 </div>
               ))}
             </div>
+          ) : isMingxiPilot ? (
+            <StaffGallery key={`duty-${selectedVenue.id}`} venue={selectedVenue} photoFirst attendanceOnly />
           ) : technicianList.length > 0 ? (
             <div style={attendancePanelStyle}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
@@ -1528,7 +1539,7 @@ export default function VenueList() {
           )}
 
           {/* Services grouped by category */}
-          {attendanceServiceGroups.length > 0 ? (
+          {attendanceServiceGroups.length > 0 ? !isMingxiPilot && (
             <div style={{
               marginBottom: '24px',
               background: 'var(--home-surface)',

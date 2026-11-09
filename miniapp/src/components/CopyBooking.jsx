@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { contactName } from '../utils/tenant'
+import { openTelegramLink } from '../utils/twa'
 
-export default function CopyBooking({ url }) {
+export default function CopyBooking({ url, openChat = false }) {
   const [status, setStatus] = useState('')
   const [failed, setFailed] = useState(false)
   const message = new URL(url).searchParams.get('text') || ''
@@ -19,10 +20,15 @@ export default function CopyBooking({ url }) {
   }
   return (
     <div style={{ marginTop: '10px', fontSize: '12px', color: '#888', textAlign: 'center' }}>
-      <p style={{ margin: '0 0 6px', lineHeight: 1.5 }}>联系{contactName()}后，若聊天框未带入资料，请复制后粘贴发送。</p>
-      <button type="button" className="home-copy-booking" onClick={copy}
-        style={{ padding: '8px 14px', marginTop: '6px', border: '1px solid var(--booking-border, #e0d2bd)', borderRadius: '8px', background: 'var(--booking-background, #fffaf0)', color: 'var(--booking-color, #80643c)' }}>
-        复制预约资料
+      <p style={{ margin: '0 0 6px', lineHeight: 1.5 }}>{openChat
+        ? `打开与${contactName()}的聊天并预填资料；若未带入，请粘贴后发送。`
+        : `联系${contactName()}后，若聊天框未带入资料，请复制后粘贴发送。`}</p>
+      <button type="button" className={`home-copy-booking${openChat ? ' venue-recommendation-contact' : ''}`} onClick={() => {
+        copy()
+        if (openChat) openTelegramLink(url)
+      }}
+        style={openChat ? undefined : { padding: '8px 14px', marginTop: '6px', border: '1px solid var(--booking-border, #e0d2bd)', borderRadius: '8px', background: 'var(--booking-background, #fffaf0)', color: 'var(--booking-color, #80643c)' }}>
+        {openChat ? `复制链接并联系${contactName()}` : '复制预约资料'}
       </button>
       {status && <p role="status">{status}</p>}
       {failed && <textarea aria-label="预约信息" readOnly value={message}

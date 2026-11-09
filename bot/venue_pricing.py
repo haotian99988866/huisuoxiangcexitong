@@ -27,6 +27,16 @@ def dihao_category_for_photo(code, text):
     return DIHAO_CATEGORIES.get(str(code)[0])
 
 
+def mingxi_price_options(tags):
+    return [
+        {"board": board["board"], "minutes": minutes, "price_usd": str(board[field]),
+         "label": label}
+        for board in PRICES["mingxiBoardPrices"] if "board:" + board["board"] in tags
+        for minutes, field, label in ((45, "half", "半价"), (90, "member", "会员"))
+        if board.get(field) is not None
+    ]
+
+
 def staff_price(venue_id, code, tags, services):
     candidates = []
     if venue_id == 1:

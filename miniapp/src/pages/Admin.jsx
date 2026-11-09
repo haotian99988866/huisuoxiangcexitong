@@ -6,6 +6,7 @@ import { isLocalAdminDebug, localDateInput, requestAdmin, tenantLink, utcExpiry 
 import DepositReview from '../components/DepositReview'
 import CreditedCustomers from '../components/CreditedCustomers'
 import HotelAdmin from '../components/HotelAdmin'
+import VenueRecommendationAdmin from '../components/VenueRecommendationAdmin'
 import CustomerAnalytics from '../components/CustomerAnalytics'
 import StaffAdmin from '../components/StaffAdmin'
 import CustomerRecords from '../components/CustomerRecords'
@@ -230,7 +231,7 @@ export default function Admin() {
           <button key={key} type="button" aria-pressed={section === key} disabled={saving}
             onClick={() => setSection(key)}>{label}</button>)}
         <label className="admin-more"><span className="music-sr-only">其他管理功能</span>
-          <select aria-label="其他管理功能" disabled={saving} value={['deposits', 'credited', 'hotels', 'tenants', 'operations', 'finance'].includes(section) ? section : ''}
+          <select aria-label="其他管理功能" disabled={saving} value={['deposits', 'credited', 'hotels', 'recommendations', 'tenants', 'operations', 'finance'].includes(section) ? section : ''}
             onChange={event => {
               if (event.target.value === 'finance') navigate('/personal-finance?from=admin')
               else if (event.target.value) setSection(event.target.value)
@@ -239,6 +240,7 @@ export default function Admin() {
             <option value="deposits">充值复核（{data.counts.pending_deposits}待核）</option>
             <option value="credited">已充值用户</option>
             <option value="hotels">酒店推荐管理</option>
+            <option value="recommendations">名玺推荐管理</option>
             <option value="tenants">租户管理</option>
             <option value="operations">运营健康</option>
             <option value="finance">个人财务</option>
@@ -260,6 +262,7 @@ export default function Admin() {
         {section === 'staff' && <StaffAdmin venues={data.venues} />}
         {section === 'credited' && <CreditedCustomers />}
         {section === 'hotels' && <HotelAdmin />}
+        {section === 'recommendations' && <VenueRecommendationAdmin />}
         {section === 'operations' && <OperationsHealth />}
         <div hidden={section !== 'deposits'}><DepositReview onReviewed={refresh} /></div>
         <div hidden={section !== 'tenants'}>

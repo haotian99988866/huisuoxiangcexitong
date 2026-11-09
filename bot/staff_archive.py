@@ -10,7 +10,7 @@ from db import get_conn
 from duty_shift import current_shift_window
 from image_hash import distance, SAME_IMAGE_DISTANCE
 from technician_photo_ocr import extract_labeled_technician_code, extract_technician_profile, extract_technician_category
-from venue_pricing import staff_price, dihao_category_for_photo
+from venue_pricing import staff_price, dihao_category_for_photo, mingxi_price_options
 
 logger = logging.getLogger(__name__)
 VENUE_IDS = frozenset({1, 2, 4, 5, 6})
@@ -270,6 +270,8 @@ def listing(data, admin=False):
                 price, price_detail = staff_price(venue_id, row["code"], tags, services)
                 row["price_usd"] = str(price) if price is not None else None
                 row["price_detail"] = price_detail
+                if venue_id == 2:
+                    row["price_options"] = mingxi_price_options(tags)
                 label = roster["shift"] if roster and row["id"] not in photo_duty_ids else shift
                 row["duty_label"] = f"{label}出勤" if row["id"] in duty_ids else None
                 row["duty_source"] = "photo" if row["id"] in photo_duty_ids else "roster" if row["id"] in duty_ids else None

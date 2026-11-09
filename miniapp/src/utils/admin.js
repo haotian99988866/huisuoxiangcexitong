@@ -15,12 +15,12 @@ export async function requestAdmin(action, fields = {}, options = {}) {
   const timer = setTimeout(() => controller.abort(), options.timeoutMs || 20000)
   try {
     const payload = JSON.stringify({ ...fields, action, init_data: initData })
-    const form = options.file ? new FormData() : null
+    const form = options.file || options.uploadPath ? new FormData() : null
     if (form) {
       form.append('payload', payload)
-      form.append('media', options.file)
+      if (options.file) form.append(options.fileField || 'media', options.file)
     }
-    const response = await fetch(`${API_BASE_URL}${form ? '/admin-delivery-upload' : '/webhook'}`, {
+    const response = await fetch(`${API_BASE_URL}${form ? options.uploadPath || '/admin-delivery-upload' : '/webhook'}`, {
       method: 'POST',
       headers: { ...(!form ? { 'Content-Type': 'application/json' } : {}), ...(localDebug ? { 'X-Local-Admin-Debug': '1' } : {}) },
       body: form || payload,

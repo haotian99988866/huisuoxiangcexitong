@@ -78,15 +78,15 @@ def image(hotel_id, admin=False):
         conn.close()
 
 
-def normalize_image(raw):
+def normalize_image(raw, label="门头"):
     if not raw or len(raw) > MAX_IMAGE_BYTES:
-        raise ValueError("请上传不超过5MB的门头照片")
+        raise ValueError(f"请上传不超过5MB的{label}照片")
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(raw)) as source:
                 if source.format not in {"JPEG", "PNG", "WEBP"} or source.width * source.height > 20000000:
-                    raise ValueError("门头照须为JPG、PNG或WEBP，且不超过2000万像素")
+                    raise ValueError(f"{label}照须为JPG、PNG或WEBP，且不超过2000万像素")
                 source.load()
                 picture = ImageOps.exif_transpose(source).convert("RGB")
                 picture.thumbnail((1600, 1600))
@@ -94,7 +94,7 @@ def normalize_image(raw):
                 picture.save(output, format="JPEG", quality=85)
                 return output.getvalue()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
-        raise ValueError("门头照片无法读取，请重新选择有效图片") from exc
+        raise ValueError(f"{label}照片无法读取，请重新选择有效图片") from exc
 
 
 def save(data, raw_image, actor_id):
