@@ -15,6 +15,33 @@
 .admin-stats strong { display: block; margin-top: 6px; font-size: 24px; }
 .admin-card { margin-top: 16px; scroll-margin-top: 16px; }
 .admin-tenant { padding: 14px 0; border-top: 1px solid var(--ink-line); }
+.admin-tenant-directory { margin-top: 12px; min-width: 0; }
+.admin-tenant-directory > .admin-header h2 { margin: 0; }
+.admin-tenant-statuses { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 12px 0; }
+.admin-console .admin-tenant-statuses button { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; min-height: 48px; padding: 9px 10px; background: var(--ink-reading); font: inherit; }
+.admin-tenant-statuses span { font-size: 12px; }
+.admin-tenant-statuses strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.admin-console .admin-tenant-statuses button[aria-pressed="true"] { border-color: var(--ink-accent); background: var(--ink-wash); color: var(--ink-accent); }
+.admin-console .admin-tenant-search { margin: 0; }
+.admin-console .admin-tenant-search input { margin-top: 0; }
+.admin-tenant-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-bottom: 14px; }
+.admin-console .admin-tenant-card { display: grid; gap: 9px; min-width: 0; width: 100%; padding: 14px; text-align: left; background: var(--ink-reading); font: inherit; }
+.admin-tenant-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+.admin-tenant-card-heading > strong { min-width: 0; overflow-wrap: anywhere; font-size: 15px; }
+.admin-tenant-badge { flex-shrink: 0; padding: 3px 7px; border-radius: 6px; background: var(--ink-surface); color: var(--ink-muted); font-size: 11px; }
+.admin-tenant-badge.is-active { color: #28746f; background: #edf7f3; }
+.admin-tenant-badge.is-expired { color: #a93636; background: #fff1f1; }
+.admin-tenant-contact { color: var(--ink-muted); font-size: 12px; overflow-wrap: anywhere; }
+.admin-tenant-card-footer { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; color: var(--ink-muted); font-size: 11px; }
+.admin-tenant-card-footer > span:last-child { color: var(--ink-accent); white-space: nowrap; margin-left: auto; }
+.admin-tenant-detail { display: grid; gap: 14px; }
+.admin-tenant-detail > div { display: grid; gap: 4px; min-width: 0; }
+.admin-tenant-detail dt { font-size: 12px; color: var(--ink-muted); }
+.admin-tenant-detail dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.admin-tenant-detail-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
+.admin-tenant-detail-actions button { min-width: 0; }
+.admin-console .admin-tenant-detail-actions button:last-child { color: #fff; background: var(--ink-accent); border-color: var(--ink-accent); }
+.admin-tenant-audit > summary { cursor: pointer; min-height: 44px; align-content: center; font-size: 14px; }
 .admin-tenant-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, .7fr); gap: 0 12px; align-items: end; }
 .admin-tenant-filters > .admin-hint { grid-column: 1 / -1; margin-top: 0; }
 .admin-tenant-pagination { display: flex; justify-content: center; align-items: center; gap: 16px; padding-top: 16px; border-top: 1px solid var(--ink-line); }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import VenueList from './pages/VenueList'
 import VenueDetail from './pages/VenueDetail'
@@ -27,6 +27,8 @@ import { modules } from './utils/modules'
 import TenantGate from './components/TenantGate'
 import AnalyticsTracker from './components/AnalyticsTracker'
 import './App.css'
+
+const FinancePreview = lazy(() => import('./pages/FinancePreview'))
 
 // 机器人按钮带 startapp=movies 时直接进入观影页
 function StartParamRedirect() {
@@ -63,6 +65,9 @@ export default function App() {
 function Content() {
   const location = useLocation()
   const isPersonalFinance = location.pathname === '/personal-finance'
+  if (isPersonalFinance && new URLSearchParams(location.search).get('preview') === 'layout') {
+    return <Suspense fallback={<p role="status">正在加载账房预览…</p>}><FinancePreview /></Suspense>
+  }
   const routes = (
     <>
       <StartParamRedirect />

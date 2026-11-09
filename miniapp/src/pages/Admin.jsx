@@ -10,7 +10,7 @@ import CustomerAnalytics from '../components/CustomerAnalytics'
 import StaffAdmin from '../components/StaffAdmin'
 import CustomerRecords from '../components/CustomerRecords'
 import OperationsHealth from '../components/OperationsHealth'
-import FinanceAdmin from '../components/FinanceAdmin'
+import MusicDialog from '../components/MusicDialog'
 import './Membership.css'
 import './Admin.css'
 
@@ -73,6 +73,7 @@ export default function Admin() {
   const [section, setSection] = useState('customers')
   const [tenantSearch, setTenantSearch] = useState('')
   const [tenantStatus, setTenantStatus] = useState('all')
+  const [tenantDetail, setTenantDetail] = useState(null)
   useEffect(() => { if (initialCustomerId) setSection('customers') }, [initialCustomerId])
   const inFlight = useRef(false)
   const mounted = useRef(true)
@@ -100,8 +101,6 @@ export default function Admin() {
       })
       if (mounted.current && requestId === dashboardRequestId.current) {
         setData(result)
-        setTenantSearch(result.tenant_pagination?.search || '')
-        setTenantStatus(result.tenant_pagination?.status || 'all')
       }
     } catch (failure) {
       if (!mounted.current || requestId !== dashboardRequestId.current) return
@@ -109,6 +108,7 @@ export default function Admin() {
         setData(null)
         setEditor(null)
         setConfirmation(null)
+        setTenantDetail(null)
       }
       setError(failure.message)
     } finally {
@@ -136,6 +136,7 @@ export default function Admin() {
   }, [editor?.original?.slug, Boolean(editor)])
 
   const edit = row => {
+    setTenantDetail(null)
     setNotice('')
     setError('')
     setConfirmation(null)
@@ -214,6 +215,12 @@ export default function Admin() {
       setNotice('自动复制失败，请长按下方链接手动复制')
     }
   }
+  const tenantExpiry = row => {
+    if (!row.expires_at) return '未设到期时间'
+    if (row.effective_status === 'expired') return '已到期'
+    const days = Math.ceil((new Date(row.expires_at) - Date.now()) / 86400000)
+    return days > 0 ? `剩余 ${days} 天` : '已过到期时间'
+  }
 
   return (
     <main className="admin-console" aria-label="运营管理台">
@@ -224,7 +231,10 @@ export default function Admin() {
             onClick={() => setSection(key)}>{label}</button>)}
         <label className="admin-more"><span className="music-sr-only">其他管理功能</span>
           <select aria-label="其他管理功能" disabled={saving} value={['deposits', 'credited', 'hotels', 'tenants', 'operations', 'finance'].includes(section) ? section : ''}
-            onChange={event => { if (event.target.value) setSection(event.target.value) }}>
+            onChange={event => {
+              if (event.target.value === 'finance') navigate('/personal-finance?from=admin')
+              else if (event.target.value) setSection(event.target.value)
+            }}>
             <option value="">更多管理</option>
             <option value="deposits">充值复核（{data.counts.pending_deposits}待核）</option>
             <option value="credited">已充值用户</option>
@@ -251,55 +261,67 @@ export default function Admin() {
         {section === 'credited' && <CreditedCustomers />}
         {section === 'hotels' && <HotelAdmin />}
         {section === 'operations' && <OperationsHealth />}
-        {section === 'finance' && <FinanceAdmin />}
         <div hidden={section !== 'deposits'}><DepositReview onReviewed={refresh} /></div>
         <div hidden={section !== 'tenants'}>
-        <section aria-label="租户概览" className="admin-stats">
-          {[['租户总数', data.counts.total], ['已启用', data.counts.active],
-            ['7天内到期', data.counts.expiring], ['已到期', data.counts.expired],
-            ['草稿 / 暂停', `${data.counts.draft} / ${data.counts.suspended}`]].map(([label, value]) =>
-            <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
-        </section>
-        <section className="admin-card">
-          <div className="admin-header"><h2>租户管理</h2><button type="button" disabled={saving || loading} onClick={() => edit(null)}>新建租户</button></div>
-          <details className="account-details"><summary>租户权限说明</summary><p>共享机器人及公共观影频道，客户与频道成员并非完全隔离。</p></details>
-          {(data.tenants.length > 0 || tenantPagination.filtered_total > 0) && <div className="admin-tenant-filters">
-            <label>搜索租户<input type="search" aria-label="搜索租户" placeholder="名称、入口标识或联系人"
-              maxLength={100} value={tenantSearch} onChange={event => setTenantSearch(event.target.value)} /></label>
-            <label>服务状态<select aria-label="按服务状态筛选租户" value={tenantStatus}
-              onChange={event => setTenantStatus(event.target.value)}>
-              <option value="all">全部状态</option>
-              <option value="active">已启用</option>
-              <option value="expiring">7天内到期</option>
-              <option value="expired">已到期</option>
-              <option value="draft">草稿</option>
-              <option value="suspended">已暂停</option>
-            </select></label>
-            <p className="admin-hint">匹配 {tenantPagination.filtered_total} 个租户 · 第 {tenantPagination.page} / {tenantPagination.total_pages} 页，每页 {tenantPagination.page_size} 个</p>
-          </div>}
+        <section className="admin-tenant-directory" hidden={Boolean(editor)}>
+          <div className="admin-header"><h2>租户管理</h2><button type="button" disabled={saving || loading} onClick={() => edit(null)}>＋ 新建</button></div>
+          <nav aria-label="按状态筛选租户" className="admin-tenant-statuses">
+            {[
+              ['all', '全部', data.counts.total], ['active', '已启用', data.counts.active],
+              ['expiring', '7天内到期', data.counts.expiring], ['expired', '已到期', data.counts.expired],
+              ['draft', '草稿', data.counts.draft], ['suspended', '已暂停', data.counts.suspended],
+            ].map(([status, label, count]) => <button key={status} type="button"
+              aria-pressed={tenantStatus === status} disabled={saving}
+              onClick={() => { setTenantSearch(''); setTenantStatus(status) }}>
+              <span>{label}</span><strong>{count}</strong>
+            </button>)}
+          </nav>
+          <label className="admin-tenant-search"><span className="music-sr-only">搜索租户</span>
+            <input type="search" aria-label="搜索租户" placeholder="搜索名称、入口或联系人"
+              maxLength={100} value={tenantSearch} onChange={event => setTenantSearch(event.target.value)} />
+          </label>
+          <p role="status" className="admin-hint">{loading ? '正在筛选租户…' : `共 ${tenantPagination.filtered_total} 个租户`}</p>
           {data.tenants.length === 0 && tenantPagination.filtered_total === 0 &&
             <p>{data.counts.total === 0 ? '暂无租户，可先创建草稿。' : '没有符合条件的租户。'}</p>}
-          {data.tenants.map(row => (
-            <article key={row.slug} className="admin-tenant">
-              <div className="admin-header"><h3>{row.brand_name}</h3><span>{labels[row.effective_status]}</span></div>
-              <p>{row.slug} · @{row.contact_username}</p>
-              <p>到期：{formatDate(row.expires_at)}</p>
-              <details className="account-details"><summary>展示权限</summary><p>{row.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || `项目 ${id}`).join('、')} · 公告{row.announcements_enabled ? '已开放' : '未开放'}</p></details>
-              <div className="admin-actions">
-                <button type="button" disabled={saving || loading} onClick={() => edit(row)}>编辑 / 续期 / 暂停</button>
-                <button type="button" disabled={saving} onClick={() => copy(row.slug)}>复制入口</button>
-              </div>
-              {row.effective_status !== 'active' && <p className="admin-hint">当前入口不可用，启用且未到期后才能访问。</p>}
-            </article>
-          ))}
+          <div className="admin-tenant-list" aria-busy={loading}>
+            {data.tenants.map(row => <button key={row.slug} type="button"
+              className="admin-tenant-card" disabled={saving || loading} onClick={() => setTenantDetail(row)}>
+              <span className="admin-tenant-card-heading"><strong>{row.brand_name}</strong>
+                <span className={`admin-tenant-badge is-${row.effective_status}`}>{labels[row.effective_status]}</span></span>
+              <span className="admin-tenant-contact">{row.contact_name} · @{row.contact_username}</span>
+              <span className="admin-tenant-card-footer"><span>到期：{formatDate(row.expires_at)} · {tenantExpiry(row)}</span>
+                <span>查看详情 ›</span></span>
+            </button>)}
+          </div>
           {tenantPagination.total_pages > 1 && <nav className="admin-tenant-pagination" aria-label="租户列表分页">
             <button type="button" disabled={loading || tenantPagination.page <= 1}
               onClick={() => refresh(tenantPagination.page - 1)}>上一页</button>
-            <span>第 {tenantPagination.page} / {tenantPagination.total_pages} 页</span>
+            <span>{tenantPagination.page} / {tenantPagination.total_pages}</span>
             <button type="button" disabled={loading || tenantPagination.page >= tenantPagination.total_pages}
               onClick={() => refresh(tenantPagination.page + 1)}>下一页</button>
           </nav>}
         </section>
+        {tenantDetail && section === 'tenants' && <MusicDialog title="租户详情"
+          className="admin-tenant-dialog" scrollBody onClose={() => setTenantDetail(null)}
+          footer={<div className="admin-tenant-detail-actions">
+            <button type="button" onClick={() => copy(tenantDetail.slug)}>复制入口</button>
+            <button type="button" onClick={() => edit(tenantDetail)}>编辑 / 续期 / 暂停</button>
+          </div>}>
+          <h3>{tenantDetail.brand_name}</h3>
+          <dl className="admin-tenant-detail">
+            <div><dt>服务状态</dt><dd>{labels[tenantDetail.effective_status]}</dd></div>
+            <div><dt>入口标识</dt><dd>{tenantDetail.slug}</dd></div>
+            <div><dt>联系人</dt><dd>{tenantDetail.contact_name} · @{tenantDetail.contact_username}</dd></div>
+            <div><dt>到期时间</dt><dd>{formatDate(tenantDetail.expires_at)} · {tenantExpiry(tenantDetail)}</dd></div>
+            <div><dt>展示权限</dt><dd>{tenantDetail.venue_ids.map(id => data.venues.find(venue => venue.id === id)?.name || `项目 ${id}`).join('、')}</dd></div>
+            <div><dt>频道公告</dt><dd>{tenantDetail.announcements_enabled ? '已开放' : '未开放'}</dd></div>
+          </dl>
+          {tenantDetail.effective_status !== 'active' && <p className="admin-hint">当前入口不可用，启用且未到期后才能访问。</p>}
+          <p className="admin-hint">共享机器人及公共观影频道，客户与频道成员并非完全隔离。</p>
+          {notice && <p role="status" className="admin-notice">{notice}</p>}
+          {copyFallback && <label>专属入口链接<input readOnly value={copyFallback}
+            onFocus={event => event.target.select()} /></label>}
+        </MusicDialog>}
         {editor && (
           <section ref={formRef} className="admin-card">
             <h2>{editor.original ? `编辑 ${editor.original.slug}` : '新建租户（默认草稿）'}</h2>
@@ -345,7 +367,7 @@ export default function Admin() {
             </div>}
           </section>
         )}
-        <section className="admin-card"><h2>最近操作</h2>
+        <details className="admin-card admin-tenant-audit"><summary>最近操作与配置变更</summary>
           <p className="admin-hint">最近30条 · {formatDate(data.server_time)}</p>
           {data.audit.length === 0 && <p>暂无操作记录</p>}
           {data.audit.map(row => {
@@ -363,7 +385,7 @@ export default function Admin() {
               </details>
             </article>
           })}
-        </section>
+        </details>
         </div>
       </>}
     </main>

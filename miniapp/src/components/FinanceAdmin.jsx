@@ -2,25 +2,32 @@ import { useEffect, useRef, useState } from 'react'
 import { requestAdmin } from '../utils/admin'
 import { newMemberOrderId } from '../utils/membership'
 import { financeCategoryAnalysis } from '../utils/financeAnalysis'
+import { bindBackButton } from '../utils/twa'
 import MusicDialog from './MusicDialog'
 import MusicIcon from './MusicIcon'
 import './FinanceAdmin.css'
+import '../pages/FinancePreview.css'
+import './FinanceLedger.css'
 
 const cambodiaToday = () => new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
 const today = () => cambodiaToday()
-const ENTRY_TITLES = { expense: '支出', income: '收入', transfer: '转账' }
+const ENTRY_TITLES = {
+  expense: '支出', income: '收入', transfer: '转账', borrow: '借入', lend: '借出',
+  debt_repay: '还款', debt_collect: '收款', balance_add: '余额补充',
+}
 const emptyEntry = () => ({
   kind: 'expense', amount: '', principal: '', interest: '0', happened_on: today(),
   account_id: '', target_account_id: '', category_id: '', debt_id: '',
   counterparty: '', due_on: '', note: '',
 })
 
-export default function FinanceAdmin({ initialView = 'overview', initialEntryKind = null }) {
+export default function FinanceAdmin({ initialView = 'overview', initialEntryKind = null, onExit = null }) {
   const [amountsVisible, setAmountsVisible] = useState(false)
   const [data, setData] = useState(null)
   const [month, setMonth] = useState(today().slice(0, 7))
   const [activeView, setActiveView] = useState(initialView)
-  const alwaysShowAmounts = ['records', 'today', 'analysis', 'planning', 'settings'].includes(activeView)
+  const [entryOpen, setEntryOpen] = useState(false)
+  const alwaysShowAmounts = activeView !== 'overview' || entryOpen
   const money = value => amountsVisible || alwaysShowAmounts
     ? Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : '••••'
@@ -28,7 +35,6 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
   const [refreshKey, setRefreshKey] = useState(0)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [entryOpen, setEntryOpen] = useState(false)
   const [entry, setEntry] = useState(emptyEntry)
   const [budgets, setBudgets] = useState({})
   const [budgetEditing, setBudgetEditing] = useState(false)
@@ -40,6 +46,7 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
   const [category, setCategory] = useState({ name: '', kind: 'expense' })
   const [categoryEdits, setCategoryEdits] = useState({})
   const [editingCategoryId, setEditingCategoryId] = useState(null)
+  const [settingsTab, setSettingsTab] = useState('accounts')
   const [goal, setGoal] = useState(() => ({
     name: '', target: '', target_date: '', request_id: newMemberOrderId(),
   }))
@@ -97,6 +104,7 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
   }
   useEffect(() => {
     let active = true
+    setData(current => current?.month === month ? current : null)
     setRefreshing(true)
     setError('')
     const reloadWhenVisible = () => {
@@ -198,7 +206,7 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
   const closeEntry = () => {
     if (busy) return
     const webApp = window.Telegram?.WebApp
-    if (webApp?.initData && typeof webApp.close === 'function') {
+    if (initialEntryKind && webApp?.initData && typeof webApp.close === 'function') {
       webApp.close()
       return
     }
@@ -296,11 +304,17 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
   }
   const categoryRows = (data?.all_categories || []).filter(row => row.active)
   const deletedCategoryRows = (data?.all_categories || []).filter(row => !row.active)
-  const renderCategory = row => {
+  const closeCategory = () => {
+    if (busy) return
+    const row = data?.all_categories.find(item => item.id === editingCategoryId)
+    if (row) setCategoryEdits(current => ({ ...current, [row.id]: { name: row.name, kind: row.kind } }))
+    setEditingCategoryId(null)
+    setError('')
+  }
+  const renderCategory = (row, editing = false) => {
     const values = categoryEdits[row.id] || { name: row.name, kind: row.kind }
     const protectedCategory = (row.kind === 'expense' && row.name === '利息') ||
       (row.kind === 'income' && row.name === '利息收入')
-    const editing = editingCategoryId === row.id
     const changed = values.name.trim() !== row.name || values.kind !== row.kind
     return <article className={`finance-category-row${editing ? ' is-editing' : ''}`} key={row.id}>
       {editing ? <form onSubmit={async event => {
@@ -322,34 +336,30 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
           <option value="expense">支出分类</option><option value="income">收入分类</option>
         </select></label>
         <div className="finance-category-actions">
-          <button type="button" disabled={busy} onClick={() => {
-            setCategoryEdits(current => ({ ...current, [row.id]: { name: row.name, kind: row.kind } }))
-            setEditingCategoryId(null)
-          }}>取消</button>
+          <button className="finance-category-delete" type="button" disabled={busy}
+            onClick={async () => {
+              if (!window.confirm(`删除“${row.name}”？历史流水会保留，可在“已删除分类”中恢复。`)) return
+              const result = await perform('admin_finance_category_delete', { category_id: row.id }, '分类已删除。')
+              if (result.ok) setEditingCategoryId(null)
+            }}>删除分类</button>
           <button className="is-primary" disabled={busy || !changed}>保存修改</button>
         </div>
         {values.kind !== row.kind && <small className="finance-category-hint">
           已有流水或预算的分类不能更改收支类型。
         </small>}
-      </form> : <>
-        <div className="finance-category-info">
+      </form> : protectedCategory ? <div className="finance-category-info">
+        <strong>{row.name}</strong><small>借款利息专用</small>
+      </div> : <button type="button" className="finance-category-open" disabled={busy}
+        aria-label={`管理分类 ${row.name}`} onClick={() => {
+          setCategoryEdits(current => ({ ...current, [row.id]: { name: row.name, kind: row.kind } }))
+          setError('')
+          setEditingCategoryId(row.id)
+        }}>
+        <span className="finance-category-info">
           <strong>{row.name}</strong>
-          <span className={`finance-category-kind ${row.kind}`}>
-            {row.kind === 'income' ? '收入' : '支出'}
-          </span>
-          {protectedCategory && <small>借款利息专用</small>}
-        </div>
-        <div className="finance-category-actions">
-          {!protectedCategory && <button type="button" disabled={busy}
-            onClick={() => setEditingCategoryId(row.id)}>编辑</button>}
-          {!protectedCategory && <button className="finance-category-delete" type="button" disabled={busy}
-            onClick={() => {
-              if (window.confirm(`删除“${row.name}”？历史流水会保留，可在“已删除分类”中恢复。`)) {
-                perform('admin_finance_category_delete', { category_id: row.id }, '分类已删除。')
-              }
-            }}>删除</button>}
-        </div>
-      </>}
+        </span>
+        <span aria-hidden="true">›</span>
+      </button>}
     </article>
   }
   const commissionGroups = commissions.reduce((groups, row) => {
@@ -387,6 +397,7 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
     ? transactionRows.filter(row => String(row.display_date || '').slice(0, 10) === cambodiaToday())
     : transactionRows
   const categoryAnalysis = financeCategoryAnalysis(data)
+  const selectedCategory = categoryRows.find(row => row.id === editingCategoryId)
   const ledgerSummary = activeView === 'today' ? dailySummary : data?.summary
   const transactionLabel = row => {
     if (row.kind === 'balance_add') return '补充账户金额'
@@ -454,17 +465,41 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
       }}>作废</button>}
     </div>
   </article>
-  const transactionList = <div className="finance-ledger">
-    {Object.entries(transactionGroups).map(([date, rows]) => <section className="finance-ledger-day" key={date}>
+  const renderLedger = groups => <div className="finance-ledger">
+    {Object.entries(groups).map(([date, rows]) => <section className="finance-ledger-day" key={date}>
       <h3>{displayDay(date)}</h3>
       <div>{rows.map(renderTransaction)}</div>
     </section>)}
-    {!dailyTransactions.length && <p className="finance-empty">
+    {!Object.keys(groups).length && <p className="finance-empty">
       {activeView === 'today' ? '今天还没有收支记录' : '这个月还没有收支记录'}
     </p>}
   </div>
+  const transactionList = renderLedger(transactionGroups)
+  const recentGroups = Object.fromEntries(Object.entries(transactionGroups).slice(0, 3)
+    .reduce((groups, [date, rows]) => {
+      const count = groups.reduce((sum, [, items]) => sum + items.length, 0)
+      if (count < 3) groups.push([date, rows.slice(0, 3 - count)])
+      return groups
+    }, []))
+  const openDebts = (data?.debts || []).filter(row => Number(row.outstanding) > 0)
+  const payableDebts = openDebts.filter(row => row.direction === 'payable')
+  const receivableDebts = openDebts.filter(row => row.direction === 'receivable')
+  const changeView = view => {
+    if (busy) return
+    if (['overview', 'today'].includes(view)) setMonth(cambodiaToday().slice(0, 7))
+    setActiveView(view)
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }
+  useEffect(() => {
+    if (activeView === 'overview' || initialEntryKind) return bindBackButton(onExit)
+    return bindBackButton(() => {
+      if (busy) return
+      changeView(activeView === 'settings' ? 'assets' : activeView === 'planning' ? 'analysis' : 'overview')
+    })
+  }, [activeView, busy, initialEntryKind, onExit])
   const refreshButton = <button type="button" className={`finance-refresh${refreshing ? ' is-refreshing' : ''}`}
-    aria-label={refreshing ? '正在刷新财务数据' : '刷新财务数据'} title={refreshing ? '正在刷新' : '刷新'}
+    aria-label={refreshing ? '正在刷新财务数据' : '刷新财务数据'}
+    title={refreshing ? '正在刷新' : lastUpdated ? `更新于 ${lastUpdated.toLocaleTimeString('zh-CN', { hour12: false })}` : '刷新'}
     disabled={busy || refreshing} onClick={() => setRefreshKey(value => value + 1)}>
     <MusicIcon name="refresh" size={19} />
   </button>
@@ -474,104 +509,63 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
   const viewTitle = {
     analysis: '分类分析',
     today: '今日收支',
-    records: '本月账单',
-  }[activeView] || '个人财务总览'
-  const privacyButton = <button type="button" className="finance-privacy"
-    aria-pressed={!amountsVisible} onClick={() => setAmountsVisible(value => !value)}>
-    <MusicIcon name={amountsVisible ? 'eye' : 'eyeOff'} size={18} />
-    {amountsVisible ? '隐藏金额' : '显示金额'}
-  </button>
+    records: '账单明细',
+    assets: '资产与往来', planning: '预算与储蓄', settings: '账户与设置',
+  }[activeView] || '阿兄账房'
 
-  return <section className={`admin-finance${initialEntryKind ? ' is-direct-entry' : ''}`}>
-    {activeView !== 'overview' && !alwaysShowAmounts && <div className="finance-privacy-bar">{privacyButton}<span>金额单位 USD</span></div>}
-    {['records', 'today'].includes(activeView) ? <header className="finance-record-page-header">
-      <button type="button" aria-label="返回财务总览" onClick={() => setActiveView('overview')}>
-        <MusicIcon name="back" size={20} />
-      </button>
-      <div><h2>{viewTitle}</h2><p>收入、支出和自动同步提成都在这里</p></div>
-      {refreshButton}
-      <div className="finance-record-period">{activeView === 'today' ? cambodiaToday() : monthPicker}
-        <span>{lastUpdated ? `更新于 ${lastUpdated.toLocaleTimeString('zh-CN', { hour12: false })}` : '正在同步…'}</span>
-      </div>
-    </header> : <header className="finance-main-header">
-      <div className="finance-main-title">
-        <div><h2>{viewTitle}</h2><p>提成自动计入日常账户余额</p></div>
-        {refreshButton}
-      </div>
-      {activeView === 'overview' && data && <section className="finance-wealth" aria-label="资产总览">
-        <span>个人净资产 · USD</span>
-        <button type="button" className="finance-wealth-amount"
-          aria-label={amountsVisible ? '隐藏金额' : '显示金额'}
-          aria-pressed={amountsVisible} onClick={() => setAmountsVisible(value => !value)}>
-          <strong>${money(data.summary.net_worth)}</strong>
-          <MusicIcon name={amountsVisible ? 'eye' : 'eyeOff'} size={21} />
-        </button>
-        <p>点击金额显示或隐藏 · 账户余额 + 待收 − 待还</p>
-        <div><span>账户总余额</span>
-          <button type="button" className="finance-wealth-balance"
-            aria-label={amountsVisible ? '隐藏账户金额' : '显示账户金额'}
-            onClick={() => setAmountsVisible(value => !value)}>
-            ${money(data.summary.account_balance)}
-          </button>
-        </div>
-      </section>}
-      <div className="finance-main-period">{monthPicker}
-        <span>{lastUpdated ? `更新于 ${lastUpdated.toLocaleTimeString('zh-CN', { hour12: false })}` : '正在同步…'}</span>
-      </div>
-    </header>}
-    <nav className="finance-tabs" aria-label="个人财务功能">
-      {[
-        ['overview', '总览'], ['records', '本月'],
-        ['today', '今日'], ['analysis', '分类分析'],
-        ['planning', '预算债务'], ['settings', '账户设置'],
-      ].map(([id, label]) => <button key={id} type="button" aria-pressed={activeView === id}
-        onClick={() => {
-          if (id === 'today') setMonth(cambodiaToday().slice(0, 7))
-          setActiveView(id)
-        }}>{label}</button>)}
-    </nav>
+  return <section className={`admin-finance finance-live${initialEntryKind && entryOpen ? ' is-direct-entry' : ''}`}>
+    <header className={`fp-header${activeView !== 'overview' ? ' finance-subpage-header' : ''}`}>
+      <div>{activeView === 'overview' && <span>PERSONAL FINANCE</span>}<h1>{viewTitle}</h1></div>{refreshButton}
+    </header>
+    {activeView === 'settings' && <nav className="fp-segment finance-settings-tabs" aria-label="账房设置">
+      {[['accounts', '账户'], ['categories', '分类'], ['commissions', '提成']].map(([tab, label]) =>
+        <button key={tab} type="button" disabled={busy} aria-pressed={settingsTab === tab}
+          onClick={() => setSettingsTab(tab)}>{label}</button>)}
+    </nav>}
+    {['records', 'today'].includes(activeView) && <div className="fp-segment" aria-label="账单时间范围">
+      {[['records', '按月'], ['today', '今日']].map(([view, label]) =>
+        <button key={view} type="button" aria-pressed={view === activeView} onClick={() => changeView(view)}>{label}</button>)}
+    </div>}
+    {['records', 'analysis', 'planning'].includes(activeView) && monthPicker}
+    {activeView === 'today' && <p className="fp-footnote">{cambodiaToday()}</p>}
     {error && activeView !== 'planning' && <p role="alert" className="admin-error">{error}</p>}
     {notice && <p role="status" className="admin-notice">{notice}</p>}
     {!data && !error && <p role="status">正在读取财务数据…</p>}
     {data && <>
       {activeView === 'overview' && <>
-        <section className="finance-overview-grid">
-          <article className="admin-card">
-            <h3>账户与往来</h3>
-            <div className="finance-balance-grid">
-              <div><span>日常账户</span><strong>${money(data.accounts.find(row => row.name === '日常账户')?.balance)}</strong></div>
-              <div><span>储蓄账户</span><strong>${money(data.summary.saved)}</strong></div>
-              <div><span>待还借款</span><strong>${money(data.summary.payable)}</strong></div>
-              <div><span>待收借款</span><strong>${money(data.summary.receivable)}</strong></div>
-            </div>
-            <button type="button" className="finance-account-topup" onClick={() => startEntry('balance_add')}>
-              ＋ 补充账户金额
-            </button>
-          </article>
-          <article className="admin-card">
-            <h3>{month.replace('-', '年')}月收支</h3>
-            <section className="finance-ledger-summary" aria-label="月度财务概览">
+        <section className="fp-hero" aria-label="资产总览">
+          <div className="fp-hero-label"><span>个人净资产 · USD</span>
+            <button type="button" aria-label={amountsVisible ? '隐藏总览金额' : '显示总览金额'}
+              aria-pressed={amountsVisible} onClick={() => setAmountsVisible(value => !value)}>
+              <MusicIcon name={amountsVisible ? 'eye' : 'eyeOff'} /></button></div>
+          <button type="button" className="fp-total" aria-label="切换总览金额显示"
+            onClick={() => setAmountsVisible(value => !value)}>${money(data.summary.net_worth)}</button>
+          <div className="fp-hero-details">{[['账户余额', data.summary.account_balance], ['待收借款', data.summary.receivable],
+            ['待还借款', data.summary.payable]].map(([label, value]) => <div key={label}><span>{label}</span><strong>${money(value)}</strong></div>)}</div>
+        </section>
+        <section className="fp-section"><div className="fp-heading"><h2>本月收支</h2>
+          <button type="button" onClick={() => changeView('records')}>{month.slice(5)}月 ›</button></div>
+            <section className="fp-summary" aria-label="月度财务概览">
               <div><span>收入</span><strong className="is-inflow">${money(data.summary.income)}</strong></div>
               <div><span>支出</span><strong className="is-outflow">${money(data.summary.expense)}</strong></div>
               <div><span>结余</span><strong>${money(data.summary.net)}</strong></div>
             </section>
-            <p className="admin-hint">自动提成 ${money(data.summary.commission)} · 其他收入 ${money(data.summary.other_income)}</p>
-            <button type="button" className="finance-account-topup" onClick={() => setActiveView('analysis')}>
-              查看收支分析
-            </button>
-          </article>
+            <p className="fp-footnote">自动提成 ${money(data.summary.commission)} · 其他收入 ${money(data.summary.other_income)}</p>
         </section>
-        <section className="finance-quick-actions" aria-label="快速记账">
-          <button className="finance-add-entry" type="button" onClick={() => startEntry('expense')}>
-            <span className="finance-add-icon" aria-hidden="true">＋</span>
-            <span><strong>记一笔</strong><small>收支 / 借还款</small></span>
-          </button>
-          <button className="finance-transfer-entry" type="button" onClick={() => startEntry('transfer')}>账户转账</button>
+        <section className="fp-section"><div className="fp-heading"><h2>待处理</h2><span>{openDebts.length} 笔往来</span></div>
+          {payableDebts.length ? <button type="button" className="fp-reminder" onClick={() => changeView('assets')}>
+            <span><strong>借款待归还</strong><small>{payableDebts.some(row => row.due_on)
+              ? `最近约定 ${payableDebts.map(row => row.due_on).filter(Boolean).sort()[0]}` : '未设置还款日期'}</small></span>
+            <strong>${money(data.summary.payable)} ›</strong>
+          </button> : null}
+          {receivableDebts.length > 0 && <button type="button" className="fp-reminder" onClick={() => changeView('assets')}>
+            <span><strong>借款待收回</strong><small>{receivableDebts.length} 笔借出尚未结清</small></span>
+            <strong>${money(data.summary.receivable)} ›</strong>
+          </button>}
+          {!openDebts.length && <p className="fp-footnote">当前没有未结清往来</p>}
         </section>
-        <button type="button" className="finance-view-ledger" onClick={() => setActiveView('records')}>
-          <span><strong>收支明细</strong><small>查看本月所有收入、支出和提成记录</small></span>
-          <span aria-hidden="true">查看全部　›</span>
-        </button>
+        <section className="fp-section"><div className="fp-heading"><h2>本月最近流水</h2>
+          <button type="button" onClick={() => changeView('records')}>全部 ›</button></div>{renderLedger(recentGroups)}</section>
       </>}
 
       {['records', 'today'].includes(activeView) && (ledgerSummary ? <>
@@ -582,8 +576,7 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
         </section>
         <p className="finance-ledger-note">其中自动入账提成 ${money(ledgerSummary.commission)}</p>
         <p className="finance-ledger-note">借入、借出及归还本金不会计入收入或支出，但会保留在下方流水中；余额补充也不计收入；利息计入对应收支。</p>
-        <div className="finance-ledger-heading"><h3>{activeView === 'today' ? '今日流水' : `${month.replace('-', '年')}月账单`}</h3>
-          <button type="button" onClick={() => startEntry('expense')}>＋ 记一笔</button></div>
+        <div className="finance-ledger-heading"><h3>{activeView === 'today' ? '今日流水' : `${month.replace('-', '年')}月账单`}</h3></div>
         {transactionList}
       </> : !error && <p role="status">正在读取今日收支…</p>)}
 
@@ -604,6 +597,8 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
       </>}
 
       {activeView === 'analysis' && <>
+        <div className="fp-heading"><span>分类收入包含自动同步提成</span>
+          <button type="button" onClick={() => changeView('planning')}>预算与储蓄 ›</button></div>
         {categoryAnalysis.map(group => <section className="admin-card" key={group.kind}>
           <div className="finance-ledger-heading"><h3>{group.title} · {month}</h3>
             <strong>${money(group.total)}</strong></div>
@@ -624,7 +619,6 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
       {entryOpen && <MusicDialog
         className={`account-sheet finance-entry-sheet${initialEntryKind ? ' finance-entry-direct' : ''}`}
         title={`${ENTRY_TITLES[kind] || '记账'}记账`}
-        headerContent={!alwaysShowAmounts && <div className="finance-privacy-bar">{privacyButton}<span>编辑金额正常显示</span></div>}
         scrollBody onClose={closeEntry}
         footer={<div className="finance-entry-actions">
           <button type="button" disabled={busy} onClick={closeEntry}>关闭</button>
@@ -711,25 +705,27 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
       </section>
       </MusicDialog>}
 
-      {activeView === 'settings' && <>
+      {activeView === 'settings' && settingsTab === 'accounts' && <>
       <section className="admin-card finance-settings-card">
-        <details className="finance-settings-details">
-          <summary><span><strong>账户</strong><small>{data.accounts.length} 个账户</small></span><span className="finance-settings-toggle">管理　⌄</span></summary>
+        <div className="finance-settings-panel">
+          <div className="fp-heading"><h2>我的账户</h2><span>{data.accounts.length} 个账户</span></div>
           <div className="finance-settings-content">
-            <div className="finance-account-list">{data.accounts.map(row => <form className="finance-account-row"
-              key={row.id} onSubmit={async event => {
+            <div className="finance-account-list">{data.accounts.map(row => <details className="finance-account-item" key={row.id}>
+              <summary><span><strong>{row.name}</strong><small>{row.account_type === 'savings' ? '储蓄账户' : '日常账户'}</small></span>
+                <span><strong>${money(row.balance)}</strong><span aria-hidden="true">⌄</span></span></summary>
+              <form className="finance-account-row" onSubmit={async event => {
                 event.preventDefault()
                 const result = await perform('admin_finance_account_opening', {
                   account_id: row.id, opening_balance: openingBalances[row.id] ?? '0',
                 }, '账户期初余额已保存。')
                 if (!result.ok && result.message) setError(`保存失败：${result.message}`)
               }}>
-              <div><strong>{row.name}</strong><span>{row.account_type === 'savings' ? '储蓄' : '日常'} · 当前余额 ${money(row.balance)}</span></div>
               <label>期初余额<input required inputMode="decimal" pattern="\d{1,10}(\.\d{1,2})?"
                 value={openingBalances[row.id] ?? '0'} onChange={event => setOpeningBalances(current =>
                   ({ ...current, [row.id]: event.target.value }))} /></label>
               <button disabled={busy}>保存期初金额</button>
-            </form>)}</div>
+            </form></details>)}</div>
+            <details className="finance-settings-add"><summary>＋ 添加账户</summary>
             <form className="finance-inline-form" onSubmit={async event => {
               event.preventDefault()
               const result = await perform('admin_finance_account', account, '账户已添加。')
@@ -746,35 +742,55 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
                 onChange={event => setAccount({ ...account, opening_balance: event.target.value })} />
               <button disabled={busy}>添加账户</button>
             </form>
+            </details>
           </div>
-        </details>
+        </div>
       </section>
       </>}
 
-      {activeView === 'planning' && <>
-      <section className="admin-card">
-        <h3>借款与债务</h3>
-        {data.debts.map(row => <p className="finance-debt" key={row.id}>
+      {activeView === 'assets' && <>
+      <section className="fp-section"><div className="fp-heading"><h2>我的账户</h2>
+        <button type="button" onClick={() => changeView('settings')}>账户与设置 ›</button></div>
+        {data.accounts.map(row => <div className="fp-asset-row" key={row.id}><div><strong>{row.name}</strong>
+          <small>{row.account_type === 'savings' ? '储蓄账户' : '日常账户'}</small></div><strong>${money(row.balance)}</strong></div>)}
+        <div className="finance-asset-actions">
+          <button type="button" disabled={busy} onClick={() => startEntry('transfer')}>账户转账</button>
+          <button type="button" disabled={busy} onClick={() => startEntry('balance_add')}>补充余额</button>
+        </div>
+      </section>
+      <section className="fp-section">
+        <div className="fp-heading"><h2>借款与往来</h2><span>本金不计收支</span></div>
+        <div className="finance-asset-actions">
+          <button type="button" disabled={busy} onClick={() => startEntry('borrow')}>登记借入</button>
+          <button type="button" disabled={busy} onClick={() => startEntry('lend')}>登记借出</button>
+        </div>
+        {openDebts.map(row => <div className="finance-debt" key={row.id}>
           <strong>{row.direction === 'payable' ? '我借入' : '我借出'} · {row.counterparty}</strong>
           <span>本金 ${money(row.principal)} · 未还 ${money(row.outstanding)} · 到期 {row.due_on || '未设置'}</span>
           {row.note && <small>{row.note}</small>}
-        </p>)}
-        {!data.debts.length && <p className="admin-hint">当前没有未结清借款。</p>}
-        <p className="admin-hint">使用上方“借入 / 借出”登记本金；还款、收款时分别选择对应借款并拆分本金和利息。</p>
+          <button type="button" disabled={busy} onClick={() => {
+            startEntry(row.direction === 'payable' ? 'debt_repay' : 'debt_collect')
+            if (!sessionStorage.getItem(pendingTransactionKey)) {
+              setEntry(current => ({ ...current, debt_id: String(row.id), principal: '', interest: '0' }))
+            }
+          }}>{row.direction === 'payable' ? '还款' : '收款'}</button>
+        </div>)}
+        {!openDebts.length && <p className="admin-hint">当前没有未结清借款。</p>}
+        <p className="fp-footnote">还款、收款时拆分本金与利息，只有利息计入收支。</p>
       </section>
       </>}
 
-      {activeView === 'settings' && <>
+      {activeView === 'settings' && settingsTab === 'categories' && <>
       <section className="admin-card finance-settings-card">
-        <details className="finance-settings-details" open>
-          <summary><span><strong>自定义分类</strong><small>{(data.all_categories || []).length} 个分类</small></span><span className="finance-settings-toggle">管理　⌄</span></summary>
+        <div className="finance-settings-panel">
           <div className="finance-settings-content finance-category-settings">
-            <p className="finance-category-intro">收入和支出分类分开展示，删除分类不会影响已有账目。</p>
+            <p className="finance-category-intro">点击分类管理，修改或删除不影响已有账目。</p>
             {['expense', 'income'].map(kind => {
               const rows = categoryRows.filter(row => row.kind === kind)
               return <section className="finance-category-group" key={kind}>
                 <h4>{kind === 'expense' ? '支出分类' : '收入分类'}<span>{rows.length}</span></h4>
-                <div className="finance-category-list">{rows.map(renderCategory)}</div>
+                <div className="finance-category-list">{rows.map(row => renderCategory(row))}</div>
+                {!rows.length && <p className="admin-hint">暂无{kind === 'expense' ? '支出' : '收入'}分类。</p>}
               </section>
             })}
             {deletedCategoryRows.length > 0 && <details className="finance-deleted-categories">
@@ -787,12 +803,12 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
                 </button>
               </div>)}</div>
             </details>}
+            <details className="finance-settings-add"><summary>＋ 新增分类</summary>
             <form className="finance-category-add" onSubmit={async event => {
               event.preventDefault()
               const result = await perform('admin_finance_category', category, '分类已添加。')
               if (result.ok) setCategory(current => ({ ...current, name: '' }))
             }}>
-              <h4>新增分类</h4>
               <div className="finance-category-add-fields">
                 <input required maxLength={48} aria-label="新分类名称" placeholder="输入分类名称"
                   value={category.name} onChange={event => setCategory({ ...category, name: event.target.value })} />
@@ -803,9 +819,15 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
                 <button disabled={busy || !category.name.trim()}>添加分类</button>
               </div>
             </form>
+            </details>
           </div>
-        </details>
+        </div>
       </section>
+      {selectedCategory && <MusicDialog title="管理分类" className="finance-category-dialog" scrollBody onClose={closeCategory}>
+        {error && <p role="alert" className="admin-error">{error}</p>}
+        {renderCategory(selectedCategory, true)}
+        <p className="admin-hint">删除后历史流水仍会保留，可在已删除分类中恢复。</p>
+      </MusicDialog>}
       </>}
 
       {activeView === 'planning' && <>
@@ -877,10 +899,10 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
       </section>
       </>}
 
-      {activeView === 'settings' && <>
+      {activeView === 'settings' && settingsTab === 'commissions' && <>
       <section className="admin-card finance-settings-card">
-        <details className="finance-settings-details">
-          <summary><span><strong>各项目固定提成</strong><small>{commissions.length} 个项目 · 按会所分组</small></span><span className="finance-settings-toggle">管理　⌄</span></summary>
+        <div className="finance-settings-panel">
+          <div className="fp-heading"><h2>项目固定提成</h2><span>{commissions.length} 个项目</span></div>
           <div className="finance-settings-content">
             <p className="admin-hint">金额单位为美元。修改只影响之后登记的消费；退款按已登记的提成快照扣减，最低为 $0。</p>
             <label className="finance-commission-search">搜索项目
@@ -904,9 +926,21 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
               <button disabled={busy || !commissions.length}>保存提成设置</button>
             </form>
           </div>
-        </details>
+        </div>
       </section>
       </>}
     </>}
+    <footer className="fp-dock">
+      <button type="button" className="fp-record" disabled={busy || !data}
+        onClick={() => startEntry('expense')}><MusicIcon name="plus" />记一笔</button>
+      <nav aria-label="账房导航">{[
+        ['overview', '总览'], ['records', '账单'], ['assets', '资产'], ['analysis', '分析'],
+      ].map(([view, label]) => {
+        const selected = activeView === view || view === 'records' && activeView === 'today' ||
+          view === 'assets' && activeView === 'settings' || view === 'analysis' && activeView === 'planning'
+        return <button key={view} type="button" disabled={busy} aria-current={selected ? 'page' : undefined}
+          onClick={() => changeView(view)}>{label}</button>
+      })}</nav>
+    </footer>
   </section>
 }
