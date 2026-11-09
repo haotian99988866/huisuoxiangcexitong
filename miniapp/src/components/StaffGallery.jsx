@@ -125,6 +125,8 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   const changed = admin && detail && description !== detail.description
   const searchTerm = search.trim().toLocaleLowerCase()
   const attendanceCodes = new Set((venue.technician_list || []).map(String))
+  const isOnDuty = member => venue.id === 2
+    ? attendanceCodes.has(String(member.code)) : Boolean(member.duty_label)
   const serviceTags = member => photoFirst && attendanceCodes.has(String(member.code))
     ? [...new Set((venue.attendance_groups || [])
       .filter(group => group.group_type === 'service' &&
@@ -132,7 +134,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       .map(group => group.group_name).filter(Boolean))]
     : []
   const visibleMembers = data?.members.filter(member =>
-    (!attendanceOnly || attendanceCodes.has(String(member.code))) &&
+    (!attendanceOnly || isOnDuty(member)) &&
     (!searchTerm || String(member.code).toLocaleLowerCase().includes(searchTerm))) || []
   const unarchivedCodes = attendanceOnly && data
     ? [...attendanceCodes].filter(code => !data.members.some(member => String(member.code) === code)) : []
@@ -179,7 +181,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   return <section className={`staff-gallery${photoFirst ? ' mingxi-photo-gallery' : ''}`} aria-label={`${venue.name}${photoFirst ? attendanceOnly ? '出勤照片' : '人员相册' : '人员档案'}`}>
     <div className="staff-heading">
       <h2>{photoFirst ? <>{attendanceOnly ? data?.shift || venue.current_shift || '本班' : '相册'}
-        {data && <span className="mingxi-personnel-count"> · {attendanceOnly ? attendanceCodes.size : data.total}位</span>}</> : '人员档案'}</h2>
+        {data && <span className="mingxi-personnel-count"> · {attendanceOnly ? visibleMembers.length : data.total}位</span>}</> : '人员档案'}</h2>
       <button type="button" disabled={busy} onClick={() => setAttempt(value => value + 1)}>刷新</button>
     </div>
     {error && <p className="membership-error" role="alert">{error}</p>}
@@ -205,7 +207,8 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
         {visibleMembers.map(member => {
           const dutyPhoto = attendanceOnly && venue.technician_photos?.[member.code]?.[0]
           const cover = dutyPhoto || member.cover
-          const prices90 = photoFirst ? member.price_options?.filter(option => option.minutes === 90) || [] : []
+          const prices90 = photoFirst ? member.price_options?.filter(option => option.minutes === 90) ||
+            (member.price_usd != null && member.price_detail?.includes('90分钟') ? [{ price_usd: member.price_usd }] : []) : []
           const tags = serviceTags(member)
           return <article className="staff-card" key={member.id}>
           <button type="button" className="staff-open" onClick={() => setSelected(member)}>
@@ -227,7 +230,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
               {photoFirst && <span className="mingxi-staff-price">{prices90.length
                 ? `$${money(Math.min(...prices90.map(option => Number(option.price_usd))))}${prices90.length > 1 ? '起' : ''} / 90分钟`
                 : '90分钟价待确认'}</span>}
-              <small>{attendanceOnly ? dutyPhoto ? '本班照片' : '本班照片待更新' : `${member.photo_count}张照片`}</small>
+              <small>{attendanceOnly ? dutyPhoto ? '本班照片' : member.duty_source === 'photo' ? '本班照片已发布 · 相册封面' : '本班照片待更新' : `${member.photo_count}张照片`}</small>
             </div>
           </button>
           {!admin && !photoFirst && <SubscriptionControl id={member.id} onDuty={Boolean(member.duty_label)} subscription={subscription} />}

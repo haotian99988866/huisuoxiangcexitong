@@ -240,7 +240,7 @@ export default function Admin() {
             <option value="deposits">充值复核（{data.counts.pending_deposits}待核）</option>
             <option value="credited">已充值用户</option>
             <option value="hotels">酒店推荐管理</option>
-            <option value="recommendations">名玺推荐管理</option>
+            <option value="recommendations">共享推荐管理</option>
             <option value="tenants">租户管理</option>
             <option value="operations">运营健康</option>
             <option value="finance">个人财务</option>

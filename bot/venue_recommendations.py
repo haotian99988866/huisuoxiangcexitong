@@ -1,4 +1,4 @@
-"""Manually reviewed, time-limited recommendations for the Mingxi pilot."""
+"""Manually reviewed, time-limited recommendations shared by venue photo pages."""
 from datetime import datetime, timezone
 import hashlib
 import io
@@ -16,6 +16,7 @@ from hotels import MAX_IMAGE_BYTES, normalize_image
 from customer_records import RecordConflict
 
 VENUE_ID = 2
+SHARED_VENUE_IDS = frozenset({2, 4, 5, 6, 7, 8, 9, 10})
 MAX_MEDIA_BYTES = 20 * 1024 * 1024
 FIELDS = "id,venue_id,kind,title,description,starts_at,ends_at,enabled,revision,updated_at,media_type,media_width,media_height"
 logger = logging.getLogger(__name__)
@@ -88,7 +89,12 @@ def _serialize(row):
 
 
 def catalog(data, admin=False):
-    venue_id = _venue(data)
+    if admin:
+        venue_id = _venue(data)
+    else:
+        if type(data.get("venue_id")) is not int or data["venue_id"] not in SHARED_VENUE_IDS:
+            raise ValueError("此页面未开放共享推荐")
+        venue_id = VENUE_ID
     page = data.get("page", 1)
     if type(page) is not int or not 1 <= page <= 10000:
         raise ValueError("推荐列表页码无效")

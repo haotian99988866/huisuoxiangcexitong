@@ -72,6 +72,23 @@ class RecommendationTests(unittest.TestCase):
         self.assertIn("LIMIT 20 OFFSET %s", query)
         self.assertEqual(args, [2, 20])
 
+    def test_shared_pages_read_one_catalog_but_cannot_write_other_venue_ids(self):
+        for venue_id in recommendations.SHARED_VENUE_IDS:
+            conn, cur = self.connection()
+            cur.fetchone.return_value = {"total": 0}
+            cur.fetchall.return_value = []
+            with patch.object(recommendations, "get_conn", return_value=conn):
+                recommendations.catalog({"venue_id": venue_id})
+            self.assertEqual(cur.execute.call_args.args[1][0], 2)
+            if venue_id != 2:
+                with self.assertRaises(ValueError):
+                    recommendations.catalog({"venue_id": venue_id}, admin=True)
+                with self.assertRaises(ValueError):
+                    recommendations.save(self.payload(venue_id=venue_id), None, 42)
+        for value in (1, 3, 11, True, "4", None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                recommendations.catalog({"venue_id": value})
+
     def test_image_endpoint_uses_same_visibility_window(self):
         for admin in (False, True):
             conn, cur = self.connection()
@@ -195,6 +212,21 @@ class RecommendationApiTests(unittest.TestCase):
                 response = self.client.post("/webhook", headers=headers, json={"action": "get_venue_recommendations", "venue_id": 2})
                 self.assertEqual(response.status_code, expected)
                 self.assertEqual(self.client.get("/venue-recommendation-images/" + "a" * 32, headers=headers).status_code, expected)
+
+    def test_shared_tenant_scope_preserves_catalog_venue_access(self):
+        for venue_id in recommendations.SHARED_VENUE_IDS:
+            with patch.object(api_server, "load_tenant", return_value={"venue_ids": [venue_id]}), \
+                    patch.object(recommendations, "catalog", return_value={"recommendations": []}), \
+                    patch.object(recommendations, "media", return_value={"image": b"jpeg", "media_type": "photo"}):
+                headers = {"X-Tenant": "test-shop"}
+                response = self.client.post("/webhook", headers=headers, json={
+                    "action": "get_venue_recommendations", "venue_id": venue_id})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(self.client.get("/venue-recommendation-images/" + "a" * 32, headers=headers).status_code, 200)
+                if venue_id != 2:
+                    response = self.client.post("/webhook", headers=headers, json={
+                        "action": "get_venue_recommendations", "venue_id": 2})
+                    self.assertEqual(response.status_code, 403)
 
     def test_upload_requires_admin_and_tenant_upload_is_rejected(self):
         with patch("admin_console.authenticate_admin_request", return_value=None), \

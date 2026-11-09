@@ -161,7 +161,7 @@ export default function VenueRecommendations({ venueId }) {
   if (error) return <div className="venue-recommendation-error" role="alert">{error}
     <button type="button" onClick={() => setReload(value => value + 1)}>重试推荐</button></div>
   if (!items.length) return null
-  return <section ref={section} className="venue-recommendations" aria-label="名玺精选推荐" aria-roledescription="轮播"
+  return <section ref={section} className="venue-recommendations" aria-label="精选推荐" aria-roledescription="轮播"
     onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}
     onFocus={() => setPaused(true)} onBlur={event => {
       if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false)

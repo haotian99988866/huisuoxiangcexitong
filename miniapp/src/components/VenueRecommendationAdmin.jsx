@@ -137,11 +137,11 @@ export default function VenueRecommendationAdmin() {
   const disabled = busy || recovering || Boolean(recoveryError) || Boolean(editor)
   const field = (name, value) => setEditor(current => ({ ...current, [name]: value }))
   const isVideo = file ? file.type.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name || '') : editor?.media_type === 'video'
-  return <section className="admin-card hotel-admin recommendation-admin" aria-label="名玺推荐管理">
-    <div className="hotel-admin-heading"><div><h2>名玺推荐管理</h2></div>
+  return <section className="admin-card hotel-admin recommendation-admin" aria-label="共享推荐管理">
+    <div className="hotel-admin-heading"><div><h2>共享推荐管理</h2></div>
       <button className="hotel-admin-add" type="button" disabled={disabled} onClick={() => open(null)}>＋ 新增推荐</button></div>
     <p className="hotel-admin-intro">发布会所活动或已确认的新人推荐，按有效期自动展示及下架。</p>
-    <p className="hotel-admin-guidance">仅名玺水汇试点。请核实适用条件、人员成年及本人授权、照片使用许可；不会从采集照片自动认定新人。</p>
+    <p className="hotel-admin-guidance">名玺会所、凯迪、大西洋、帝豪及西港外送共用此推荐列表，名玺按摩和KTV不展示。请注明适用会所，核实适用条件、人员成年及本人授权、媒体使用许可；不会从采集照片自动认定新人。</p>
     {recoveryError && <p className="admin-error" role="alert">{recoveryError}</p>}
     {!editor && error && <p className="admin-error" role="alert">{error}</p>}
     {notice && <p className="admin-notice" role="status">{notice}</p>}
@@ -164,7 +164,7 @@ export default function VenueRecommendationAdmin() {
       <span>{page} / {Math.ceil(data.total / 20)}</span>
       <button type="button" disabled={disabled || page * 20 >= data.total} onClick={() => setPage(value => value + 1)}>下一页</button>
     </nav>}
-    {editor && <MusicDialog className="hotel-editor-sheet recommendation-editor-sheet" title={editor.revision ? '编辑名玺推荐' : '新增名玺推荐'}
+    {editor && <MusicDialog className="hotel-editor-sheet recommendation-editor-sheet" title={editor.revision ? '编辑共享推荐' : '新增共享推荐'}
       scrollBody onClose={close} footer={<div className="hotel-admin-actions">
         <button type="button" disabled={busy || uncertain} onClick={close}>{pending ? '返回修改' : '取消'}</button>
         <button type="button" className="hotel-admin-primary" disabled={busy} onClick={() => pending ? save() : form.current?.requestSubmit()}>

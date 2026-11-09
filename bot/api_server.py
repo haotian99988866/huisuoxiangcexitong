@@ -174,7 +174,7 @@ def tenant_context():
                 return jsonify({"error": "此入口未开放该会所"}), 403
         if body.get("action") in {"get_staff", "get_delivery_archive", "get_venue_recommendations"} and body.get("venue_id") not in g.tenant["venue_ids"]:
             return jsonify({"error": "此入口未开放该会所档案"}), 403
-    elif request.endpoint == "venue_recommendation_image" and venue_recommendations.VENUE_ID not in g.tenant["venue_ids"]:
+    elif request.endpoint == "venue_recommendation_image" and not venue_recommendations.SHARED_VENUE_IDS.intersection(g.tenant["venue_ids"]):
         return jsonify({"error": "此入口未开放该会所推荐"}), 403
     elif request.endpoint == "announcement_media" and not g.tenant.get("announcements_enabled"):
         return jsonify({"error": "此入口未开放公告"}), 403

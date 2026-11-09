@@ -412,7 +412,7 @@ export default function VenueList() {
     ? deliveryCategories.reduce((sum, venue) => sum + (venue.delivery_posts || []).length, 0)
     : selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
-  const isMingxiPilot = Number(selectedVenue?.id) === 2
+  const isPhotoFirst = [2, 4, 5, 6, 7, 8, 9, 10].includes(Number(selectedVenue?.id))
   const rosterGridStyle = technicianList.length <= 9
     ? roomyTechnicianGridStyle
     : technicianGridStyle
@@ -767,7 +767,7 @@ export default function VenueList() {
           <div style={{
             padding: '0 2px'
           }}>
-            <div className={isMingxiPilot ? 'mingxi-personnel-toolbar' : undefined} style={{
+            <div className={isPhotoFirst ? 'mingxi-personnel-toolbar' : undefined} style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -812,14 +812,14 @@ export default function VenueList() {
                 ))
               )}
             </select>
-            {isMingxiPilot && <nav className="mingxi-personnel-tabs" aria-label="名玺人员浏览">
+            {isPhotoFirst && <nav className="mingxi-personnel-tabs" aria-label="人员浏览">
               {[[false, attendanceViewLabel], [true, '人员相册']].map(([archive, label]) =>
                 <button key={label} type="button" aria-pressed={showStaffArchive === archive}
                   aria-controls="venue-personnel-content"
                   onClick={() => { setShowStaffArchive(archive); setSelectedTechnicianCode('') }}>{label}</button>)}
             </nav>}
-            {!isMingxiPilot && <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto' }}>
-              {hasStaffArchive && !isMingxiPilot && <button
+            {!isPhotoFirst && <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto' }}>
+              {hasStaffArchive && <button
                 type="button"
                 onClick={() => {
                   setShowStaffArchive(value => !value)
@@ -919,11 +919,15 @@ export default function VenueList() {
         </div>
       ) : (
         <div id="venue-personnel-content">
-          {isMingxiPilot && <VenueRecommendations venueId={selectedVenue.id} />}
-          {hasStaffArchive && showStaffArchive
+          {isPhotoFirst && <VenueRecommendations venueId={selectedVenue.id} />}
+          {isPhotoFirst
+            ? isDelivery
+              ? <DeliveryArchive key={`${deliveryCategoryKey(selectedVenue)}-${showStaffArchive}`} venue={selectedVenue} photoFirst attendanceOnly={!showStaffArchive} />
+              : <StaffGallery key={`${selectedVenue.id}-${showStaffArchive}`} venue={selectedVenue} photoFirst attendanceOnly={!showStaffArchive} />
+            : hasStaffArchive && showStaffArchive
             ? isDelivery
               ? <DeliveryArchive key={deliveryCategoryKey(selectedVenue)} venue={selectedVenue} />
-              : <StaffGallery key={selectedVenue.id} venue={selectedVenue} photoFirst={isMingxiPilot} />
+              : <StaffGallery key={selectedVenue.id} venue={selectedVenue} />
             : <>
           {/* 今日在岗技师 / 未发布提示 */}
           {isDeliveryDayShift ? (
@@ -1475,8 +1479,6 @@ export default function VenueList() {
                 </div>
               ))}
             </div>
-          ) : isMingxiPilot ? (
-            <StaffGallery key={`duty-${selectedVenue.id}`} venue={selectedVenue} photoFirst attendanceOnly />
           ) : technicianList.length > 0 ? (
             <div style={attendancePanelStyle}>
               <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
@@ -1539,7 +1541,7 @@ export default function VenueList() {
           )}
 
           {/* Services grouped by category */}
-          {attendanceServiceGroups.length > 0 ? !isMingxiPilot && (
+          {attendanceServiceGroups.length > 0 ? (
             <div style={{
               marginBottom: '24px',
               background: 'var(--home-surface)',
