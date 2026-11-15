@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { API_BASE_URL } from '../utils/twa'
 import { contactName, contactUrl, mediaUrl } from '../utils/tenant'
 import { bookingUrl } from '../utils/booking'
@@ -55,6 +55,7 @@ export default function VenueRecommendations({ venueId }) {
   const [error, setError] = useState('')
   const [reload, setReload] = useState(0)
   const [index, setIndex] = useState(0)
+  const [moving, setMoving] = useState(false)
   const [now, setNow] = useState(Date.now())
   const [clockOffset, setClockOffset] = useState(0)
   const [selectedId, setSelectedId] = useState(null)
@@ -68,6 +69,11 @@ export default function VenueRecommendations({ venueId }) {
   const [foreground, setForeground] = useState(document.visibilityState === 'visible')
   const rail = useRef(null)
   const section = useRef(null)
+  const scrollTimer = useRef(null)
+  const positionRef = useRef(0)
+  const previousIds = useRef('')
+  const touching = useRef(false)
+  useEffect(() => () => clearTimeout(scrollTimer.current), [])
   useEffect(() => {
     let active = true
     const controller = new AbortController()
@@ -102,7 +108,7 @@ export default function VenueRecommendations({ venueId }) {
   }, [])
   const items = (data?.recommendations || []).filter(item =>
     item.enabled && Date.parse(item.starts_at) <= now + clockOffset && Date.parse(item.ends_at) > now + clockOffset)
-  const activeIndex = Math.min(index, Math.max(0, items.length - 1))
+  const activeIndex = items.length ? index % items.length : 0
   const selected = items.find(item => item.id === selectedId)
   const hasItems = items.length > 0
   useEffect(() => {
@@ -131,32 +137,44 @@ export default function VenueRecommendations({ venueId }) {
   const ratio = item => dimensions[`${item.id}-${item.revision}`] || (
     item.media_width && item.media_height ? item.media_width / item.media_height : 1)
   const cardWidth = item => Math.min(railWidth, Math.max(96, mediaHeight * ratio(item)))
+  const cycleWidth = items.reduce((width, item) => width + cardWidth(item) + 12, 0)
+  const sideCopies = items.length > 1 ? Math.max(1, Math.ceil(railWidth / cycleWidth)) : 0
+  const middleStart = sideCopies * items.length
+  const slides = Array.from({ length: sideCopies * 2 + 1 }, (_, copy) =>
+    items.map(item => ({ item, copy }))).flat()
   const recordDimensions = (item, width, height) => {
     if (!width || !height) return
     const key = `${item.id}-${item.revision}`
     setDimensions(current => current[key] === width / height ? current : { ...current, [key]: width / height })
   }
-  const move = next => {
+  const centerPosition = position => {
     const element = rail.current
-    const card = element?.querySelectorAll('.venue-recommendation-slide')[next]
-    if (card) element.scrollTo({
-      left: element.scrollLeft + card.getBoundingClientRect().left - element.getBoundingClientRect().left - (element.clientWidth - card.clientWidth) / 2,
-      behavior: reducedMotion ? 'instant' : 'smooth',
-    })
-    setIndex(next)
+    const card = element?.querySelectorAll('.venue-recommendation-slide')[position]
+    return card ? element.scrollLeft + card.getBoundingClientRect().left -
+      element.getBoundingClientRect().left - (element.clientWidth - card.clientWidth) / 2 : 0
   }
-  const layoutKey = items.map(item => `${item.id}:${cardWidth(item)}`).join(',')
-  useEffect(() => {
+  const move = position => {
+    if (!rail.current) return
+    setMoving(true)
+    rail.current.scrollTo({ left: centerPosition(position), behavior: reducedMotion ? 'instant' : 'smooth' })
+  }
+  const layoutKey = `${railWidth}:${mediaHeight}:${sideCopies}:` + items.map(item => `${item.id}:${item.revision}:${cardWidth(item)}`).join(',')
+  useLayoutEffect(() => {
+    clearTimeout(scrollTimer.current)
     const element = rail.current
-    const card = element?.querySelectorAll('.venue-recommendation-slide')[activeIndex]
-    if (card) element.scrollLeft += card.getBoundingClientRect().left - element.getBoundingClientRect().left - (element.clientWidth - card.clientWidth) / 2
+    const logical = previousIds.current === itemIds ? positionRef.current % Math.max(1, items.length) : 0
+    previousIds.current = itemIds
+    const position = middleStart + logical
+    positionRef.current = position
+    setIndex(position)
+    setMoving(false)
+    if (element && items.length) element.scrollTo({ left: centerPosition(position), behavior: 'instant' })
   }, [layoutKey])
-  useEffect(() => { setIndex(0) }, [itemIds])
-  const videoActive = visible && foreground && !selected
-  const next = () => { if (items.length > 1) move((activeIndex + 1) % items.length) }
+  const videoActive = visible && foreground && !selected && !moving
+  const next = () => { if (items.length > 1) move(positionRef.current + 1) }
   useEffect(() => {
     if (items.length < 2 || paused || !videoActive || reducedMotion || items[activeIndex]?.media_type === 'video') return
-    const timer = setTimeout(next, 7000)
+    const timer = setTimeout(next, 2000)
     return () => clearTimeout(timer)
   }, [activeIndex, items.length, paused, videoActive, reducedMotion, items[activeIndex]?.media_type, itemIds])
   const image = item => mediaUrl(`${API_BASE_URL}${item.image_url}`)
@@ -177,33 +195,56 @@ export default function VenueRecommendations({ venueId }) {
     onFocus={() => setPaused(true)} onBlur={event => {
       if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false)
     }}>
-    <div className="venue-recommendation-rail" ref={rail} style={railWidth ? {
-      paddingLeft: (railWidth - cardWidth(items[0])) / 2, paddingRight: (railWidth - cardWidth(items.at(-1))) / 2,
+    <div className="venue-recommendation-rail" ref={rail} style={railWidth && items.length === 1 ? {
+      paddingInline: (railWidth - cardWidth(items[0])) / 2,
     } : undefined}
       onScroll={event => {
         const element = event.currentTarget, center = element.getBoundingClientRect().left + element.clientWidth / 2
         const distances = [...element.querySelectorAll('.venue-recommendation-slide')].map(card =>
           Math.abs(card.getBoundingClientRect().left + card.clientWidth / 2 - center))
-        if (distances.length) setIndex(distances.indexOf(Math.min(...distances)))
+        if (!distances.length) return
+        const position = distances.indexOf(Math.min(...distances))
+        positionRef.current = position
+        setIndex(position)
+        setMoving(true)
+        clearTimeout(scrollTimer.current)
+        scrollTimer.current = setTimeout(function settle() {
+          if (touching.current) {
+            scrollTimer.current = setTimeout(settle, 160)
+            return
+          }
+          // Rebase to the identical middle copy only after scrolling has settled.
+          const middle = middleStart + position % items.length
+          if (position !== middle) {
+            const offset = centerPosition(middle) - centerPosition(position)
+            element.scrollTo({ left: element.scrollLeft + offset, behavior: 'instant' })
+            positionRef.current = middle
+            setIndex(middle)
+          }
+          setMoving(false)
+        }, 160)
       }}
-      onTouchStart={() => setPaused(true)} onTouchEnd={() => setPaused(false)} onTouchCancel={() => setPaused(false)}>
-      {items.map((item, position) => <article key={`${item.id}-${item.revision}`} className="venue-recommendation-slide"
+      onTouchStart={() => { touching.current = true; setPaused(true) }}
+      onTouchEnd={() => { touching.current = false; setPaused(false) }}
+      onTouchCancel={() => { touching.current = false; setPaused(false) }}>
+      {slides.map(({ item, copy }, position) => <article key={`${copy}-${item.id}-${item.revision}`} className="venue-recommendation-slide"
+        data-recommendation-id={item.id} data-active={position === index}
         style={{ width: railWidth ? cardWidth(item) : '100%', '--media-ratio': ratio(item) }}>
         {item.media_type === 'video'
-          ? <RecommendationVideo src={image(item)} title={item.title} active={position === activeIndex && videoActive}
+          ? <RecommendationVideo src={image(item)} title={item.title} active={position === index && videoActive}
             autoPlayAllowed={!reducedMotion}
-            onOpen={() => setSelectedId(item.id)} tabIndex={position === activeIndex ? 0 : -1}
+            onOpen={() => setSelectedId(item.id)} tabIndex={position === index ? 0 : -1}
             onEnded={next} onDimensions={(width, height) => recordDimensions(item, width, height)} />
           : <button type="button" className="venue-recommendation-photo"
-            aria-label={`${recommendationKinds[item.kind]}：${item.title}`} tabIndex={position === activeIndex ? 0 : -1}
+            aria-label={`${recommendationKinds[item.kind]}：${item.title}`} tabIndex={position === index ? 0 : -1}
             onClick={() => setSelectedId(item.id)}>
             {failedImages.has(item.id) ? <span className="venue-recommendation-image-error">推荐图暂不可用，点击查看说明</span>
-              : <img src={image(item)} alt={item.title} loading={position ? 'lazy' : 'eager'}
+              : <img src={image(item)} alt={item.title} loading="eager"
                 onLoad={event => recordDimensions(item, event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)}
                 onError={() => failImage(item.id)} />}
           </button>}
         <button type="button" className="venue-recommendation-caption" onClick={() => setSelectedId(item.id)}
-          tabIndex={position === activeIndex ? 0 : -1} aria-label={`查看推荐说明：${item.title}`}>
+          tabIndex={position === index ? 0 : -1} aria-label={`查看推荐说明：${item.title}`}>
           <small>{recommendationKinds[item.kind]}</small><strong>{item.title}</strong>
         </button>
       </article>)}
