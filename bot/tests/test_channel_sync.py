@@ -10,7 +10,8 @@ from telethon import types, errors
 
 from channel_sync import JobStore, complete_album, deliver, enqueue_new_messages, prepare_news_sources, reconcile_messages, single_instance, split_telegram_text, worker, run_with_recovery
 from news_sources import NEWS_SOURCES, announcement_job_key
-from channel_sync_clean import clean_text, clean_news_text, is_advertisement, is_news_advertisement, news_emoji_count, exceeds_news_limits, cleaned_news_emoji_count
+from channel_sync_clean import clean_text, clean_news_text, is_advertisement, is_news_advertisement, news_emoji_count, exceeds_news_limits, cleaned_news_emoji_count, is_news_maintenance_notice
+from news_dedupe import normalized_body
 
 
 MISSED_NEWS_ADS = (
@@ -84,6 +85,16 @@ class ListenerRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CleanTextTests(unittest.TestCase):
+    def test_channel_maintenance_notices_are_not_news_reports(self):
+        for notice in ("⚠️【提醒】系统维护中，请稍后再试", "溫馨提示：系統維護中",
+                       "因系统维护，暂时无法收录", "机器人维护通知\n稍后恢复"):
+            with self.subTest(notice=notice):
+                self.assertTrue(is_news_maintenance_notice(notice))
+        for headline in ("警方提醒：警惕假冒系统维护公告", "系统维护中的安全漏洞引发业内讨论",
+                         "快讯：医院系统维护中，急诊改为人工登记"):
+            with self.subTest(headline=headline):
+                self.assertFalse(is_news_maintenance_notice(headline))
+
     def test_news_emoji_threshold_counts_visible_sequences(self):
         for symbol in ("😀", "🇨🇳", "👨‍👩‍👧‍👦", "👍🏽", "1️⃣", "❤️", "➡️"):
             with self.subTest(symbol=symbol):
@@ -481,6 +492,27 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.store.update(second, "uncertain", result_ids=[101])
         self.assertIsNone(self.store.next_news((legacy, added), "2"))
 
+    def test_realtime_news_has_priority_over_both_kinds_of_backfill(self):
+        with patch("channel_sync.time.time", return_value=1000):
+            self.store.enqueue(1, "2", [20], 699)
+            self.store.enqueue(1, "2", [21], 800, is_backfill=True)
+            self.store.enqueue(1, "2", [22], 700)
+            self.store.enqueue(1, "2", [23], 999)
+            for key in ("22", "23", "20", "21"):
+                job = self.store.next_news((1,), "2")
+                self.assertEqual(job["job_key"], key)
+                self.store.update(job, "sent")
+
+    async def test_scan_marks_only_messages_before_listener_resumed(self):
+        self.store.progress(1, "2", 20)
+        missed, fresh = self.historical(21), self.historical(22)
+        fresh.date = missed.date + timedelta(seconds=20)
+        self.history([missed, fresh])
+        await reconcile_messages(self.user, self.source, self.target, self.store, 20,
+                                 resumed_at=(missed.date + timedelta(seconds=1)).timestamp())
+        rows = self.store.connection.execute("SELECT is_backfill FROM jobs ORDER BY rowid").fetchall()
+        self.assertEqual([row["is_backfill"] for row in rows], [1, 0])
+
     def test_operations_health_filters_news_queues_by_source(self):
         from operations_health import _component
         self.store.enqueue(1, "2", [10])
@@ -539,6 +571,38 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
             self.target, "正文", parse_mode=None, link_preview=False,
         )
         self.assertEqual(self.status(), "sent")
+
+    async def test_backfill_has_visible_label_without_changing_content_fingerprint(self):
+        from announcements import reading_text
+        body = "#本地资讯：路口事故\n现场已经恢复通行。"
+        self.user.get_messages.return_value = [self.message(body)]
+        self.store.enqueue(1, "2", [10], 699)
+        with patch("channel_sync.time.time", return_value=1000):
+            await deliver(self.user, self.bot, self.source, self.target, self.store,
+                          self.store.next(1, "2"), self.directory)
+        sent = self.bot.send_message.await_args.args[1]
+        self.assertEqual(sent, "#本地资讯：【补录】 路口事故\n现场已经恢复通行。")
+        self.assertEqual(reading_text(sent, [])["title"], "【补录】 路口事故")
+        self.assertEqual(reading_text(sent, [])["category"], "本地资讯")
+        self.assertEqual(normalized_body(sent), normalized_body(body))
+
+    async def test_backfill_media_without_caption_gets_caption_label(self):
+        message = self.message("", types.MessageMediaPhoto())
+        self.user.get_messages.return_value = [message]
+        self.user.download_media.return_value = "photo.jpg"
+        self.store.enqueue(1, "2", [10], 999, is_backfill=True)
+        with patch("channel_sync.time.time", return_value=1000):
+            await deliver(self.user, self.bot, self.source, self.target, self.store,
+                          self.store.next(1, "2"), self.directory)
+        self.assertEqual(self.bot.send_file.await_args.kwargs["caption"], "【补录】")
+        self.bot.send_message.assert_not_awaited()
+
+    async def test_maintenance_notice_does_not_send_or_download_media(self):
+        await self.publish([self.message("提醒系统维护中\n请稍后再试", types.MessageMediaPhoto())])
+        self.assertEqual(self.status(), "skipped")
+        self.user.download_media.assert_not_awaited()
+        self.bot.send_file.assert_not_awaited()
+        self.bot.send_message.assert_not_awaited()
 
     async def test_empty_cleaned_text_is_skipped(self):
         await self.publish([self.message("https://example.com @contact")])

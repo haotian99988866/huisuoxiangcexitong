@@ -11,11 +11,13 @@ from pathlib import Path
 import sqlite3
 import shutil
 import tempfile
+import time
 
 from dotenv import load_dotenv
 from telethon import TelegramClient, events, errors, types, utils
 
 from channel_sync_clean import clean_news_text, is_news_advertisement, exceeds_news_limits, cleaned_news_emoji_count
+from channel_sync_clean import is_news_maintenance_notice, label_news_backfill
 from operations_health import ensure_health_table, record_worker_failure, record_worker_heartbeat
 from news_sources import NEWS_SOURCES, announcement_job_key
 from news_dedupe import NewsDeduper, MIN_SIMILAR_LENGTH, media_digest, normalized_body, seed_recent_news
@@ -23,6 +25,7 @@ from news_dedupe import NewsDeduper, MIN_SIMILAR_LENGTH, media_digest, normalize
 
 logger = logging.getLogger("channel_sync")
 CONFIG_PATH = Path(__file__).with_name(".channel-sync.env")
+BACKFILL_AFTER_SECONDS = 5 * 60
 
 
 class OverlappingSyncJob(ValueError):
@@ -73,6 +76,8 @@ class JobStore:
         columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
         if "source_published_at" not in columns:
             self.connection.execute("ALTER TABLE jobs ADD COLUMN source_published_at REAL")
+        if "is_backfill" not in columns:
+            self.connection.execute("ALTER TABLE jobs ADD COLUMN is_backfill INTEGER NOT NULL DEFAULT 0")
         self.connection.execute("""
             CREATE TABLE IF NOT EXISTS sync_progress (
                 source INTEGER NOT NULL, target TEXT NOT NULL,
@@ -84,7 +89,7 @@ class JobStore:
         self.news_deduper = NewsDeduper(self.connection)
         self.connection.commit()
 
-    def enqueue(self, source, target, ids, published_at=None):
+    def enqueue(self, source, target, ids, published_at=None, *, is_backfill=False):
         ids = sorted(set(ids))
         key = ",".join(map(str, ids))
         with self.connection:
@@ -104,10 +109,10 @@ class JobStore:
                 raise OverlappingSyncJob(
                     f"Overlapping sync jobs {key} and {overlap['job_key']}; inspect before sending.")
             self.connection.execute(
-                "INSERT OR IGNORE INTO jobs (source,target,job_key,message_ids,created,source_published_at)"
-                " VALUES (?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO jobs (source,target,job_key,message_ids,created,source_published_at,is_backfill)"
+                " VALUES (?,?,?,?,?,?,?)",
                 (source, target, key, json.dumps(ids),
-                 datetime.now(timezone.utc).isoformat(), published_at),
+                 datetime.now(timezone.utc).isoformat(), published_at, is_backfill),
             )
         return True
 
@@ -159,9 +164,11 @@ class JobStore:
     def next_news(self, sources, target):
         return self.connection.execute(
             "SELECT * FROM jobs WHERE target=? AND status='queued' AND source IN ("
-            + ",".join("?" for _ in sources) + ") ORDER BY COALESCE(source_published_at,"
+            + ",".join("?" for _ in sources) + ") ORDER BY "
+            "CASE WHEN is_backfill=1 OR source_published_at < ? THEN 1 ELSE 0 END,"
+            " COALESCE(source_published_at,"
             " (julianday(created)-2440587.5)*86400),rowid LIMIT 1",
-            (target, *sources),
+            (target, *sources, time.time() - BACKFILL_AFTER_SECONDS),
         ).fetchone()
 
     def update(self, job, status, *, result_ids=None, error=None):
@@ -184,7 +191,7 @@ class JobStore:
         self.connection.close()
 
 
-def enqueue_new_messages(store, source_id, target_id, boundary, messages):
+def enqueue_new_messages(store, source_id, target_id, boundary, messages, *, resumed_at=None):
     messages = sorted(messages, key=lambda message: message.id)
     if not messages or any(message.id <= boundary for message in messages):
         return
@@ -192,7 +199,9 @@ def enqueue_new_messages(store, source_id, target_id, boundary, messages):
         return
     dates = [message.date for message in messages if getattr(message, "date", None)]
     published_at = min(dates).timestamp() if dates else None
-    if store.enqueue(source_id, str(target_id), [message.id for message in messages], published_at):
+    is_backfill = published_at is not None and resumed_at is not None and published_at < resumed_at
+    if store.enqueue(source_id, str(target_id), [message.id for message in messages], published_at,
+                     is_backfill=is_backfill):
         logger.info("Queued source message(s) %s", [message.id for message in messages])
 
 
@@ -218,7 +227,7 @@ async def complete_album(user, source, messages):
     return album
 
 
-async def reconcile_messages(user, source, target, store, boundary):
+async def reconcile_messages(user, source, target, store, boundary, *, resumed_at=None):
     progress = store.progress(source.id, str(target.id), boundary)
     messages = [message async for message in user.iter_messages(
         source, min_id=progress["scanned_id"], reverse=True, limit=201,
@@ -240,7 +249,7 @@ async def reconcile_messages(user, source, target, store, boundary):
         if (now - complete[-1].date).total_seconds() < 10:
             break
         try:
-            enqueue_new_messages(store, source.id, target.id, boundary, complete)
+            enqueue_new_messages(store, source.id, target.id, boundary, complete, resumed_at=resumed_at)
         except OverlappingSyncJob as error:
             store.record_overlap(source.id, str(target.id), complete, error)
             logger.warning("Recorded overlapping album for manual review source=%s ids=%s: %s",
@@ -249,13 +258,13 @@ async def reconcile_messages(user, source, target, store, boundary):
     return len(messages)
 
 
-async def reconciliation_worker(user, source, target, store, boundary):
+async def reconciliation_worker(user, source, target, store, boundary, *, resumed_at=None):
     while True:
         record_worker_heartbeat(store.connection, "channel_reconciliation")
         record_worker_heartbeat(store.connection, f"news_source_{source.id}")
         delay = 30
         try:
-            count = await reconcile_messages(user, source, target, store, boundary)
+            count = await reconcile_messages(user, source, target, store, boundary, resumed_at=resumed_at)
             if count == 201:
                 delay = 1
         except errors.FloodWaitError as error:
@@ -309,6 +318,10 @@ async def deliver(user, bot, source, target, store, job, directory):
         store.update(job, "skipped", error="Source message has protected content.")
         logger.warning("Skipped protected job %s", job["job_key"])
         return
+    if any(is_news_maintenance_notice(message.message) for message in messages):
+        store.update(job, "skipped", error="System maintenance notice; entire job excluded.")
+        logger.info("Skipped maintenance notice job %s", job["job_key"])
+        return
     if any(is_news_advertisement(message.message) for message in messages):
         store.update(job, "skipped", error="Advertisement label or promotional template; entire job excluded.")
         logger.info("Skipped advertisement job %s", job["job_key"])
@@ -350,13 +363,6 @@ async def deliver(user, bot, source, target, store, job, directory):
             f"Duplicate news within 15 hours: {duplicate['source']}:{duplicate['job_key']}"))
         logger.info("Skipped duplicate news source=%s job=%s", job["source"], job["job_key"])
         return
-    separate_album_text = len(media_messages) > 1
-    long_caption = any(len(text.encode("utf-16-le")) // 2 > 1024 for text in captions)
-    # Bot accounts have a smaller caption limit than premium source-channel authors.
-    text_parts = split_telegram_text("\n\n".join(text for text in captions if text)) if (
-        long_caption or separate_album_text or not media_messages
-    ) else []
-    media_captions = [""] * len(captions) if long_caption or separate_album_text else captions
     with tempfile.TemporaryDirectory(prefix="media-", dir=directory) as temporary:
         paths = []
         for message in media_messages:
@@ -371,6 +377,19 @@ async def deliver(user, bot, source, target, store, job, directory):
                 f"Duplicate news within 15 hours: {duplicate['source']}:{duplicate['job_key']}"))
             logger.info("Skipped duplicate news source=%s job=%s", job["source"], job["job_key"])
             return
+        published_at = job["source_published_at"]
+        if published_at is None:
+            dates = [message.date.timestamp() for message in messages if getattr(message, "date", None)]
+            published_at = min(dates) if dates else None
+        is_backfill = job["is_backfill"] or (
+            published_at is not None and published_at < time.time() - BACKFILL_AFTER_SECONDS)
+        display_body = label_news_backfill(body) if is_backfill else body
+        separate_album_text = len(media_messages) > 1
+        # A standalone bot caption is limited to 1024 UTF-16 units, including the label.
+        long_caption = len(display_body.encode("utf-16-le")) // 2 > 1024
+        separate_text = long_caption or separate_album_text or not media_messages
+        text_parts = split_telegram_text(display_body) if separate_text else []
+        media_captions = [""] * len(captions) if separate_text else [display_body]
         store.news_deduper.begin_send(job, body, digest)
         result_ids = []
         if paths:
@@ -561,13 +580,15 @@ async def run(mode, directory, news_only=False):
         from announcements import ensure_tables
         await asyncio.to_thread(ensure_tables)
         await seed_recent_news(bot, target, store, directory)
+        resumed_at = int(time.time())
 
         async def receive(source, messages):
             # Allow all album members and their captions to reach the source before queuing.
             if messages and messages[0].grouped_id:
                 await asyncio.sleep(10)
             complete = await complete_album(user, source, messages)
-            enqueue_new_messages(store, source.id, target.id, boundaries[source.id], complete)
+            enqueue_new_messages(store, source.id, target.id, boundaries[source.id], complete,
+                                 resumed_at=resumed_at)
 
         async def on_message(event):
             if not event.message.grouped_id:
@@ -598,7 +619,7 @@ async def run(mode, directory, news_only=False):
             tasks.create_task(announcement_worker(bot, target, store))
             for source in sources:
                 tasks.create_task(reconciliation_worker(
-                    user, source, target, store, boundaries[source.id]))
+                    user, source, target, store, boundaries[source.id], resumed_at=resumed_at))
             tasks.create_task(monitor_listener())
             await user.run_until_disconnected()
             raise ConnectionError("Listener disconnected; stop and inspect before restarting.")

@@ -121,6 +121,44 @@ def cleaned_news_emoji_count(original, cleaned, entities=()):
     return len(spans)
 
 
+NEWS_BACKFILL_LABEL = "【补录】"
+NEWS_CATEGORY_PREFIX = re.compile(r"^#[^\s:：]{1,20}[：:][ \t]*")
+
+
+def label_news_backfill(body):
+    category = NEWS_CATEGORY_PREFIX.match(body)
+    offset = category.end() if category else 0
+    title = body[offset:]
+    if title.startswith(NEWS_BACKFILL_LABEL):
+        return body
+    label = f"{NEWS_BACKFILL_LABEL} {title}" if title else NEWS_BACKFILL_LABEL
+    return body[:offset] + label
+
+
+def strip_news_backfill_label(body):
+    category = NEWS_CATEGORY_PREFIX.match(body)
+    offset = category.end() if category else 0
+    title = body[offset:]
+    if title.startswith(NEWS_BACKFILL_LABEL):
+        return body[:offset] + title.removeprefix(NEWS_BACKFILL_LABEL).lstrip()
+    return body
+
+
+def is_news_maintenance_notice(text):
+    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
+    heading = next((line for line in normalized.splitlines()
+                    if re.search(r"[\w\u3400-\u9fff]", line)), "")
+    heading = re.sub(r"^[^\w\u3400-\u9fff]+", "", heading.strip())
+    return bool(re.match(
+        r"(?:(?:温馨|溫馨)?(?:提醒|提示|通知|公告)[\s:：】\]、—-]*)?"
+        r"(?:(?:本|当前|當前)?(?:系[统統]|平台|机器人|機器人|收[录錄]系[统統])"
+        r"\s*(?:正在|目前|暂时|暫時)?\s*[维維][护護](?:中|通知|公告)|"
+        r"(?:因(?:系[统統]|平台)[维維][护護][\s,，]*)?"
+        r"(?:暂时|暫時|暂|暫)(?:无法|無法|停)(?:收[录錄]|采集|採集))"
+        r"(?=$|[\W_]|请|請|敬|稍|暂|暫|不便|预计|預計)", heading))
+
+
 def is_news_advertisement(text):
     """Recognize promotional templates, not isolated words in news reports."""
     normalized = unicodedata.normalize("NFKC", text or "")

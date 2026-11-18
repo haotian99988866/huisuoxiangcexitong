@@ -72,10 +72,17 @@ class WatchdogTests(unittest.TestCase):
         with patch.object(watchdog, "run_recovery_script", return_value=0) as start:
             attempts = watchdog.recover_missing(roles)
         self.assertEqual(attempts, ["主服务", "频道同步"])
-        self.assertEqual(
-            [call.args[0] for call in start.call_args_list],
-            [watchdog.START_LOCAL, watchdog.START_CHANNEL_SYNC],
-        )
+        self.assertEqual(start.call_args_list[0].args, (watchdog.START_LOCAL, 480))
+        self.assertEqual(start.call_args_list[1].args,
+                         (watchdog.START_CHANNEL_SYNC, 150))
+
+    def test_channel_sync_recovery_starts_full_mode(self):
+        response = MagicMock(returncode=0)
+        with patch.object(watchdog.subprocess, "run", return_value=response) as run:
+            roles = {role: role != "channel_sync" for role in watchdog.EXPECTED_ROLES}
+            watchdog.recover_missing(roles)
+        command = run.call_args.args[0]
+        self.assertEqual(command[4:], ["-File", str(watchdog.START_CHANNEL_SYNC)])
 
     def test_incident_alerts_are_deduplicated_repeated_and_recovered(self):
         with tempfile.TemporaryDirectory() as directory:

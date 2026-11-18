@@ -9,7 +9,7 @@ import re
 import tempfile
 import time
 import unicodedata
-from channel_sync_clean import clean_news_text
+from channel_sync_clean import clean_news_text, strip_news_backfill_label
 
 
 WINDOW_SECONDS = 15 * 60 * 60
@@ -18,7 +18,8 @@ SIMILARITY_THRESHOLD = 0.95
 
 
 def normalized_body(body):
-    return "".join(char for char in unicodedata.normalize("NFKC", clean_news_text(body)).casefold()
+    cleaned = strip_news_backfill_label(clean_news_text(body))
+    return "".join(char for char in unicodedata.normalize("NFKC", cleaned).casefold()
                    if char.isalnum() or char in ".%+-")
 
 
