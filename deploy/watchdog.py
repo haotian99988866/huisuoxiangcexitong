@@ -13,6 +13,8 @@ import time
 import requests
 from dotenv import load_dotenv
 
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BOT = ROOT / "bot"
@@ -41,6 +43,7 @@ def prepare_directory(path):
         ],
         text=True,
         encoding="ascii",
+        creationflags=CREATE_NO_WINDOW,
     ).strip()
     result = subprocess.run(
         [
@@ -50,6 +53,7 @@ def prepare_directory(path):
         capture_output=True,
         text=True,
         check=False,
+        creationflags=CREATE_NO_WINDOW,
     )
     if result.returncode:
         raise RuntimeError("Could not restrict watchdog state permissions")
@@ -92,6 +96,7 @@ def process_inventory():
         text=True,
         timeout=20,
         check=False,
+        creationflags=CREATE_NO_WINDOW,
     )
     if result.returncode:
         raise RuntimeError("Could not read Windows process inventory")
@@ -192,6 +197,7 @@ def run_recovery_script(path, timeout):
         text=True,
         timeout=timeout,
         check=False,
+        creationflags=CREATE_NO_WINDOW,
     )
     return result.returncode
 
@@ -382,7 +388,7 @@ $xml = @'
     <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <AllowStartOnDemand>true</AllowStartOnDemand>
     <Enabled>true</Enabled>
-    <Hidden>false</Hidden>
+    <Hidden>true</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <WakeToRun>false</WakeToRun>
     <ExecutionTimeLimit>PT15M</ExecutionTimeLimit>
@@ -410,7 +416,7 @@ Register-ScheduledTask -TaskName 'HuisuoLocalWatchdog' -Xml $xml | Out-Null
 """
     environment = os.environ.copy()
     environment.update({
-        "HUISUO_WATCHDOG_PYTHON": str(PYTHON),
+        "HUISUO_WATCHDOG_PYTHON": str(PYTHON.with_name("pythonw.exe")),
         "HUISUO_WATCHDOG_SCRIPT": str(script),
         "HUISUO_WATCHDOG_ROOT": str(ROOT),
     })
@@ -421,6 +427,7 @@ Register-ScheduledTask -TaskName 'HuisuoLocalWatchdog' -Xml $xml | Out-Null
         text=True,
         timeout=60,
         check=False,
+        creationflags=CREATE_NO_WINDOW,
     )
     if result.returncode:
         raise RuntimeError("Could not register the watchdog task: "
