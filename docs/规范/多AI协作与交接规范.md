@@ -147,7 +147,7 @@ CLAUDE.md                          # Claude Code 入口
 | **一人一块地** | 开工前说清楚「你只改 `frontend/`，我改 `backend/`」，不交叉 |
 | **不共享长任务** | 不要两个 AI 同时改同一个页面/同一个 service |
 | **契约先行者优先** | 谁要改 `openapi.yaml`，先说；另一方等契约稳定再动 |
-| **迁移独占** | 同一时间只允许一个 AI 加 Alembic 迁移（否则 revision 链会断） |
+| **表结构独占** | 同一时间只允许一个 AI 改 `db/schema.py`（或等价建表脚本），避免互相覆盖 |
 | **收工即提交** | 谁先做完谁先提交，减少冲突窗口 |
 
 冲突了怎么办：**以 `openapi.yaml` 和测试的结论为准**，不喜欢的实现重写，但契约不能各写一套。
@@ -181,8 +181,8 @@ npm run generate:api; git diff --exit-code frontend\src\api\types.ts
 # 3. 薄壳规则是否与真源一致
 tools\sync-rules.cmd -Check
 
-# 4. 迁移是否可逆
-alembic upgrade head; alembic downgrade base; alembic upgrade head
+# 4. 建表是否幂等（空目录/新库）
+python -c "import sys; sys.path.insert(0,'src'); from app.db.schema import ensure_database; print(ensure_database())"
 ```
 
 ---
@@ -195,13 +195,14 @@ alembic upgrade head; alembic downgrade base; alembic upgrade head
 > 1. 接口以 `contracts/openapi.yaml` 为准，改接口先改契约，再跑 `npm run generate:api`；`api/types.ts` 是生成物，不许手改。
 > 2. 前端页面只组合结构，数据获取写在同目录 `hooks.ts`；禁止在 `pages/**/index.tsx` 里出现 `fetch`。
 > 3. 后端 `routers/` 只收参→调 service→返回；业务逻辑一律在 `services/`。
-> 4. 数据库变更走 Alembic，`upgrade`/`downgrade` 对称。
+> 4. 数据库用朴素驱动（SQLite→`sqlite3`，MySQL→PyMySQL），表结构用幂等 `ensure_schema`；默认不上 SQLAlchemy/Alembic。
 > 5. 配置只从 `core/config.py` 读，禁止硬编码 URL/端口/密钥。
-> 6. 新增依赖前先说明理由。
-> 7. 改完运行 `docs/verify.md` 里的命令，把**实际输出**贴出来；只说「已通过」不算。
-> 8. 结束时更新 `docs/status.md`，写清「做了什么 / 没做什么 / 下一步」。
+> 6. 有页面时遵守 `_规范/前端移动与Telegram壳.md`：手机适配；工具类 Telegram 全屏 + 固定顶栏/底栏；按钮只用封装的 `Button`/`buttonClass`（`primary|ghost|quiet|danger`）；报错默认展示后端中文 `message`；常用结构（Field/Toast/Layout/boot）二次出现必须封装，禁止页面私自第三套皮。
+> 7. 新增依赖前先说明理由；技术栈默认见 `_规范/默认技术栈.md`（或本项目 `docs/规范/` 副本）。
+> 8. 改完运行 `docs/verify.md` 里的命令，把**实际输出**贴出来；只说「已通过」不算。
+> 9. 结束时更新 `docs/status.md`，写清「做了什么 / 没做什么 / 下一步」。
 >
-> 不确定的地方**先问，不要猜**；跨 3 个文件或涉及契约/迁移的改动，先给方案再动手。
+> 不确定的地方**先问，不要猜**；跨 3 个文件或涉及契约/表结构/删数据的改动，先给方案再动手。
 
 ---
 
