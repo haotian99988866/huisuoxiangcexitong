@@ -1,0 +1,56 @@
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2.5rem;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  cursor: pointer;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ui-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ui-btn--primary {
+  background: #6b4f3a;
+  color: #fff7ef;
+}
+
+.ui-btn--ghost {
+  background: transparent;
+  border-color: rgba(107, 79, 58, 0.35);
+  color: #6b4f3a;
+}
+
+.ui-btn--quiet {
+  background: rgba(107, 79, 58, 0.08);
+  color: #6b4f3a;
+}
+
+.ui-btn--danger {
+  background: #a33b2b;
+  color: #fff7ef;
+}
+
+.ui-empty {
+  margin: 1.25rem 0;
+  padding: 1rem 1.1rem;
+  border-radius: 14px;
+  background: rgba(107, 79, 58, 0.06);
+  color: #6b4f3a;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.ui-empty__action {
+  margin-top: 0.75rem;
+}

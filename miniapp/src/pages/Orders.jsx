@@ -5,7 +5,10 @@ import OrderSummary from '../components/OrderSummary'
 import ReviewRejection from '../components/ReviewRejection'
 import MusicIcon from '../components/MusicIcon'
 import AccountHeader from '../components/AccountHeader'
-import { bindBackButton, hasTelegramBackButton, openTelegramLink } from '../utils/twa'
+import { Button } from '../components/ui/Button'
+import { EmptyState } from '../components/ui/EmptyState'
+import '../components/ui/ui.css'
+import { bindBackButton, errorText, hasTelegramBackButton, openTelegramLink } from '../utils/twa'
 import { memberStatuses, requestMember } from '../utils/membership'
 import { money, orderFilters, orderGuidance, orderMatches, orderTitle, orderRecipient, orderStatus } from '../utils/commerce'
 import useMemberAccount from '../utils/useMemberAccount'
@@ -42,7 +45,7 @@ export default function Orders() {
           terminal = ['delivered', 'refunded'].includes(result.status)
         }
       } catch (failure) {
-        if (active) { setDetailError(failure.message); if (failure.status === 401) reportFailure(failure) }
+        if (active) { setDetailError(errorText(failure)); if (failure.status === 401) reportFailure(failure) }
       } finally { polling = false }
     }
     load()
@@ -64,12 +67,12 @@ export default function Orders() {
     <AccountHeader><header className="account-compact-header">
       {!hasTelegramBackButton && <Link to={orderId ? '/orders' : '/personal'}>← {orderId ? '全部订单' : '我的'}</Link>}
       <h1>{orderId ? '订单详情' : '我的订单'}</h1>
-      <button type="button" aria-label="刷新订单" title="刷新订单" disabled={busy || loading} onClick={refreshOrders}>
-        <MusicIcon name="refresh" size={18} /></button>
+      <Button type="button" variant="quiet" aria-label="刷新订单" title="刷新订单" disabled={busy || loading} onClick={refreshOrders}>
+        <MusicIcon name="refresh" size={18} /></Button>
     </header></AccountHeader>
-    {error && <p className="membership-error" role="alert">{error}</p>}
+    {error && <p className="membership-error" role="alert">{errorText(error)}</p>}
     {!account ? <AccountAccess loading={loading} /> : orderId ? <>
-      {detailError && <p className="membership-error" role="alert">{detailError}</p>}
+      {detailError && <p className="membership-error" role="alert">{errorText(detailError)}</p>}
       {!order && !detailError && <p role="status">正在查询订单…</p>}
       {order && <section className="membership-panel">
         <span className="account-status">{orderStatus(order) || memberStatuses[order.status] || order.status}</span>
@@ -83,8 +86,8 @@ export default function Orders() {
           <p>请保留编号。退款回站内余额；结果不明先核实，不要重新下单。</p></details>
       </section>}
       <section className="membership-panel membership-actions">
-        <button type="button" onClick={() => setAttempt(value => value + 1)}>刷新订单</button>
-        <button type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系客服</button>
+        <Button type="button" variant="ghost" onClick={() => setAttempt(value => value + 1)}>刷新订单</Button>
+        <Button type="button" variant="primary" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>联系客服</Button>
         <Link to="/personal">查看账户余额</Link>
       </section>
     </> : <section className="orders-list">
@@ -94,7 +97,7 @@ export default function Orders() {
       </nav>
       <p className="orders-list-hint">最近30笔 · 更早记录请联系客服{filter === 'attention' ? ' · 售后包含退款与待核实订单' : ''}</p>
       {shown.length ? shown.map(item => <section className="membership-panel" key={item.order_id}><OrderSummary order={item} /></section>) :
-        <div className="orders-empty"><MusicIcon name="list" size={32} /><p>{loading || busy ? '正在读取订单…' : '暂无此类订单'}</p></div>}
+        <EmptyState>{loading || busy ? '正在读取订单…' : '暂无此类订单'}</EmptyState>}
     </section>}
   </main>
 }

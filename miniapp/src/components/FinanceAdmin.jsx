@@ -515,7 +515,7 @@ export default function FinanceAdmin({ initialView = 'overview', initialEntryKin
 
   return <section className={`admin-finance finance-live${initialEntryKind && entryOpen ? ' is-direct-entry' : ''}`}>
     <header className={`fp-header${activeView !== 'overview' ? ' finance-subpage-header' : ''}`}>
-      <div>{activeView === 'overview' && <span>PERSONAL FINANCE</span>}<h1>{viewTitle}</h1></div>{refreshButton}
+      <div>{activeView === 'overview' && <span>个人财务</span>}<h1>{viewTitle}</h1></div>{refreshButton}
     </header>
     {activeView === 'settings' && <nav className="fp-segment finance-settings-tabs" aria-label="账房设置">
       {[['accounts', '账户'], ['categories', '分类'], ['commissions', '提成']].map(([tab, label]) =>

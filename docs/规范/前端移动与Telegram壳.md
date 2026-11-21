@@ -21,11 +21,20 @@
 
 1. `index.html` 同步加载 Telegram WebApp SDK，再加载 boot 脚本（勿只靠 React `useEffect`）。
 2. boot 顺序：`ready()` → `expand()` →（支持时）`disableVerticalSwipes` → `requestFullscreen()`；失败可短延迟重试。
-3. 进入 Mini App 后给根节点打标：`html[data-twa='1']`，CSS 用它调顶栏/安全区。
-4. 必须处理 `safe-area-inset-*`（刘海、底部 Home 条）；底栏高度含安全区。
-5. viewport：工具类建议限制缩放（与现 admin/country 一致），避免软键盘把布局撑乱。
+3. 进入 Mini App 后给根节点打标：`html[data-twa='1']`；进入全屏后再打 `html[data-tg-fs='1']`。
+4. boot 同步写入 `--tg-safe-area-inset-*` / `--tg-content-safe-area-inset-*`（或依赖官方 SDK 注入），并监听 `fullscreenChanged` / `safeAreaChanged` / `contentSafeAreaChanged`。
+5. **顶栏安全区（硬性，禁止再踩）**  
+   - Telegram 关闭钮/菜单在**右上角**，会压住页面标题与右侧按钮。  
+   - 顶栏必须使用 `padding-top: var(--shell-safe-top)`；只要 `html[data-twa='1']` 就至少约 **72px**（不要只依赖 `isFullscreen`，部分客户端不可靠）。  
+   - 顶栏**标题居中**（共用 `ShellHeader`）；子页用 `Telegram.WebApp.BackButton` 返回系统选择（多数客户端会把「关闭」换成返回）。系统首页隐藏 BackButton。  
+   - 非 TG 才显示 HTML「← 系统」；**禁止**与 TG 左关闭/右菜单抢位。  
+   - **禁止**写 `html[data-twa='1'] .xxx-header { padding-top: 0; }`。  
+   - 底栏项多时：`flex: 1 1 0; min-width: 0` + 短标签。
+6. viewport：工具类建议限制缩放（与现 admin/country 一致），避免软键盘把布局撑乱。
 
 会所栈（JSX）可不迁 TS，但 **boot + 安全区 + 底栏行为** 须与本文一致。
+
+参考实现：`mingxi-admin/frontend` 的 `tokens.css`（`--shell-safe-*`）+ `public/telegram-boot.js` + 各 Layout。
 
 ---
 
@@ -33,8 +42,8 @@
 
 | 区域 | 约定 |
 |---|---|
-| 顶栏 | 固定（`position: fixed` 或等价），高度用 CSS 变量（如 `--header-h`）；只放标题 / 关键状态 / 次要操作 |
-| 底栏 | 固定；主导航或主操作按钮；断点与现网对齐，默认 **`max-width: 760px`** 以下显示（桌面可用侧栏/顶栏导航，但样式同源） |
+| 顶栏 | 固定（`position: fixed` / `sticky` 或等价），高度用 CSS 变量（如 `--header-h`）；**外加** `--shell-safe-top`；只放标题 / 关键状态 / 次要操作 |
+| 底栏 | 固定；主导航或主操作按钮；断点与现网对齐，默认 **`max-width: 760px`** 以下显示（桌面可用侧栏/顶栏导航，但样式同源）；padding 含 `--shell-safe-bottom` |
 | 内容区 | `padding-top` / `padding-bottom` 为顶栏+底栏+安全区留空，禁止内容被挡住 |
 
 禁止各页私自再做一套「页面自己的底栏」抢位置；页内主 CTA 用统一 `Button`，需要贴底时走壳层槽位，不另起一套 fixed。

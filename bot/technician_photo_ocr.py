@@ -339,6 +339,25 @@ def save_technician_photo(
     recognition = recognize_technician_code(image_bytes, roster_codes, venue_id)
     image_hash = compute_hash(image_bytes)
 
+    # 无候选工号的待核对图多为广告/风景，不入库，减轻人工核对负担
+    if (
+        recognition["status"] == "pending_review"
+        and not recognition["candidate_codes"]
+        and not recognition["ocr_error"]
+    ):
+        logger.info(
+            "跳过无候选工号照片 venue_id=%s channel=%s msg=%s",
+            venue_id,
+            channel_id,
+            msg_id,
+        )
+        return {
+            "id": None,
+            "duty_date": duty_date,
+            "skipped": True,
+            **recognition,
+        }
+
     conn = get_conn()
     cur = None
     try:

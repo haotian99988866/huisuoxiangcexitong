@@ -2,31 +2,39 @@
 
 本项目包含 React/Vite 前端、Flask API、Telegram 频道机器人和 MySQL 数据库，用于展示会所资料、服务项目及技师信息，并从指定频道接收带标签的图片来更新会所封面。
 
+## 模块地图
+
+| 域 | 真源 / 入口 |
+|---|---|
+| 机器人主菜单与指南 | `bot/welcome.py` |
+| 资料页简介与命令 | `bot/bot_profile.py`（改后单独跑脚本同步） |
+| 频道与会所配置 | `bot/config/channels.py` |
+| 公开 API / 媒体代理 | `bot/api_server.py`（拆分后见 `bot/api/`） |
+| 频道监听与 OCR | `bot/main.py`、`bot/technician_photo_ocr.py` |
+| 小程序首页（会所/外送） | `miniapp/src/pages/VenueList.jsx` 及 `components/venue|delivery|media` |
+| 本地启动 / 冒烟 | `deploy/start-local.ps1`、`deploy/smoke.ps1`；`channel_sync` 独立 |
+| 部署规则 | `DEPLOY.md` |
+| 重构禁止改动清单 | [`docs/重构护栏.md`](docs/重构护栏.md) |
+
+冒烟（本机 API 须已启动）：`powershell -NoProfile -ExecutionPolicy Bypass -File deploy\smoke.ps1`
 
 ## 项目结构
 
 ```text
 .
-├── bot/
-│   ├── api_server.py          # Flask API，生产运行使用 Waitress
-│   ├── main.py                # Telegram 频道照片监听机器人
-│   ├── technician_photo_ocr.py # 本地 OCR、自动匹配及人工确认
-│   ├── review_technician_photos.py # 待核对照片 CLI
-│   ├── db.py                  # MySQL 连接
-│   ├── requirements.txt       # Python 依赖
-│   ├── migrations/            # MySQL 表结构迁移
-│   └── config/
-│       └── channels.py        # 频道、会所、主标签和搜索词配置
-├── miniapp/
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── VenueList.jsx
-│   │   │   ├── VenueDetail.jsx
-│   │   │   └── TechnicianList.jsx
-│   │   ├── utils/twa.js       # 前端 API 请求
-│   │   └── App.jsx            # 页面路由
-│   ├── package.json
-│   └── vite.config.js         # 开发环境 /api 代理
+├── bot/                       # Flask API、Telegram 机器人、OCR/核对脚本
+│   ├── api/                   # webhook 按域拆分（对外路径不变）
+│   ├── api_server.py          # 启动入口（兼容旧路径）
+│   ├── main.py
+│   ├── welcome.py             # /start 主菜单与使用指南（菜单真源）
+│   ├── technician_photo_ocr.py
+│   ├── migrations/
+│   └── config/channels.py
+├── miniapp/                   # Vite 前端；/api 代理到本机 8000
+├── shared/                    # 前后端共用资料（如价目 JSON）
+├── deploy/                    # start-local / smoke / channel-sync / watchdog
+├── docs/重构护栏.md
+├── DEPLOY.md                  # 部署与线上规则
 └── README.md
 ```
 
@@ -49,9 +57,10 @@
 - 技师详情会从照片 OCR 提取工号、年龄、身高、胸围、体重、籍贯和籍贯字段后的服务介绍；未识别出的资料不会补猜。
 - 会所详情和技师列表 API。
 - Telegram 机器人监听配置中的 10 个频道；带有对应主标签的图片会写入 `venue_photos`，并更新会所封面。
-- 机器人在本地 OCR 频道照片中的纯数字工号；唯一、高置信度且属于当日出勤名单的照片会自动关联，其他照片待人工核对。
+- 机器人在本地 OCR 频道照片中的纯数字工号；唯一、高置信度且属于当日出勤名单的照片会自动关联；有候选工号但未自动匹配的进入待人工核对；OCR 无任何候选工号的广告/风景图不入库。
 - 匹配时忽略工号的前导零（例如照片上的 `21` 可匹配出勤名单中的 `021`）；如名单中同时存在两种写法，则保留人工核对。
-- 前端可点击今日工号查看已自动匹配或人工确认的照片；待核对照片不会通过公开 API 展示。
+- 前端可点击今日工号查看已自动匹配或人工确认的照片；公开接口仅返回 `matched` 照片。凯迪/大西洋/帝豪出勤人数只计已识别工号；三家均排除已知未成年，且须 OCR 确认成年后才公开。
+- 频道封面更新与出勤同步结果只写日志，不再往业务频道刷确认消息；机器人自身消息不记入「最近频道活跃时间」。
 - 数据存储使用 MySQL，默认数据库名为 `venue_db`。
 
 ### 当前数据模型
@@ -243,7 +252,7 @@ npm run build
 - 机器人仅处理配置频道中的图片消息；图片说明需要包含该频道对应的主标签。
 - “名玺水汇会所”出勤公告使用“9牌969”等格式，页面按牌号分组显示技师，并从“三通、潮喷、SM、双仪”等公告分区提取服务分类。部署此功能前需应用 `006_attendance_groups.sql` 迁移。
 - 技师照片 OCR 在运行机器人本机执行，不会将照片发送给 OCR 第三方服务。照片按出勤公告中的日期归档；若照片先于公告，公告保存后会自动尝试补匹配。
-- 只有 OCR 唯一识别出高置信度工号且工号在对应出勤名单中的照片会自动公开；其他照片需人工核对。待核对照片默认不显示在小程序。
+- 只有 OCR 唯一识别出高置信度工号且工号在对应出勤名单中的照片会自动公开；有候选但未匹配的需人工核对；无候选工号不入库。待核对照片默认不显示在小程序。
 - 查看待核对项目：`cd .\bot; .\venv\Scripts\python.exe .\review_technician_photos.py list`。人工确认：`.\venv\Scripts\python.exe .\review_technician_photos.py approve <照片ID> <工号>`。只能确认该日期出勤名单中的工号。
 - 首次运行 OCR 时需要联网下载识别模型；模型保存在 Python 环境中，不会上传照片。
 - 请先确认机器人账号已加入需要监听的频道，并具备读取消息及发送回复的权限。

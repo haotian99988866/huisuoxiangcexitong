@@ -41,6 +41,22 @@ export function subscribeFullscreen(callback) {
   }
 }
 
+/** 优先展示后端中文 message，兼容旧字段 error。 */
+export function errorText(error, fallback = '服务暂时不可用，请稍后重试。') {
+  if (error == null || error === '') return fallback
+  if (typeof error === 'string') {
+    const text = error.trim()
+    if (!text) return fallback
+    if (/^request failed/i.test(text) || /^http\s*\d+/i.test(text)) return fallback
+    return text
+  }
+  if (typeof error === 'object') {
+    const message = error.message || error.error || error.detail
+    return errorText(message, fallback)
+  }
+  return fallback
+}
+
 export function sendData(data) {
   fetch(`${API_BASE_URL}/webhook`, {
     method: 'POST',
@@ -48,16 +64,16 @@ export function sendData(data) {
     body: JSON.stringify(data)
   })
     .then(async res => {
-      const payload = await res.json()
+      const payload = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(payload.error || `Request failed (${res.status})`)
+        throw new Error(errorText(payload, `请求失败（${res.status}），请稍后重试`))
       }
       window.postMessage({ type: 'bot_response', payload }, window.location.origin)
     })
     .catch(error => {
       console.error('[API error]', error)
       window.postMessage(
-        { type: 'bot_response', payload: { error: '服务暂时不可用，请稍后重试。' } },
+        { type: 'bot_response', payload: { error: errorText(error) } },
         window.location.origin
       )
     })

@@ -91,6 +91,10 @@ def record_channel_activity(message):
     venue_config = get_venue_config(message.chat.id)
     if not venue_config:
         return
+    # 机器人自己的频道消息不记活跃，避免确认/页脚把「最近消息时间」刷成机器人时间
+    author = getattr(message, "from_user", None) or getattr(message, "sender_chat", None)
+    if getattr(author, "is_bot", False):
+        return
 
     message_date = datetime.fromtimestamp(message.date, timezone.utc).replace(
         tzinfo=None
@@ -761,16 +765,18 @@ def handle_post_navigation(message):
 @bot.channel_post_handler(content_types=['photo'])
 def handle_photo_message(message):
     record_channel_activity(message)
-    print(f"\n=== 收到照片消息 ===")
-    print(f"来源类型: {'频道' if message.content_type == 'channel_post' else '普通消息'}")
-    print(f"原始频道ID: {message.chat.id}")
-    print(f"消息文字: {message.caption}")
+    logger.info(
+        "收到照片 chat=%s channel_post=%s caption=%s",
+        message.chat.id,
+        message.content_type == "channel_post",
+        (message.caption or "")[:120],
+    )
 
     chat_id = message.chat.id
     chat_id_str = str(chat_id)
     venue_config = get_venue_config(chat_id)
     if not venue_config:
-        print(f"❌ 频道ID不在监听列表中！")
+        logger.info("频道不在监听列表 chat=%s", message.chat.id)
         return
 
     save_delivery_media(message)
@@ -783,8 +789,7 @@ def handle_photo_message(message):
     caption = message.caption or ""
     tags, _ = parse_caption(caption)
 
-    print(f"解析标签: {tags}")
-    print(f"需要匹配: [{primary_tag}]")
+    logger.info("解析标签 tags=%s primary=%s", tags, primary_tag)
 
     file_id = message.photo[-1].file_id
     chat_numeric = chat_id_str.replace('-100', '').replace('-', '')
@@ -827,18 +832,13 @@ def handle_photo_message(message):
                 cur.close()
             conn.close()
 
-        try:
-            confirmation = bot.send_message(
-                message.chat.id,
-                f"✅ 已更新【{venue_config['venue_name']}】封面\n链接：{photo_link}",
-            )
-            record_channel_activity(confirmation)
-        except telebot.apihelper.ApiTelegramException:
-            logger.error(
-                "Failed to confirm venue cover update for message %s",
-                message.message_id,
-            )
-
+        # 不再往业务频道刷确认，避免打扰客人并把「最近消息时间」记成机器人回复
+        logger.info(
+            "封面已更新 venue=%s msg=%s link=%s",
+            venue_config["venue_name"],
+            message.message_id,
+            photo_link,
+        )
         return
 
     try:
@@ -870,16 +870,25 @@ def handle_photo_message(message):
         raise
 
 
-    if result["status"] == "matched":
-        print(
-            f"✅ OCR 匹配成功：{venue_config['venue_name']} "
-            f"#{result['technician_code']}，照片记录 {result['id']}"
+    if result.get("skipped"):
+        logger.info(
+            "跳过无候选工号照片 venue=%s msg=%s",
+            venue_config["venue_name"],
+            message.message_id,
+        )
+    elif result["status"] == "matched":
+        logger.info(
+            "OCR 匹配成功 venue=%s code=%s photo_id=%s",
+            venue_config["venue_name"],
+            result["technician_code"],
+            result["id"],
         )
     else:
-        print(
-            f"⚠️ OCR 待人工核对：{venue_config['venue_name']} "
-            f"照片记录 {result['id']}，候选工号："
-            f"{','.join(result['candidate_codes']) or '无'}"
+        logger.info(
+            "OCR 待人工核对 venue=%s photo_id=%s candidates=%s",
+            venue_config["venue_name"],
+            result["id"],
+            ",".join(result["candidate_codes"]) or "无",
         )
 
 # ===== 处理纯文字出勤公告（新增） =====
@@ -900,19 +909,18 @@ def handle_attendance_text(message):
             schedule_footer(bot, message.chat.id)
         return
 
-    print(f"\n=== 收到出勤公告 ===")
-    print(f"内容: {text[:100]}...")
+    logger.info("收到出勤公告 chat=%s text=%s", message.chat.id, text[:100])
 
     chat_id = message.chat.id
     venue_config = get_venue_config(chat_id)
 
     if not venue_config:
-        print(f"❌ 未匹配到会所")
+        logger.info("出勤公告未匹配会所 chat=%s", chat_id)
         return
 
     # 解析并保存出勤
     ok, msg = save_daily_attendance(venue_config["venue_id"], text)
-    print(f"出勤同步结果: {msg}")
+    logger.info("出勤同步结果 venue=%s msg=%s", venue_config["venue_name"], msg)
     if ok:
         attendance = (
             parse_plate_attendance_text(text)
@@ -927,7 +935,7 @@ def handle_attendance_text(message):
             attendance["codes"],
         )
         if matched_count:
-            print(f"✅ 出勤名单已补匹配 {matched_count} 张先到照片")
+            logger.info("出勤名单补匹配 photos=%s venue=%s", matched_count, venue_config["venue_name"])
         if notify_attendance(
             bot,
             venue_config["venue_id"],
@@ -935,11 +943,10 @@ def handle_attendance_text(message):
             attendance["duty_shift"],
             len(attendance["codes"]),
         ):
-            print("🔔 已向订阅用户推送出勤提醒")
+            logger.info("已向订阅用户推送出勤提醒 venue=%s", venue_config["venue_name"])
 
-    # 回复确认
-    confirmation = bot.send_message(message.chat.id, msg)
-    record_channel_activity(confirmation)
+    # 出勤结果写日志，不往频道发确认（订阅推送仍走 notify_attendance）
+    logger.info("出勤同步 venue=%s ok=%s msg=%s", venue_config["venue_name"], ok, msg)
     if ok:
         post_footer(bot, message.chat.id)
 
@@ -992,6 +999,12 @@ def save_delivery_media(message):
             ocr_text = ocr_image_text(image_bytes)
             age = extract_age(message.caption, ocr_text)
         except Exception as exc:
+            logger.exception(
+                "外送照片 OCR 失败 venue=%s msg=%s err=%s",
+                venue_config["venue_name"],
+                message.message_id,
+                type(exc).__name__,
+            )
             print(f"⚠️ 外送照片识别失败: {type(exc).__name__}")
     conn = get_conn()
     try:

@@ -1,8 +1,6 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import VenueList from './pages/VenueList'
-import VenueDetail from './pages/VenueDetail'
-import TechnicianList from './pages/TechnicianList'
 import MovieList from './pages/MovieList'
 import ShortDramas from './pages/ShortDramas'
 import Recharge from './pages/Recharge'
@@ -92,8 +90,9 @@ function Content() {
         <Route path="/music" element={<Music />} />
         <Route path="/announcements" element={<Announcements />} />
         <Route path="/announcements/:id" element={<Announcements />} />
-        <Route path="/venue/:id" element={<VenueDetail />} />
-        <Route path="/venue/:venue_id/technicians" element={<TechnicianList />} />
+        {/* 旧详情路由并入首页状态流，避免两套 UI */}
+        <Route path="/venue/:id" element={<Navigate to="/" replace />} />
+        <Route path="/venue/:venue_id/technicians" element={<Navigate to="/" replace />} />
       </Routes>
     </>
   )

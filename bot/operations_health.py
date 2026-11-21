@@ -180,6 +180,34 @@ def _announcement_pending(component, path):
             connection.close()
 
 
+def _technician_photo_review_stats():
+    """只读：待核对积压与近期 OCR 失败计数，供运营健康面板展示。"""
+    conn = None
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS pending FROM technician_photos WHERE status = 'pending_review'"
+            )
+            pending = int((cur.fetchone() or {}).get("pending") or 0)
+            cur.execute(
+                """
+                SELECT COUNT(*) AS ocr_errors
+                FROM technician_photos
+                WHERE ocr_error IS NOT NULL AND ocr_error != ''
+                      AND created_at >= (NOW() - INTERVAL 7 DAY)
+                """
+            )
+            ocr_errors = int((cur.fetchone() or {}).get("ocr_errors") or 0)
+        return {"pending_review": pending, "ocr_errors_7d": ocr_errors}
+    except pymysql.MySQLError:
+        logger.exception("Technician photo review stats unavailable")
+        return {"pending_review": None, "ocr_errors_7d": None, "error": "unavailable"}
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def snapshot():
     from channel_sync import state_directory
     from movie_ingest import SOURCES, store_path
@@ -252,4 +280,5 @@ def snapshot():
         "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "components": components,
         "stale_after_seconds": HEARTBEAT_STALE_SECONDS,
+        "technician_photo_review": _technician_photo_review_stats(),
     }

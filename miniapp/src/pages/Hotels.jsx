@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import AccountHeader from '../components/AccountHeader'
 import ModuleIcon from '../components/ModuleIcon'
-import { API_BASE_URL, bindBackButton, openTelegramLink } from '../utils/twa'
+import { Button } from '../components/ui/Button'
+import { EmptyState } from '../components/ui/EmptyState'
+import '../components/ui/ui.css'
+import { API_BASE_URL, bindBackButton, errorText, hasTelegramBackButton, openTelegramLink } from '../utils/twa'
 import { mediaUrl } from '../utils/tenant'
 import { requestHotels } from '../utils/hotels'
 import { useModuleScroll } from '../utils/moduleState'
@@ -25,18 +28,19 @@ export default function Hotels() {
     setData(null); setError('')
     requestHotels(page, controller.signal).then(result => { if (active) setData(result) }).catch(failure => {
       console.error('[Hotels]', failure)
-      if (active) setError(failure.name === 'AbortError' ? '酒店推荐读取超时，请重试' : failure.message)
+      if (active) setError(failure.name === 'AbortError' ? '酒店推荐读取超时，请重试' : errorText(failure))
     }).finally(() => clearTimeout(timeout))
     return () => { active = false; clearTimeout(timeout); controller.abort() }
   }, [page, reload])
   return <main className="account-page membership-page hotels-page">
     <AccountHeader><header className="membership-header"><h1>酒店推荐</h1></header></AccountHeader>
+    {!hasTelegramBackButton && <Link to="/services">← 服务中心</Link>}
     <p className="consumption-intro">查看门头照片、地图位置，直接联系酒店前台。</p>
     {error && <p className="membership-error" role="alert">{error}
-      <button type="button" onClick={() => setReload(value => value + 1)}>重新读取</button></p>}
+      <Button type="button" variant="ghost" onClick={() => setReload(value => value + 1)}>重新读取</Button></p>}
     {!data && !error && <p role="status">正在读取酒店推荐…</p>}
     {data && <>
-      {!data.hotels.length && <section className="membership-panel"><h2>暂无酒店推荐</h2><p className="admin-hint">酒店资料整理后会在这里展示。</p></section>}
+      {!data.hotels.length && <EmptyState>酒店资料整理后会在这里展示。</EmptyState>}
       <div className="hotel-list">{data.hotels.map(hotel => <article className="hotel-card" key={hotel.id}>
         {failedImages.has(hotel.image_url) ? <div className="hotel-photo-placeholder" role="alert">门头照片暂不可用
           <button type="button" onClick={() => setFailedImages(current => {

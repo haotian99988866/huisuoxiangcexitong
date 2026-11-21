@@ -150,7 +150,7 @@ export default function Membership() {
         你有一笔开通结果待核实的订单，请勿重复购买。<Link to={`/orders/${attention.order_id}`}>查看订单</Link>
       </p>}
       <section className="membership-panel">
-          <div className="membership-row"><h2>选择时长</h2><span className="membership-tag">PREMIUM</span></div>
+          <div className="membership-row"><h2>选择时长</h2><span className="membership-tag">会员</span></div>
           {!catalog && !error && <p role="status">正在读取套餐…</p>}
           <div className="membership-plans">
             {catalog?.plans.map(plan => <button key={plan.months} type="button"

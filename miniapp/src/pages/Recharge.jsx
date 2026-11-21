@@ -3,7 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import AccountAccess from '../components/AccountAccess'
 import BalanceDeposit from '../components/BalanceDeposit'
 import AccountHeader from '../components/AccountHeader'
-import { bindBackButton, hasTelegramBackButton } from '../utils/twa'
+import { Button } from '../components/ui/Button'
+import '../components/ui/ui.css'
+import { bindBackButton, errorText, hasTelegramBackButton } from '../utils/twa'
 import { money } from '../utils/commerce'
 import useMemberAccount from '../utils/useMemberAccount'
 import { useModuleScroll } from '../utils/moduleState'
@@ -24,16 +26,16 @@ export default function Recharge() {
       <h1>{progressOnly ? '充值复核进度' : '充值余额'}</h1>
     </header></AccountHeader>
     {!progressOnly && <p className="consumption-intro">充值的是账户 USD 余额，不是直接开通会员或充值手机话费。</p>}
-    {error && <p className="membership-error" role="alert">{error}</p>}
+    {error && <p className="membership-error" role="alert">{errorText(error)}</p>}
     {!account ? <AccountAccess loading={loading} /> : <>
       {!progressOnly && <section className="membership-panel">
         <div className="membership-row"><h2>可用余额</h2><Link to="/wallet-history?view=deposits">充值记录</Link></div>
         <p className="membership-balance">${money(account.balance)}</p>
-        <button type="button" disabled={busy} onClick={async () => {
+        <Button type="button" variant="ghost" disabled={busy} onClick={async () => {
           setBusy(true)
           try { await refresh() } catch (failure) { reportFailure(failure) }
           finally { setBusy(false) }
-        }}>{busy ? '读取中…' : '刷新余额与核款结果'}</button>
+        }}>{busy ? '正在读取…' : '刷新余额与核款结果'}</Button>
       </section>}
       <section className="membership-panel">
         {!progressOnly && <h2>选择充值方式</h2>}

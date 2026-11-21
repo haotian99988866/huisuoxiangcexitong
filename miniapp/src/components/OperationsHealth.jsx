@@ -111,6 +111,11 @@ export default function OperationsHealth() {
     {loading && !data && <p role="status">正在读取任务状态…</p>}
     {data && <>
       <p className="operations-health-checked">检查时间：{formatTime(data.checked_at)}</p>
+      {data.technician_photo_review && <p className="operations-health-checked" role="status">
+        技师照片待核对：{data.technician_photo_review.pending_review ?? '—'} 张
+        · 近7日 OCR 失败：{data.technician_photo_review.ocr_errors_7d ?? '—'}
+        {data.technician_photo_review.error ? '（统计暂不可用）' : ''}
+      </p>}
       <div className="operations-health-grid">
         {data.components.map(component => <ComponentCard key={component.key} component={component} />)}
       </div>

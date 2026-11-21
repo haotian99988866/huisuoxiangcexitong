@@ -3,7 +3,10 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import ModuleTabs from '../components/ModuleTabs'
 import { LoadMore } from '../components/ContinuousList'
 import { FullscreenAnnouncementBar } from '../components/Announcement'
-import { API_BASE_URL, bindBackButton, hasTelegramBackButton, openTelegramLink, registerBackOverlay, subscribeFullscreen } from '../utils/twa'
+import { Button } from '../components/ui/Button'
+import { EmptyState } from '../components/ui/EmptyState'
+import '../components/ui/ui.css'
+import { API_BASE_URL, bindBackButton, errorText, hasTelegramBackButton, openTelegramLink, registerBackOverlay, subscribeFullscreen } from '../utils/twa'
 import { getTenant, hasAnnouncementAccess, mediaUrl, tenantPath } from '../utils/tenant'
 import { rememberModuleScroll, useModuleScroll, useModuleState } from '../utils/moduleState'
 import { requestAnnouncements } from '../utils/announcements'
@@ -77,7 +80,7 @@ export default function Announcements() {
         if (!active) return
         console.error('[Announcements]', failure)
         setLoaded({ key: requestKey, data: null,
-          error: failure.name === 'AbortError' ? '加载超时，请检查网络后重试' : failure.message })
+          error: failure.name === 'AbortError' ? '加载超时，请检查网络后重试' : errorText(failure) })
       }).finally(() => clearTimeout(timer))
     return () => {
       active = false
@@ -103,7 +106,7 @@ export default function Announcements() {
     } catch (failure) {
       if (controller.signal.aborted) return
       console.error('[Announcements load more]', failure)
-      setMoreState({ busy: false, error: failure.message })
+      setMoreState({ busy: false, error: errorText(failure) })
       return
     } finally {
       if (moreRequest.current === controller) moreRequest.current = null
@@ -135,7 +138,8 @@ export default function Announcements() {
       <button type="button" onClick={() => openTelegramLink(`https://t.me/haotianzhaopian_bot?start=news${getTenant()?.slug ? `_${getTenant().slug}` : ''}`)}>订阅 / 管理</button>
     </div>}
     {!allowed ? <div className="news-state" role="alert"><h2>此入口暂未开放资讯</h2><p>请联系服务提供方了解详情。</p></div>
-      : error ? <div className="news-state" role="alert"><h2>暂时无法加载</h2><p>{error}</p><button className="news-primary-button" onClick={() => setAttempt(value => value + 1)}>重新加载</button></div>
+      : error ? <div className="news-state" role="alert"><h2>暂时无法加载</h2><p>{errorText(error)}</p>
+          <Button className="news-primary-button" variant="primary" onClick={() => setAttempt(value => value + 1)}>重新加载</Button></div>
         : !result ? <NewsSkeleton detail={Boolean(id)} />
           : id ? <>
             <article className="news-article" style={{ '--news-body-size': `${fontSize}px` }}>
@@ -161,7 +165,7 @@ export default function Announcements() {
               <button className="news-text-button" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><NewsIcon name="up" />回到顶部</button>
             </footer>
           </> : <>
-            {!feedItems.length ? <div className="news-state"><NewsIcon name="image" /><h2>新的动态，敬请期待</h2><p>频道消息收录后，会出现在这里。</p></div>
+            {!feedItems.length ? <EmptyState>新的动态，敬请期待。频道消息收录后会出现在这里。</EmptyState>
               : <div className="news-feed">{feedItems.map((item, index) => <Link className={`news-feed-item${!item.cover ? ' news-text-only' : ''}`} key={item.id}
                 onClick={() => rememberModuleScroll(scrollKey)} to={tenantPath(`/announcements/${item.id}?page=${requestedPage}`)}>
                 <div className="news-feed-copy">

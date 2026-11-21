@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import AccountHeader from '../components/AccountHeader'
-import { API_BASE_URL, bindBackButton } from '../utils/twa'
+import { Button } from '../components/ui/Button'
+import { EmptyState } from '../components/ui/EmptyState'
+import '../components/ui/ui.css'
+import { API_BASE_URL, bindBackButton, errorText, hasTelegramBackButton } from '../utils/twa'
 import { requestCustomerDuty } from '../utils/customerDuty'
 import { newMemberOrderId } from '../utils/membership'
 import { isTenantEntry, mediaUrl } from '../utils/tenant'
@@ -42,7 +45,7 @@ export default function Subscriptions() {
       setUnconfirmed(readSubscriptionOperations(sessionStorage, pendingKey).length > 0)
     } catch (failure) {
       console.error('[Subscription pending data]', failure)
-      setError(failure.message)
+      setError(errorText(failure))
       setUnconfirmed(true)
       setBusy(false)
       return
@@ -51,7 +54,7 @@ export default function Subscriptions() {
       .then(result => { if (!cancelled) { setCatalog(result); setError('') } })
       .catch(failure => {
         console.error('[Subscription center]', failure)
-        if (!cancelled) setError(failure.name === 'AbortError' ? '订阅读取超时，请重试' : failure.message)
+        if (!cancelled) setError(failure.name === 'AbortError' ? '订阅读取超时，请重试' : errorText(failure))
       })
       .finally(() => { if (!cancelled) setBusy(false) })
     return () => { cancelled = true }
@@ -93,7 +96,7 @@ export default function Subscriptions() {
         }
       }
       setError(`已确认完成${completed}项。${failure.name === 'AbortError' || failure.name === 'TypeError'
-        ? '网络异常，剩余结果待确认，请点击“重试未确认操作”，不要重复提交。' : failure.message}`)
+        ? '网络异常，剩余结果待确认，请点击“重试未确认操作”，不要重复提交。' : errorText(failure)}`)
     } finally {
       lock.current = false
       setBusy(false)
@@ -148,6 +151,7 @@ export default function Subscriptions() {
   })
   return <main className="account-page membership-page subscriptions-page">
     <AccountHeader><header className="membership-header"><h1>订阅服务</h1></header></AccountHeader>
+    {!hasTelegramBackButton && <Link to="/services">← 服务中心</Link>}
     <p className="consumption-intro">关注动态，新发布时接收机器人提醒。</p>
     {!authenticated ? <section className="membership-panel">
       <p>{isTenantEntry()
@@ -160,13 +164,13 @@ export default function Subscriptions() {
       {notice && <p role="status" className="membership-notice">{notice}</p>}
       {busy && !catalog && <p role="status">正在读取订阅…</p>}
       {(unconfirmed || error) && <div className="subscription-actions">
-        {unconfirmed && <button className="subscription-retry" disabled={busy} onClick={() => apply([])}>重试未确认操作</button>}
-        {error && !unconfirmed && <button disabled={busy} onClick={() => {
+        {unconfirmed && <Button className="subscription-retry" variant="primary" disabled={busy} onClick={() => apply([])}>重试未确认操作</Button>}
+        {error && !unconfirmed && <Button variant="ghost" disabled={busy} onClick={() => {
           setBusy(true)
           load().then(() => setError(''))
-            .catch(failure => { console.error('[Subscription reload]', failure); setError(failure.message) })
+            .catch(failure => { console.error('[Subscription reload]', failure); setError(errorText(failure)) })
             .finally(() => setBusy(false))
-        }}>重新读取</button>}
+        }}>重新读取</Button>}
       </div>}
       {catalog && <>
         <nav className="subscription-tabs" aria-label="订阅管理">
@@ -175,7 +179,9 @@ export default function Subscriptions() {
         </nav>
         {view === 'mine' ? <section className="membership-panel">
           <div className="subscription-section-heading"><h2>正在关注</h2><span>{subscriptions.length}项</span></div>
-          {!subscriptions.length && <div className="subscription-empty"><p>还没有订阅</p><p>添加感兴趣的分类或人员，及时接收新动态。</p><button onClick={() => setView('add')}>去添加订阅</button></div>}
+          {!subscriptions.length && <EmptyState actionLabel="去添加订阅" onAction={() => setView('add')}>
+            还没有订阅。添加感兴趣的分类或人员，及时接收新动态。
+          </EmptyState>}
           {subscriptions.map(item => <div className="subscription-current" key={identity(item)}>
             <div><strong>{item.label}</strong><small>{item.venue_id ? catalog.venues.find(v => v.id === item.venue_id)?.name || '历史档案'
               : item.kind === 'news' ? '资讯提醒' : item.kind === 'delivery' ? '外送分类提醒' : '会所出勤提醒'}</small></div>

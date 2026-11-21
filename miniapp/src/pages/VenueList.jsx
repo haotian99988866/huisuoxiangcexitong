@@ -1,260 +1,34 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useModuleState, useModuleScroll } from '../utils/moduleState'
-import { AnnouncementCard, FullscreenAnnouncementBar } from '../components/Announcement'
-import ModuleTabs from '../components/ModuleTabs'
 import ModuleIcon from '../components/ModuleIcon'
 import StaffGallery from '../components/StaffGallery'
 import VenueRecommendations from '../components/VenueRecommendations'
 import DeliveryArchive from '../components/DeliveryArchive'
-import venuePrices from '../../../shared/venue-prices.json'
-import CopyBooking from '../components/CopyBooking'
+import VenueChrome from '../components/venue/VenueChrome'
+import KtvBoard from '../components/venue/KtvBoard'
+import TechnicianBoard from '../components/venue/TechnicianBoard'
+import DeliveryBoard from '../components/delivery/DeliveryBoard'
 import { useAnalyticsScreen } from '../utils/analytics'
 import { bookingUrl } from '../utils/booking'
-import { contactName, contactUrl, mediaUrl, tenantPath } from '../utils/tenant'
-import { API_BASE_URL, bindBackButton, hasTelegramBackButton, sendData, subscribeFullscreen } from '../utils/twa'
-
-// 首页默认显示“名玺水汇会所”，找不到时退回列表第一个
-const HOME_VENUE_NAME = '名玺水汇会所'
-const pickHomeVenue = venues => venues.find(venue => venue.name === HOME_VENUE_NAME) || venues[0]
-
-
-// 进入可视区附近才开始加载，并在加载完成后淡入
-function LazyMedia({ as: Tag = 'img', src, style, ...rest }) {
-  const nodeRef = useRef(null)
-  const [inView, setInView] = useState(typeof IntersectionObserver === 'undefined')
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    if (inView) return undefined
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setInView(true)
-        observer.disconnect()
-      }
-    }, { rootMargin: '300px' })
-    observer.observe(nodeRef.current)
-    return () => observer.disconnect()
-  }, [inView])
-
-  const loadProps = Tag === 'video'
-    ? { onLoadedData: () => setLoaded(true) }
-    : { onLoad: () => setLoaded(true) }
-
-  return (
-    <Tag
-      ref={nodeRef}
-      {...rest}
-      {...(inView ? { src, ...loadProps, onError: () => setLoaded(true) } : {})}
-      style={{ ...style, opacity: loaded ? 1 : 0, transition: 'opacity 0.35s ease' }}
-    />
-  )
-}
-
-const lazyFillStyle = {
-  position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover'
-}
-
-function ContactButton({ title }) {
-  return <CopyBooking url={bookingUrl({
-    title: `你好，我想咨询：${title}`,
-    links: [window.location.href],
-  })} />
-}
-
-function NoticeCard({ icon, title, updatedAt, children }) {
-  return (
-    <div style={{
-      marginBottom: '24px',
-      padding: '28px 18px',
-      textAlign: 'center',
-      background: 'var(--home-surface)',
-      border: '1px solid var(--ink-line)',
-      borderRadius: '14px',
-      color: 'var(--ink-accent)',
-      boxShadow: '0 3px 14px rgba(44, 65, 48, 0.03)'
-    }}>
-      <div className="home-notice-icon"><ModuleIcon name={icon} /></div>
-      <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '8px' }}>{title}</div>
-      <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.7, color: 'var(--ink-muted)' }}>
-        {children}
-      </p>
-      <ContactButton title={title} />
-      {updatedAt && (
-        <div style={{ marginTop: '14px', fontSize: '11px', color: 'var(--ink-muted)' }}>
-          最近更新：{updatedAt}
-        </div>
-      )}
-    </div>
-  )
-}
-
-const photoViewerButtonStyle = {
-  width: '44px',
-  height: '44px',
-  border: '1px solid rgba(255, 255, 255, 0.35)',
-  borderRadius: '50%',
-  background: 'rgba(255, 255, 255, 0.12)',
-  color: '#fff',
-  fontSize: '26px',
-  cursor: 'pointer'
-}
-
-const attendancePanelStyle = {
-  marginBottom: '20px',
-  background: 'var(--home-surface)',
-  border: '1px solid var(--ink-line)',
-  boxShadow: 'var(--shadow)',
-  borderRadius: '12px',
-  padding: '16px'
-}
-
-const greenSectionHeadingStyle = {
-  fontSize: '15px',
-  color: 'var(--ink-accent)',
-  margin: 0,
-  fontWeight: 600
-}
-
-const ktvBookingButtonStyle = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  minHeight: '44px',
-  marginTop: '6px',
-  padding: '6px 14px',
-  borderRadius: '16px',
-  background: 'var(--ink-accent)',
-  color: '#fffef5',
-  fontSize: '13px',
-  textDecoration: 'none',
-  cursor: 'pointer'
-}
-
-const DELIVERY_VENUE_IDS = new Set([7, 8, 9, 10])
-
-const deliveryCategoryKey = venue => venue.categoryKey || String(venue.id)
-
-const deliveryCategoryLabel = venue => venue.categoryLabel
-  || venue.name.replace(/^西港/, '').replace(/外送$/, '')
-
-// 小苹果/红苹果共用同一个频道，按内容文字里的类别分到各自的按钮下；未判断出类别的两边都显示
-const expandDeliveryCategories = delivery => delivery.flatMap(venue => {
-  if (Number(venue.id) !== 10) return [venue]
-  const posts = venue.delivery_posts || []
-  const pick = category => posts.filter(post => !post.category || post.category === category)
-  return [
-    { ...venue, categoryKey: '10-small', categoryLabel: '小苹果', delivery_posts: pick('small') },
-    { ...venue, categoryKey: '10-red', categoryLabel: '红苹果', delivery_posts: pick('red') }
-  ]
-})
-
-// 西港170/180/160 与小苹果/红苹果外送合并为“西港外送”，原会所作为其下的类别
-const mergeDeliveryVenues = venues => {
-  const delivery = venues.filter(venue => DELIVERY_VENUE_IDS.has(Number(venue.id)))
-  if (delivery.length === 0) return venues
-  const latest = delivery
-    .map(venue => venue.last_channel_message_at)
-    .filter(Boolean)
-    .sort()
-    .pop() || null
-  const mergedVenue = {
-    ...delivery[0],
-    name: '西港外送',
-    delivery_categories: expandDeliveryCategories(delivery),
-    last_channel_message_at: latest
-  }
-  const result = []
-  let inserted = false
-  venues.forEach(venue => {
-    if (!DELIVERY_VENUE_IDS.has(Number(venue.id))) {
-      result.push(venue)
-    } else if (!inserted) {
-      result.push(mergedVenue)
-      inserted = true
-    }
-  })
-  return result
-}
-
-const ktvVideoInfo = video => {
-  const lines = (video.caption || '')
-    .split('\n')
-    .map(line => line
-      .replace(/[\p{Extended_Pictographic}\u200d\ufe0f]/gu, '')
-      .replace(/[\u00a0\s]+/g, ' ')
-      .trim())
-    .filter(Boolean)
-  const hall = lines.find(line => line.includes('·')) || ''
-  return {
-    hall: hall.replace(/\s*\d{3,4}$/, '') || (video.room_number ? `${video.room_number}号房` : '包房'),
-    type: lines.find(line => line !== hall) || ''
-  }
-}
-
-const ktvPriceLines = text => (text || '')
-  .split(/\n-{5,}/)[0]
-  .split('\n')
-  .map(line => line.trim())
-  .filter(line => line && !/^10\s*[:：]/.test(line))
-
-const ktvBookingUrl = video => {
-  const room = video.room_number ? `${video.room_number}号房` : '包房'
-  return bookingUrl({
-    title: `你好，我想预定名玺水汇KTV ${room}`,
-    links: [new URL(mediaUrl(`${API_BASE_URL}/ktv-videos/${video.id}`), window.location.origin).href],
-    details: [video.caption],
-  })
-}
-
-const attendanceHeadingRowStyle = {
-  display: 'flex',
-  alignItems: 'baseline',
-  justifyContent: 'space-between',
-  flexWrap: 'wrap',
-  columnGap: '0',
-  rowGap: '4px'
-}
-
-const recentUpdateStyle = {
-  color: '#888',
-  fontSize: '10px',
-  whiteSpace: 'nowrap'
-}
-
-const attendanceInlineHeadingStyle = {
-  ...greenSectionHeadingStyle,
-  fontSize: '14px'
-}
-
-const technicianGridStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
-  gap: '8px'
-}
-
-const roomyTechnicianGridStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(3, 1fr)',
-  gap: '12px'
-}
-
-const { mingxiBoardPrices, kaidiTechnicianCategories, atlanticTechnicianCategories, dihaoTechnicianCategories } = venuePrices
-
-const formatChannelMessageTime = timestamp => {
-  if (!timestamp) return '暂无记录'
-
-  const messageDate = new Date(timestamp)
-  if (Number.isNaN(messageDate.getTime())) return '更新时间不可用'
-
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  }).format(messageDate)
-}
+import { contactUrl, mediaUrl } from '../utils/tenant'
+import {
+  API_BASE_URL,
+  bindBackButton,
+  errorText,
+  sendData,
+  subscribeFullscreen,
+} from '../utils/twa'
+import {
+  DELIVERY_VENUE_IDS,
+  PHOTO_FIRST_VENUE_IDS,
+  STAFF_ARCHIVE_VENUE_IDS,
+  deliveryCategoryKey,
+  mergeDeliveryVenues,
+  pickHomeVenue,
+  roomyTechnicianGridStyle,
+  technicianGridStyle,
+} from '../utils/venueHome'
 
 export default function VenueList() {
   const [searchParams] = useSearchParams()
@@ -269,22 +43,10 @@ export default function VenueList() {
   const [deliveryCategoryId, setDeliveryCategoryId] = useModuleState('delivery.category', '')
   const [deliveryViewer, setDeliveryViewer] = useState(null)
   const [deliveryIndex, setDeliveryIndex] = useState(0)
-  const deliveryTouchX = useRef(0)
-  const stepDeliveryViewer = step => setDeliveryIndex(index => {
-    const total = deliveryViewer?.media.length || 1
-    return (index + step + total) % total
-  })
   const openDeliveryViewer = post => {
     setDeliveryIndex(0)
     setDeliveryViewer(post)
   }
-
-  useEffect(() => {
-    if (!deliveryViewer) return undefined
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = previous }
-  }, [deliveryViewer])
   const [selectedTechnicianCode, setSelectedTechnicianCode] = useState('')
   const [photoViewerIndex, setPhotoViewerIndex] = useState(null)
   const [ktvVideo, setKtvVideo] = useState(null)
@@ -337,7 +99,7 @@ export default function VenueList() {
     const fn = (e) => {
       if (e.data?.type !== 'bot_response') return
       if (e.data.payload?.error) {
-        setError(e.data.payload.error)
+        setError(errorText(e.data.payload.error))
         setLoading(false)
         return
       }
@@ -386,13 +148,13 @@ export default function VenueList() {
     ? deliveryCategories.reduce((sum, venue) => sum + (venue.delivery_posts || []).length, 0)
     : selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
-  const isPhotoFirst = [2, 4, 5, 6, 7, 8, 9, 10].includes(Number(selectedVenue?.id))
+  const isPhotoFirst = PHOTO_FIRST_VENUE_IDS.includes(Number(selectedVenue?.id))
   const rosterGridStyle = technicianList.length <= 9
     ? roomyTechnicianGridStyle
     : technicianGridStyle
   const currentShift = selectedVenue?.current_shift || null
   const isDelivery = DELIVERY_VENUE_IDS.has(selectedVenue?.id)
-  const hasStaffArchive = [1, 2, 4, 5, 6].includes(selectedVenue?.id) || isDelivery
+  const hasStaffArchive = STAFF_ARCHIVE_VENUE_IDS.includes(selectedVenue?.id) || isDelivery
   const attendanceViewLabel = isDelivery ? '晚班出勤' : currentShift === '晚班' ? '今晚出勤' : '今日出勤'
   useEffect(() => {
     setShowStaffArchive(false)
@@ -408,7 +170,6 @@ export default function VenueList() {
   const rosterGroups = attendanceGroups.filter(group => group.group_type === 'roster')
   const attendanceServiceGroups = attendanceGroups.filter(group => group.group_type === 'service')
 
-  // 从最上层详情开始，一层层退回
   const goBack = () => {
     if (ktvVideo) {
       closeKtvVideo()
@@ -455,7 +216,6 @@ export default function VenueList() {
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [photoViewerIndex, selectedTechnicianCode, technicianPhotos])
 
-  // 按项目分类分组
   const serviceGroups = useMemo(() => {
     const groups = {}
     serviceItems.forEach(item => {
@@ -486,29 +246,6 @@ export default function VenueList() {
         .map(({ title }) => title)
       ]
     : []
-
-  const getKaidiCategoryCodes = category => {
-    const prefix = category.name.match(/^\d/)?.[0]
-    const photoCodes = Object.keys(selectedVenue?.technician_photos || {}).filter(code => (
-      category.name === '车模'
-        ? ['6666', '7777'].includes(code)
-        : prefix !== undefined && code.length <= 3 && code.startsWith(prefix)
-    ))
-    return [...new Set(photoCodes)]
-  }
-
-  const getAtlanticCategoryCodes = category => {
-    const photoCodes = selectedVenue?.technician_categories
-      ?.find(item => item.group_name === category.name)
-      ?.technician_codes || []
-    return [...new Set(photoCodes)]
-  }
-
-  const getDihaoCategoryCodes = category => (
-    selectedVenue?.technician_categories
-      ?.find(item => item.group_name === category.name)
-      ?.technician_codes || []
-  )
 
   const deliveryBookingUrl = deliveryViewer ? bookingUrl({
     title: `你好，我想预约${baseVenue?.name || '西港外送'}`,
@@ -551,169 +288,6 @@ export default function VenueList() {
       })()
     : contactUrl()
 
-  const renderTechnicianTile = code => {
-    const photoIds = selectedVenue?.technician_photos?.[code] || []
-    return (
-      <button
-        key={code}
-        type="button"
-        onClick={() => setSelectedTechnicianCode(code)}
-        aria-label={`查看技师 ${code} 的详情${photoIds.length > 0 ? `，${photoIds.length}张照片` : '，暂无照片'}`}
-        style={{
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'center',
-          minWidth: 0,
-          minHeight: '72px',
-          aspectRatio: '0.82',
-          padding: '8px 4px',
-          overflow: 'hidden',
-          border: photoIds.length > 0
-            ? '1px solid rgba(60, 45, 35, 0.12)'
-            : '1px solid var(--ink-line)',
-          borderRadius: '12px',
-          backgroundColor: photoIds.length > 0 ? '#e9e2d9' : 'var(--ink-surface)',
-          backgroundImage: photoIds.length > 0
-            ? 'none'
-            : 'linear-gradient(145deg, #f6eee1, #e8edf5)',
-          color: photoIds.length > 0 ? '#fff' : 'var(--ink-accent)',
-          fontSize: '14px',
-          fontWeight: 700,
-          textShadow: photoIds.length > 0 ? '0 1px 3px rgba(0, 0, 0, 0.5)' : 'none',
-          cursor: 'pointer',
-          boxShadow: '0 2px 5px rgba(40, 65, 48, 0.08)'
-        }}
-      >
-        {photoIds.length > 0 && (
-          <>
-            <LazyMedia
-              alt=""
-              decoding="async"
-              src={mediaUrl(`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`)}
-              style={lazyFillStyle}
-            />
-            <span style={{
-              position: 'absolute', inset: 0,
-              background: 'linear-gradient(to top, rgba(20, 20, 20, 0.72), rgba(20, 20, 20, 0.04) 58%)'
-            }} />
-          </>
-        )}
-        <span style={{ position: 'relative', zIndex: 1 }}>{code}</span>
-      </button>
-    )
-  }
-
-  const renderServiceItem = item => (
-    <div key={item.id} className="home-service-card">
-      <div className="home-service-card-heading">
-        <div className="home-service-card-name">
-          {item.name}
-        </div>
-        <div className="home-service-card-price">
-          {item.price != null ? `$${Number(item.price).toFixed(2)}` : item.duration || '面议'}
-        </div>
-      </div>
-      {item.description && (
-        <div className="home-service-card-description">
-          {item.description}
-        </div>
-      )}
-      {item.price && (
-        <div className="home-service-card-duration">
-          <ModuleIcon name="clock" /> {item.duration}
-        </div>
-      )}
-    </div>
-  )
-
-  const renderCategoryTechnicians = (items, title) => {
-    const technicianCodes = [...new Set(
-      items.flatMap(item => item.technician_codes
-        ? item.technician_codes.split(',').map(code => code.trim()).filter(Boolean)
-        : [])
-    )]
-
-    return (
-      <div style={{ marginBottom: '10px' }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          marginBottom: technicianCodes.length > 0 ? '6px' : 0
-        }}>
-          <h3 style={{
-            fontSize: '15px',
-            color: 'var(--ink-accent)',
-            margin: 0,
-            fontWeight: 600
-          }}>
-            {title}
-          </h3>
-        </div>
-        {technicianCodes.length > 0 && (
-          <div style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '6px',
-            margin: '0 16px'
-          }}>
-            {technicianCodes.map(code => {
-            const photoIds = selectedVenue?.technician_photos?.[code] || []
-            return (
-              <button
-                key={code}
-                type="button"
-                onClick={() => setSelectedTechnicianCode(code)}
-                aria-label={`查看技师 ${code} 的详情${photoIds.length > 0 ? `，${photoIds.length}张照片` : '，暂无照片'}`}
-                style={{
-                  display: 'flex',
-                  flex: '0 0 24px',
-                  width: '24px',
-                  height: '24px',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 0,
-                  overflow: 'hidden',
-                  border: photoIds.length > 0
-                    ? '1px solid rgba(60, 45, 35, 0.12)'
-                    : '1px solid var(--ink-line)',
-                  borderRadius: '50%',
-                  backgroundColor: photoIds.length > 0 ? '#e9e2d9' : 'var(--ink-surface)',
-                  position: 'relative',
-                  backgroundImage: photoIds.length > 0
-                    ? 'none'
-                    : 'linear-gradient(145deg, #f6eee1, #e8edf5)',
-                  color: photoIds.length > 0 ? '#fff' : 'var(--ink-accent)',
-                  fontSize: '8px',
-                  fontWeight: 700,
-                  textShadow: photoIds.length > 0 ? '0 1px 2px rgba(0, 0, 0, 0.7)' : 'none',
-                  cursor: 'pointer',
-                  boxShadow: '0 1px 3px rgba(40, 65, 48, 0.08)'
-                }}
-              >
-                {photoIds.length > 0 && (
-                  <>
-                    <LazyMedia
-                      alt=""
-                      decoding="async"
-                      src={mediaUrl(`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`)}
-                      style={lazyFillStyle}
-                    />
-                    <span style={{
-                      position: 'absolute', inset: 0, background: 'rgba(20, 20, 20, 0.25)'
-                    }} />
-                  </>
-                )}
-                <span style={{ position: 'relative' }}>{code}</span>
-              </button>
-            )
-            })}
-          </div>
-        )}
-      </div>
-    )
-  }
-
   return (
     <div className="home-page" style={{
       minHeight: '100vh',
@@ -721,162 +295,32 @@ export default function VenueList() {
       padding: '12px',
       boxSizing: 'border-box'
     }}>
-      {/* 头部区域 */}
-      <div style={{
-        position: 'sticky',
-        top: 0,
-        zIndex: 20,
-        padding: '10px 12px 10px',
-        margin: '-12px -12px 14px',
-        background: 'var(--ink-header)',
-        borderBottom: '1px solid var(--ink-line)',
-        boxShadow: '0 4px 18px rgba(34, 40, 52, 0.04)'
-      }}>
-        {isFullscreen && <FullscreenAnnouncementBar />}
-        <ModuleTabs active={deliveryCategories.length ? 'delivery' : 'venue'} />
-        <div style={{
-          display: 'grid',
-          gap: '7px'
-        }}>
-          <div style={{
-            padding: '0 2px'
-          }}>
-            <div className={isPhotoFirst ? 'mingxi-personnel-toolbar' : undefined} style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            flexWrap: 'nowrap'
-          }}>
-            <select
-              value={selectedId}
-              onChange={e => {
-                const id = e.target.value
-                setSelectedId(id)
-                sendData({ action: 'get_venues' })
-                const venue = list.find(item => String(item.id) === id)
-                navigate(tenantPath(venue?.delivery_categories ? '/?module=delivery' : '/?module=venue'), { replace: true })
-              }}
-              aria-label="选择会所"
-              style={{
-                flex: '1 1 0',
-                minWidth: '0',
-                height: '44px',
-                padding: '0 30px 0 12px',
-                border: '1px solid var(--ink-line)',
-                borderRadius: '12px',
-                color: 'var(--ink-accent)',
-                fontSize: '14px',
-                fontWeight: 600,
-                outline: 'none',
-                appearance: 'none',
-                WebkitAppearance: 'none',
-                background: "var(--ink-reading) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23746b5d' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") no-repeat right 12px center",
-                boxShadow: '0 1px 3px rgba(120, 90, 50, 0.06)'
-              }}
-            >
-              {loading ? (
-                <option value="">加载中...</option>
-              ) : error ? (
-                <option value="">{error}</option>
-              ) : (
-                list.map(v => (
-                  <option key={v.id} value={String(v.id)}>
-                    {v.name}
-                  </option>
-                ))
-              )}
-            </select>
-            {isPhotoFirst && <nav className="mingxi-personnel-tabs" aria-label="人员浏览">
-              {[[false, attendanceViewLabel], [true, '人员相册']].map(([archive, label]) =>
-                <button key={label} type="button" aria-pressed={showStaffArchive === archive}
-                  aria-controls="venue-personnel-content"
-                  onClick={() => { setShowStaffArchive(archive); setSelectedTechnicianCode('') }}>{label}</button>)}
-            </nav>}
-            {!isPhotoFirst && <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto' }}>
-              {hasStaffArchive && <button
-                type="button"
-                onClick={() => {
-                  setShowStaffArchive(value => !value)
-                  setSelectedTechnicianCode('')
-                }}
-                aria-controls="venue-personnel-content"
-                style={{
-                  minHeight: '44px', padding: '0 10px', borderRadius: '12px',
-                  border: '1px solid var(--ink-line)', background: 'var(--ink-reading)',
-                  color: 'var(--ink-accent)', fontSize: '12px', fontWeight: 600, cursor: 'pointer'
-                }}
-              >{showStaffArchive ? attendanceViewLabel : '人员档案'}</button>}
-            {!hasStaffArchive && <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              flex: '0 0 auto',
-              minWidth: '104px',
-              height: '44px',
-              padding: '0 10px',
-              background: 'var(--ink-wash)',
-              color: 'var(--ink-accent)',
-              border: '1px solid #e3d4bb',
-              borderRadius: '12px',
-              fontSize: '11px',
-              fontWeight: 600,
-              whiteSpace: 'nowrap'
-            }}>
-              <span aria-hidden="true">✓</span>
-              {String(selectedVenue?.id) === '3' ? (
-                <>
-                  包房 <strong style={{ fontSize: '15px' }}>{(selectedVenue.ktv_videos || []).length}</strong> 间
-                </>
-              ) : isDeliveryDayShift ? (
-                <>白班请单独联系</>
-              ) : (
-                <>
-                  {dutyLabel} <strong style={{ fontSize: '15px' }}>{onDutyCount}</strong>{' '}
-                  {['4', '5', '6'].includes(String(selectedVenue?.id)) ? '张照片' : '人'}
-                </>
-              )}
-            </div>}
-            </div>}
-          </div>
-          </div>
-          {!isFullscreen && <AnnouncementCard />}
-          {deliveryCategories.length > 0 && !isDeliveryDayShift && (
-            <div style={{
-              display: 'flex',
-              gap: '8px',
-              overflowX: 'auto',
-              marginTop: '8px',
-              scrollbarWidth: 'none',
-            }}>
-              {deliveryCategories.map(venue => {
-                const active = deliveryCategoryKey(venue) === deliveryCategoryKey(selectedVenue)
-                return (
-                  <button
-                    key={deliveryCategoryKey(venue)}
-                    type="button"
-                    onClick={() => setDeliveryCategoryId(deliveryCategoryKey(venue))}
-                    style={{
-                      flex: '1 1 0', minWidth: 0, whiteSpace: 'nowrap', padding: '7px 2px', borderRadius: '18px', cursor: 'pointer',
-                      minHeight: '44px',
-                      border: '1px solid var(--ink-line)',
-                      background: active ? 'var(--ink-accent)' : 'var(--home-surface)',
-                      color: active ? '#fffef5' : 'var(--ink-accent)',
-                      fontSize: '14px', fontWeight: 600
-                    }}
-                  >
-                    {deliveryCategoryLabel(venue)}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </div>
+      <VenueChrome
+        isFullscreen={isFullscreen}
+        loading={loading}
+        error={error}
+        list={list}
+        selectedId={selectedId}
+        setSelectedId={setSelectedId}
+        navigate={navigate}
+        deliveryCategories={deliveryCategories}
+        deliveryCategoryId={deliveryCategoryId}
+        setDeliveryCategoryId={setDeliveryCategoryId}
+        selectedVenue={selectedVenue}
+        isPhotoFirst={isPhotoFirst}
+        showStaffArchive={showStaffArchive}
+        setShowStaffArchive={setShowStaffArchive}
+        setSelectedTechnicianCode={setSelectedTechnicianCode}
+        hasStaffArchive={hasStaffArchive}
+        attendanceViewLabel={attendanceViewLabel}
+        isDeliveryDayShift={isDeliveryDayShift}
+        dutyLabel={dutyLabel}
+        onDutyCount={onDutyCount}
+      />
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
-          加载中...
+          正在读取…
         </div>
       ) : error ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#c53030' }}>
@@ -889,7 +333,7 @@ export default function VenueList() {
         </div>
       ) : !selectedVenue ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
-          加载中...
+          正在读取…
         </div>
       ) : (
         <div id="venue-personnel-content">
@@ -903,1084 +347,55 @@ export default function VenueList() {
               ? <DeliveryArchive key={deliveryCategoryKey(selectedVenue)} venue={selectedVenue} />
               : <StaffGallery key={selectedVenue.id} venue={selectedVenue} />
             : <>
-          {/* 今日在岗技师 / 未发布提示 */}
-          {isDeliveryDayShift ? (
-            <NoticeCard icon="daylight" title="西港外送只展示晚班出勤">
-              当前为白班时间（06:00–18:00），白班外送请单独联系{contactName()}，<br />
-              晚班（18:00 起）内容将在此展示。
-            </NoticeCard>
-          ) : Array.isArray(selectedVenue.delivery_posts) ? (
-            <div style={{ marginBottom: '24px' }}>
-              <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
-                <h3 style={attendanceInlineHeadingStyle}><ModuleIcon name="photo" />最新上新</h3>
-                <span style={recentUpdateStyle}>
-                  最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
-                </span>
-              </div>
-              {selectedVenue.delivery_posts.length > 0 ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                  {selectedVenue.delivery_posts.map(post => {
-                    const description = (post.description || '').trim()
-                    const cover = post.media.find(media => media.type !== 'video') || post.media[0]
-                    return (
-                      <div
-                        key={post.id}
-                        onClick={() => openDeliveryViewer(post)}
-                        style={{
-                          background: 'var(--home-surface)',
-                          borderRadius: '14px',
-                          overflow: 'hidden',
-                          boxShadow: '0 2px 10px rgba(80, 60, 30, 0.1)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <div style={{ position: 'relative',                         aspectRatio: '3 / 4', background: cover.type === 'video' ? '#1d1a16' : '#f3ede4' }}>
-                                                  {cover.type === 'video' && (
-                                                    <span style={{
-                                                      position: 'absolute', inset: 0, display: 'flex',
-                                                      alignItems: 'center', justifyContent: 'center',
-                                                      color: 'rgba(255,255,255,0.8)', fontSize: '44px', pointerEvents: 'none',
-                                                    }}>▶</span>
-                                                  )}
-                                                  {cover.type === 'video' ? (
-                                                    <LazyMedia
-                              as="video"
-                              muted
-                              playsInline
-                              preload="metadata"
-                              src={mediaUrl(`${API_BASE_URL}/delivery-media/${cover.id}#t=0.5`)}
-                              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                            />
-                          ) : (
-                            <LazyMedia
-                              alt=""
-                              decoding="async"
-                              src={mediaUrl(`${API_BASE_URL}/delivery-media/${cover.id}?thumb=1`)}
-                              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                            />
-                          )}
-                          {post.media.length > 1 && (
-                            <span style={{
-                              position: 'absolute', right: '8px', bottom: '8px',
-                              background: 'rgba(0,0,0,0.55)', color: '#fff',
-                              fontSize: '12px', padding: '2px 8px', borderRadius: '10px',
-                            }}>
-                              <ModuleIcon name="photo" /> {post.media.length}
-                            </span>
-                          )}
-                          {post.price && (
-                            <span style={{
-                              position: 'absolute', left: '8px', bottom: '8px',
-                              background: 'var(--ink-accent)', color: '#fffef5',
-                              fontSize: '13px', fontWeight: 700, padding: '2px 9px', borderRadius: '10px',
-                            }}>
-                              {post.price}$
-                            </span>
-                          )}
-                          {post.media.some(media => media.type === 'video') && (
-                            <span style={{
-                              position: 'absolute', left: '8px', top: '8px',
-                              background: 'rgba(0,0,0,0.55)', color: '#fff',
-                              fontSize: '12px', padding: '2px 8px', borderRadius: '10px',
-                            }}>
-                              ▶ 视频
-                            </span>
-                          )}
-                        </div>
-                        {description && (
-                          <div style={{
-                            padding: '8px 10px',
-                            fontSize: '13px',
-                            lineHeight: 1.5,
-                            color: 'var(--ink-text)',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                            wordBreak: 'break-word',
-                          }}>
-                            {description}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <NoticeCard icon="waiting" title="暂无内容">
-                  新内容发布后将在此展示，<br />如需了解详情请直接联系{contactName()}。
-                </NoticeCard>
-              )}
-              {deliveryViewer && (
-                <div
-                  style={{
-                    position: 'fixed',
-                    inset: 0,
-                    zIndex: 1000,
-                    background: '#000',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    paddingTop: 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <div
-                    onTouchStart={event => { deliveryTouchX.current = event.touches[0].clientX }}
-                    onTouchEnd={event => {
-                      const delta = event.changedTouches[0].clientX - deliveryTouchX.current
-                      if (Math.abs(delta) > 50) stepDeliveryViewer(delta < 0 ? 1 : -1)
-                    }}
-                    style={{
-                      flex: 1,
-                      minHeight: 0,
-                      position: 'relative',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      overflow: 'hidden',
-                      touchAction: 'pan-y',
-                    }}
-                  >
-                    {(() => {
-                      const media = deliveryViewer.media[deliveryIndex]
-                      return media.type === 'video' ? (
-                        <video
-                          key={media.id}
-                          controls
-                          playsInline
-                          preload="metadata"
-                          src={mediaUrl(`${API_BASE_URL}/delivery-media/${media.id}`)}
-                          style={{ maxWidth: '100%', maxHeight: '100%' }}
-                        />
-                      ) : (
-                        <img
-                          key={media.id}
-                          alt=""
-                          src={mediaUrl(`${API_BASE_URL}/delivery-media/${media.id}`)}
-                          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-                        />
-                      )
-                    })()}
-                    {deliveryViewer.media.length > 1 && ['上一张', '下一张'].map((label, index) => (
-                      <button
-                        key={label}
-                        type="button"
-                        aria-label={index === 0 ? '上一张' : '下一张'}
-                        onClick={() => stepDeliveryViewer(index === 0 ? -1 : 1)}
-                        style={{
-                          position: 'absolute',
-                          top: '50%',
-                          [index === 0 ? 'left' : 'right']: '8px',
-                          transform: 'translateY(-50%)',
-                          minWidth: '58px',
-                          height: '38px',
-                          borderRadius: '19px',
-                          border: 'none',
-                          background: 'rgba(0,0,0,0.4)',
-                          color: '#fff',
-                          fontSize: '12px',
-                          lineHeight: '34px',
-                          padding: '0 8px',
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                    {deliveryViewer.media.length > 1 && (
-                      <span style={{
-                        position: 'absolute',
-                        top: 'max(18px, env(safe-area-inset-top))',
-                        left: '14px',
-                        background: 'rgba(0,0,0,0.5)',
-                        color: '#fff',
-                        fontSize: '13px',
-                        padding: '3px 10px',
-                        borderRadius: '12px',
-                      }}>
-                        {deliveryIndex + 1} / {deliveryViewer.media.length}
-                      </span>
-                    )}
-                  </div>
-                  {deliveryViewer.media.length > 1 && (
-                    <div style={{
-                      display: 'flex',
-                      gap: '8px',
-                      justifyContent: 'center',
-                      padding: '8px 12px',
-                      background: '#000',
-                    }}>
-                      {deliveryViewer.media.map((media, index) => {
-                        const thumbStyle = {
-                          width: '52px',
-                          height: '52px',
-                          objectFit: 'cover',
-                          borderRadius: '8px',
-                          opacity: index === deliveryIndex ? 1 : 0.5,
-                          border: index === deliveryIndex ? '2px solid #e0c18f' : '2px solid transparent',
-                          boxSizing: 'border-box',
-                          background: '#222',
-                        }
-                        return media.type === 'video' ? (
-                          <div
-                            key={media.id}
-                            onClick={() => setDeliveryIndex(index)}
-                            style={{ position: 'relative', width: '52px', height: '52px' }}
-                          >
-                            <LazyMedia
-                              as="video"
-                              muted
-                              playsInline
-                              preload="metadata"
-                              src={mediaUrl(`${API_BASE_URL}/delivery-media/${media.id}#t=0.5`)}
-                              style={{ ...thumbStyle, pointerEvents: 'none' }}
-                            />
-                            <span style={{
-                              position: 'absolute', inset: 0, display: 'flex',
-                              alignItems: 'center', justifyContent: 'center',
-                              color: '#fff', fontSize: '16px', pointerEvents: 'none',
-                            }}>▶</span>
-                          </div>
-                        ) : (
-                          <LazyMedia
-                            key={media.id}
-                            alt=""
-                            decoding="async"
-                            onClick={() => setDeliveryIndex(index)}
-                            src={mediaUrl(`${API_BASE_URL}/delivery-media/${media.id}?thumb=1`)}
-                            style={thumbStyle}
-                          />
-                        )
-                      })}
-                    </div>
-                  )}
-                  <div style={{
-                    padding: '12px 16px max(14px, env(safe-area-inset-bottom))',
-                    background: '#1b1610',
-                    color: '#fff',
-                  }}>
-                    {(deliveryViewer.work_no || deliveryViewer.price) && (
-                      <div style={{
-                        display: 'flex', gap: '12px', alignItems: 'center',
-                        fontSize: '15px', fontWeight: 700, marginBottom: '8px',
-                      }}>
-                        {deliveryViewer.work_no && <span>工号 {deliveryViewer.work_no}</span>}
-                        {deliveryViewer.price && (
-                          <span style={{ color: '#e8c46a' }}>{deliveryViewer.price}$</span>
-                        )}
-                      </div>
-                    )}
-                    {deliveryViewer.description && (
-                      <div style={{
-                        fontSize: '15px',
-                        lineHeight: 1.6,
-                        maxHeight: '22vh',
-                        overflowY: 'auto',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        marginBottom: '10px',
-                      }}>
-                        {deliveryViewer.description}
-                      </div>
-                    )}
-                    <CopyBooking url={deliveryBookingUrl} />
-                  </div>
-                  {!hasTelegramBackButton && (
-                  <button
-                    type="button"
-                    aria-label="关闭"
-                    onClick={() => setDeliveryViewer(null)}
-                    style={{
-                      position: 'absolute',
-                      top: 'max(12px, env(safe-area-inset-top))',
-                      right: '12px',
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      border: 'none',
-                      background: 'rgba(255,255,255,0.25)',
-                      color: '#fff',
-                      fontSize: '22px',
-                    }}
-                  >
-                    ✕
-                  </button>
-                  )}
-                </div>
-              )}
-            </div>
+          {isDeliveryDayShift || Array.isArray(selectedVenue.delivery_posts) ? (
+            <DeliveryBoard
+              selectedVenue={selectedVenue}
+              isDeliveryDayShift={isDeliveryDayShift}
+              deliveryViewer={deliveryViewer}
+              setDeliveryViewer={setDeliveryViewer}
+              deliveryIndex={deliveryIndex}
+              setDeliveryIndex={setDeliveryIndex}
+              openDeliveryViewer={openDeliveryViewer}
+              deliveryBookingUrl={deliveryBookingUrl}
+            />
           ) : String(selectedVenue.id) === '3' ? (
-            <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
-              <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
-                <h3 style={attendanceInlineHeadingStyle}><ModuleIcon name="movies" />KTV包房视频</h3>
-                <span style={recentUpdateStyle}>
-                  最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
-                </span>
-              </div>
-              {(selectedVenue.ktv_videos || []).length > 0 ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-                  {selectedVenue.ktv_videos.map(video => {
-                    const info = ktvVideoInfo(video)
-                    return (
-                    <div key={video.id} style={{
-                      background: 'var(--home-surface)', borderRadius: '14px', overflow: 'hidden',
-                      border: '1px solid var(--ink-line)', boxShadow: 'var(--shadow)'
-                    }}>
-                      <div
-                        onClick={() => setKtvVideo(video)}
-                        style={{
-                          position: 'relative', aspectRatio: '16 / 10',
-                          background: '#2b2b2b', cursor: 'pointer', overflow: 'hidden'
-                        }}
-                      >
-                        <LazyMedia
-                          as="video"
-                          preload="metadata"
-                          muted
-                          playsInline
-                          src={mediaUrl(`${API_BASE_URL}/ktv-videos/${video.id}#t=0.5`)}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
-                        />
-                        <div style={{
-                          position: 'absolute', inset: 0,
-                          background: 'linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0) 55%)'
-                        }} />
-                        {video.room_number && (
-                          <span style={{
-                            position: 'absolute', top: '8px', left: '8px', padding: '2px 9px',
-                            borderRadius: '10px', background: 'rgba(128, 100, 60, 0.92)',
-                            color: '#fff', fontSize: '12px', fontWeight: 600
-                          }}>
-                            {video.room_number}
-                          </span>
-                        )}
-                        <span style={{
-                          position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
-                          width: '44px', height: '44px', borderRadius: '50%',
-                          background: 'var(--ink-reading)', color: 'var(--ink-accent)', fontSize: '16px',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          paddingLeft: '3px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
-                        }}>▶</span>
-                        {info.type && (
-                          <span style={{
-                            position: 'absolute', left: '8px', bottom: '8px',
-                            color: '#fff', fontSize: '12px', textShadow: '0 1px 3px rgba(0,0,0,0.6)'
-                          }}>
-                            {info.type}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{
-                        display: 'grid',
-                        gap: '6px', padding: '10px'
-                      }}>
-                        <div style={{
-                          fontSize: '13px', fontWeight: 600, color: 'var(--ink-text)', minWidth: 0,
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                        }}>
-                          {info.hall}{video.room_number ? ` ${video.room_number}` : ''}
-                        </div>
-                        <CopyBooking url={ktvBookingUrl(video)} compact />
-                      </div>
-                    </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>暂无包房视频</p>
-              )}
-              {ktvVideo && (
-                <div
-                  ref={node => {
-                    if (node && !document.fullscreenElement) {
-                      node.requestFullscreen?.().catch(() => {})
-                    }
-                  }}
-                  onClick={() => closeKtvVideo()}
-                  style={{
-                    position: 'fixed', inset: 0, zIndex: 1000, background: '#000',
-                    display: 'flex', flexDirection: 'column', justifyContent: 'center'
-                  }}
-                >
-                  {!hasTelegramBackButton && (
-                  <button
-                    type="button"
-                    aria-label="关闭"
-                    onClick={event => { event.stopPropagation(); closeKtvVideo() }}
-                    style={{
-                      position: 'absolute',
-                      top: 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px) + 14px)',
-                      right: '14px', zIndex: 2,
-                      width: '40px', height: '40px', borderRadius: '50%', border: 0,
-                      background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '22px', cursor: 'pointer'
-                    }}
-                  >
-                    ✕
-                  </button>
-                  )}
-                  <video
-                    autoPlay
-                    controls
-                    controlsList="nofullscreen"
-                    playsInline
-                    src={mediaUrl(`${API_BASE_URL}/ktv-videos/${ktvVideo.id}`)}
-                    onClick={event => event.stopPropagation()}
-                    style={{ width: '100%', maxHeight: '80vh', background: '#000' }}
-                  />
-                  <div
-                    onClick={event => event.stopPropagation()}
-                    style={{ display: 'flex', gap: '12px', justifyContent: 'center', padding: '14px' }}
-                  >
-                    <CopyBooking key={ktvVideo.id} url={ktvBookingUrl(ktvVideo)} compact />
-                    <button
-                      type="button"
-                      onClick={() => closeKtvVideo()}
-                      style={{ ...ktvBookingButtonStyle, background: '#555', border: 0 }}
-                    >
-                      关闭
-                    </button>
-                  </div>
-                </div>
-              )}
-              {(selectedVenue.ktv_texts || []).length > 0 && (
-                <div style={{ marginTop: '20px' }}>
-                  <h3 style={{ ...attendanceInlineHeadingStyle, marginBottom: '10px' }}><ModuleIcon name="recharge" />消费模式及价格</h3>
-                  <div style={{
-                    background: 'var(--home-reading-surface)', border: '1px solid var(--ink-line)',
-                    borderRadius: '14px', padding: '6px 14px'
-                  }}>
-                    {selectedVenue.ktv_texts.flatMap(ktvPriceLines).map((line, index) => (
-                      <p key={index} style={{
-                        margin: 0, padding: '8px 0', fontSize: '13px', lineHeight: 1.6,
-                        color: line.includes('消费明细') ? 'var(--ink-accent)' : '#555',
-                        fontWeight: line.includes('消费明细') ? 700 : 400,
-                        borderBottom: '1px dashed var(--ink-line)'
-                      }}>
-                        {line}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div style={{ marginTop: '20px', padding: '20px', textAlign: 'center', background: 'var(--home-surface)', borderRadius: '14px' }}>
-                <p style={{ color: 'var(--ink-accent)', marginBottom: '12px' }}>想了解更多包房、消费价格或预订详情？</p>
-                <ContactButton title="名玺水汇KTV包房、消费价格及预订详情" />
-              </div>
-            </div>
-          ) : ['4', '5', '6'].includes(String(selectedVenue.id)) && onDutyCount > 0 ? (
-            <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
-              <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
-                <h3 style={attendanceInlineHeadingStyle}>
-                  <ModuleIcon name="personal" />{dutyLabel}技师 ({onDutyCount}张照片)
-                </h3>
-                <span style={recentUpdateStyle}>
-                  最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
-                </span>
-              </div>
-              {(String(selectedVenue.id) === '5'
-                ? atlanticTechnicianCategories
-                : String(selectedVenue.id) === '6'
-                  ? dihaoTechnicianCategories
-                  : kaidiTechnicianCategories
-              ).filter(category => (
-                (String(selectedVenue.id) === '5'
-                  ? getAtlanticCategoryCodes(category)
-                  : String(selectedVenue.id) === '6'
-                    ? getDihaoCategoryCodes(category)
-                    : getKaidiCategoryCodes(category)
-                ).length > 0
-              )).map(category => (
-                <div key={category.name} style={{ marginBottom: '14px' }}>
-                  <h4 style={{
-                    margin: '0 0 8px',
-                    color: 'var(--ink-accent)',
-                    fontSize: '13px',
-                    fontWeight: 600
-                  }}>
-                    {category.name}
-                    {(category.price != null) && (
-                      <span style={{ marginLeft: '8px', color: '#888', fontWeight: 400 }}>
-                        价格 ${category.price} · 90分钟
-                      </span>
-                    )}
-                  </h4>
-                  {(String(selectedVenue.id) === '5'
-                    ? getAtlanticCategoryCodes(category)
-                    : String(selectedVenue.id) === '6'
-                      ? getDihaoCategoryCodes(category)
-                      : getKaidiCategoryCodes(category)
-                  ).length > 0 ? (
-                    <div style={technicianGridStyle}>
-                      {(String(selectedVenue.id) === '5'
-                        ? getAtlanticCategoryCodes(category)
-                        : String(selectedVenue.id) === '6'
-                          ? getDihaoCategoryCodes(category)
-                          : getKaidiCategoryCodes(category)
-                      ).map(renderTechnicianTile)}
-                    </div>
-                  ) : (
-                    <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>
-                      暂无技师工号
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : technicianList.length > 0 ? (
-            <div style={attendancePanelStyle}>
-              <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
-                <h3 style={attendanceInlineHeadingStyle}>
-                  <ModuleIcon name="personal" />{dutyLabel}技师 ({technicianList.length}人)
-                  {!currentShift && dutyShiftToday && (
-                    <span style={{ fontSize: '11px', color: '#666', marginLeft: '8px' }}>
-                      （{dutyShiftToday}）
-                    </span>
-                  )}
-                </h3>
-                <span style={recentUpdateStyle}>
-                  最近更新：{formatChannelMessageTime(selectedVenue.last_channel_message_at)}
-                </span>
-              </div>
-              {rosterGroups.length > 0 ? (
-                rosterGroups.map(group => (
-                  <div key={group.group_name} style={{ marginBottom: '14px' }}>
-                    <h4 style={{
-                      margin: '0 0 8px',
-                      color: 'var(--ink-accent)',
-                      fontSize: '13px',
-                      fontWeight: 600
-                    }}>
-                      {group.group_name}
-                      {String(selectedVenue.id) === '2' && (() => {
-                        const boardNumber = group.group_name.match(/(\d+)\s*号牌/)?.[1]
-                        const price = mingxiBoardPrices.find(item => (
-                          item.board === `${boardNumber}号牌`
-                        ))
-                        return price && (
-                          <span style={{ marginLeft: '8px', color: '#888', fontWeight: 400 }}>
-                            会员 ${price.member} / 90分钟 · 半价 ${price.half} / 45分钟
-                          </span>
-                        )
-                      })()}
-                    </h4>
-                    <div style={rosterGridStyle}>
-                      {group.technician_codes.map(renderTechnicianTile)}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div style={rosterGridStyle}>
-                  {technicianList.map(renderTechnicianTile)}
-                </div>
-              )}
-            </div>
+            <KtvBoard
+              selectedVenue={selectedVenue}
+              ktvVideo={ktvVideo}
+              setKtvVideo={setKtvVideo}
+              closeKtvVideo={closeKtvVideo}
+            />
           ) : (
-            <NoticeCard
-              icon="waiting"
-              title={`${dutyLabel}尚未发布`}
-              updatedAt={formatChannelMessageTime(selectedVenue.last_channel_message_at)}
-            >
-              {currentShift === '白班'
-                ? '白班出勤名单与照片发布后将在此展示，'
-                : '晚班出勤名单与照片发布后将在此展示，'}
-              <br />如需了解详情请直接联系{contactName()}。
-            </NoticeCard>
-          )}
-
-          {/* Services grouped by category */}
-          {attendanceServiceGroups.length > 0 ? (
-            <div style={{
-              marginBottom: '24px',
-              background: 'var(--home-surface)',
-              borderRadius: '12px',
-              padding: '16px'
-            }}>
-              {attendanceServiceGroups.map(group => (
-                <div key={group.group_name} style={{ marginBottom: '14px' }}>
-                  <h3 style={{
-                    margin: '0 0 8px',
-                    color: 'var(--ink-accent)',
-                    fontSize: '15px',
-                    fontWeight: 600
-                  }}>
-                    {group.group_name}
-                  </h3>
-                  {group.technician_codes.length > 0 ? (
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))',
-                      gap: '8px'
-                    }}>
-                      {group.technician_codes.map(renderTechnicianTile)}
-                    </div>
-                  ) : (
-                    <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>暂无关联技师</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : Object.keys(serviceGroups).length > 0 && (
-            <div style={{ marginBottom: '24px' }}>
-              {[
-                { key: 'small', title: '小项' },
-                { key: 'medium', title: '中项' },
-                { key: 'high', title: '高项' },
-                { key: 'tcm', title: '中医按摩' },
-                { key: 'pedicure', title: '修脚师' }
-              ].map(({ key, title }) => serviceGroups[key] && (
-                <div key={key} style={{ marginBottom: '18px' }}>
-                  {renderCategoryTechnicians(serviceGroups[key].items, title)}
-                  <div style={{ display: 'grid', gap: '8px' }}>
-                    {serviceGroups[key].items.map(renderServiceItem)}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <TechnicianBoard
+              selectedVenue={selectedVenue}
+              onDutyCount={onDutyCount}
+              dutyLabel={dutyLabel}
+              currentShift={currentShift}
+              dutyShiftToday={dutyShiftToday}
+              technicianList={technicianList}
+              rosterGridStyle={rosterGridStyle}
+              rosterGroups={rosterGroups}
+              attendanceServiceGroups={attendanceServiceGroups}
+              serviceGroups={serviceGroups}
+              selectedTechnicianCode={selectedTechnicianCode}
+              setSelectedTechnicianCode={setSelectedTechnicianCode}
+              technicianPhotos={technicianPhotos}
+              technicianProfile={technicianProfile}
+              technicianServiceCategories={technicianServiceCategories}
+              contactManagerUrl={contactManagerUrl}
+              photoViewerIndex={photoViewerIndex}
+              setPhotoViewerIndex={setPhotoViewerIndex}
+              photoZoom={photoZoom}
+              setPhotoZoom={setPhotoZoom}
+              photoLoadState={photoLoadState}
+              setPhotoLoadState={setPhotoLoadState}
+              photoRetry={photoRetry}
+              setPhotoRetry={setPhotoRetry}
+              widePhotos={widePhotos}
+              setWidePhotos={setWidePhotos}
+            />
           )}
           </>}
-        </div>
-      )}
-      {selectedTechnicianCode && selectedVenue && (
-        <div
-          role="presentation"
-          onClick={() => setSelectedTechnicianCode('')}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'flex-end',
-            justifyContent: 'center',
-            background: 'rgba(0, 0, 0, 0.48)'
-          }}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="technician-detail-title"
-            onClick={event => event.stopPropagation()}
-            style={{
-              width: '100%',
-              maxWidth: '520px',
-              maxHeight: '82vh',
-              overflowY: 'auto',
-              padding: '20px 20px calc(24px + env(safe-area-inset-bottom))',
-              boxSizing: 'border-box',
-              borderRadius: '20px 20px 0 0',
-              background: '#fff'
-            }}
-          >
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '16px'
-            }}>
-              <h2
-                id="technician-detail-title"
-                style={{ margin: 0, fontSize: '20px', color: 'var(--ink-text)' }}
-              >
-                技师 {selectedTechnicianCode}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setSelectedTechnicianCode('')}
-                aria-label="关闭技师详情"
-                style={{
-                  width: '36px',
-                  height: '36px',
-                  border: 0,
-                  borderRadius: '50%',
-                  background: '#f2f2f2',
-                  color: '#555',
-                  fontSize: '22px',
-                  cursor: 'pointer'
-                }}
-              >
-                ×
-              </button>
-            </div>
-
-            {(selectedVenue.technician_photos?.[selectedTechnicianCode] || []).length > 0 ? (
-              <div style={{
-                display: 'flex',
-                gap: '10px',
-                overflowX: 'auto',
-                marginBottom: '18px'
-              }}>
-                {technicianPhotos.map((photoId, index) => (
-                  <button
-                    key={photoId}
-                    type="button"
-                    onClick={() => {
-                      setPhotoViewerIndex(index)
-                      setPhotoZoom(1)
-                      setPhotoLoadState('loading')
-                      setPhotoRetry(0)
-                    }}
-                    aria-label={`放大查看第 ${index + 1} 张照片`}
-                    style={{
-                      position: 'relative',
-                      padding: 0,
-                      border: 0,
-                      borderRadius: '12px',
-                      background: '#f2f2f2',
-                      overflow: 'hidden',
-                      cursor: 'zoom-in',
-                      flex: '0 0 auto'
-                    }}
-                  >
-                    <img
-                      src={mediaUrl(`${API_BASE_URL}/photos/${photoId}/image`)}
-                      alt={`工号 ${selectedTechnicianCode} 的第 ${index + 1} 张照片`}
-                      loading="lazy"
-                      onLoad={event => {
-                        const image = event.currentTarget
-                        if (image.naturalWidth > image.naturalHeight) {
-                          setWidePhotos(current => (
-                            current[photoId]
-                              ? current
-                              : { ...current, [photoId]: true }
-                          ))
-                        }
-                      }}
-                      style={{
-                        display: 'block',
-                        width: widePhotos[photoId]
-                          ? 'min(88vw, 420px)'
-                          : 'min(48vw, 220px)',
-                        height: '280px',
-                        objectFit: widePhotos[photoId] ? 'contain' : 'cover'
-                      }}
-                    />
-                    <span style={{
-                      position: 'absolute',
-                      right: '8px',
-                      bottom: '8px',
-                      padding: '4px 8px',
-                      borderRadius: '12px',
-                      background: 'rgba(0, 0, 0, 0.58)',
-                      color: '#fff',
-                      fontSize: '12px'
-                    }}>
-                      点击放大
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div style={{
-                marginBottom: '18px',
-                padding: '24px 12px',
-                borderRadius: '12px',
-                background: '#f7f7f7',
-                color: '#888',
-                textAlign: 'center',
-                fontSize: '14px'
-              }}>
-                暂无已确认照片
-              </div>
-            )}
-
-            {Object.keys(technicianProfile).length > 0 && (
-              <div style={{ marginBottom: '18px' }}>
-                <h3 style={{
-                  margin: '0 0 9px',
-                  paddingLeft: '8px',
-                  borderLeft: '3px solid #b59460',
-                  fontSize: '15px',
-                  lineHeight: 1.2,
-                  color: 'var(--ink-text)'
-                }}>
-                  技师基本信息
-                </h3>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                  padding: '4px 12px',
-                  border: '1px solid var(--ink-line)',
-                  borderRadius: '12px',
-                  background: 'var(--ink-reading)'
-                }}>
-                  {[
-                    ['technician_code', '工号'],
-                    ['age', '年龄'],
-                    ['height', '身高'],
-                    ['bust', '胸围'],
-                    ['weight', '体重'],
-                    ['origin', ['4', '5', '6'].includes(String(selectedVenue.id)) ? '产地' : '籍贯']
-                  ].filter(([field]) => technicianProfile[field]).map(([field, label]) => (
-                    <div
-                      key={field}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'baseline',
-                        gap: '8px',
-                        minWidth: 0,
-                        padding: '9px 2px',
-                        borderBottom: '1px solid var(--ink-line)'
-                      }}
-                    >
-                      <span style={{
-                        flexShrink: 0,
-                        color: 'var(--ink-muted)',
-                        fontSize: '12px'
-                      }}>{label}</span>
-                      <strong style={{
-                        minWidth: 0,
-                        color: 'var(--ink-text)',
-                        fontSize: '14px',
-                        fontWeight: 650,
-                        overflowWrap: 'anywhere'
-                      }}>
-                        {technicianProfile[field]}
-                        {field === 'height' ? ' cm' : field === 'age' ? ' 岁' : ''}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
-                {technicianProfile.service_description && (
-                  <div style={{ marginTop: '14px' }}>
-                    <h3 style={{ margin: '0 0 8px', fontSize: '15px', color: '#444' }}>
-                      服务介绍
-                    </h3>
-                    <p style={{
-                      margin: 0,
-                      padding: '12px',
-                      borderRadius: '10px',
-                      background: 'var(--ink-surface)',
-                      color: '#666',
-                      fontSize: '13px',
-                      lineHeight: 1.7,
-                      whiteSpace: 'pre-wrap',
-                      overflowWrap: 'anywhere'
-                    }}>
-                      {technicianProfile.service_description}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div style={{ marginBottom: '16px' }}>
-              <h3 style={{ margin: '0 0 6px', fontSize: '15px', color: '#444' }}>
-                信息来源
-              </h3>
-              <div style={{ fontSize: '14px', color: '#666' }}>
-                {['4', '5', '6'].includes(String(selectedVenue.id))
-                  ? '会所频道照片'
-                  : technicianList.includes(selectedTechnicianCode)
-                    ? `在岗${dutyShiftToday ? ` · ${dutyShiftToday}` : ''}`
-                    : `不在${dutyLabel}名单`}
-              </div>
-            </div>
-
-            {technicianServiceCategories.length > 0 && (
-              <div>
-                <h3 style={{ margin: '0 0 8px', fontSize: '15px', color: '#444' }}>
-                  可服务类别
-                </h3>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {technicianServiceCategories.map(category => (
-                    <span
-                      key={category}
-                      style={{
-                        padding: '6px 11px',
-                        borderRadius: '16px',
-                        background: 'var(--ink-wash)',
-                        color: 'var(--ink-accent)',
-                        fontSize: '13px'
-                      }}
-                    >
-                      {category}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <CopyBooking url={contactManagerUrl} />
-          </section>
-        </div>
-      )}
-      {photoViewerIndex !== null && technicianPhotos[photoViewerIndex] && (
-        <div
-          role="presentation"
-          onClick={() => {
-            setPhotoViewerIndex(null)
-            setPhotoZoom(1)
-            setPhotoLoadState('idle')
-          }}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 1100,
-            display: 'flex',
-            flexDirection: 'column',
-            background: 'rgba(0, 0, 0, 0.96)',
-            color: '#fff'
-          }}
-        >
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: 'max(16px, env(safe-area-inset-top)) 16px 12px'
-          }}>
-            <span style={{ fontSize: '14px' }}>
-              工号 {selectedTechnicianCode} · {photoViewerIndex + 1}/{technicianPhotos.length}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setPhotoViewerIndex(null)
-                setPhotoZoom(1)
-                setPhotoLoadState('idle')
-              }}
-              aria-label="关闭照片查看"
-              style={{
-                width: '40px',
-                height: '40px',
-                border: 0,
-                borderRadius: '50%',
-                background: 'rgba(255, 255, 255, 0.16)',
-                color: '#fff',
-                fontSize: '24px',
-                cursor: 'pointer'
-              }}
-            >
-              ×
-            </button>
-          </div>
-
-          <div
-            onClick={event => event.stopPropagation()}
-            style={{
-              position: 'relative',
-              flex: 1,
-              minHeight: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'auto',
-              padding: '8px 12px'
-            }}
-          >
-            <img
-              key={`${technicianPhotos[photoViewerIndex]}-${photoRetry}`}
-              src={mediaUrl(`${API_BASE_URL}/photos/${technicianPhotos[photoViewerIndex]}/image${photoRetry ? `?retry=${photoRetry}` : ''}`)}
-              alt={`工号 ${selectedTechnicianCode} 的放大照片`}
-              onLoad={() => setPhotoLoadState('loaded')}
-              onError={() => setPhotoLoadState('error')}
-              style={{
-                display: 'block',
-                width: `${Math.min(92 * photoZoom, 300)}vw`,
-                height: `${Math.min(82 * photoZoom, 120)}vh`,
-                maxWidth: 'none',
-                maxHeight: 'none',
-                objectFit: 'contain',
-                opacity: photoLoadState === 'loaded' ? 1 : 0
-              }}
-            />
-            {photoLoadState !== 'loaded' && (
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '14px',
-                color: '#fff',
-                textAlign: 'center',
-                fontSize: '14px'
-              }}>
-                <span>
-                  {photoLoadState === 'error' ? '照片加载失败，请检查网络后重试' : '正在加载照片…'}
-                </span>
-                {photoLoadState === 'error' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhotoLoadState('loading')
-                      setPhotoRetry(retry => retry + 1)
-                    }}
-                    style={{
-                      padding: '9px 16px',
-                      border: '1px solid rgba(255, 255, 255, 0.6)',
-                      borderRadius: '18px',
-                      background: 'rgba(255, 255, 255, 0.14)',
-                      color: '#fff',
-                      fontSize: '14px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    重新加载
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div
-            onClick={event => event.stopPropagation()}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '16px',
-              padding: '12px 16px max(20px, env(safe-area-inset-bottom))'
-            }}
-          >
-            {technicianPhotos.length > 1 && (
-              <button
-                type="button"
-                onClick={() => {
-                  setPhotoViewerIndex(index => (index - 1 + technicianPhotos.length) % technicianPhotos.length)
-                  setPhotoZoom(1)
-                  setPhotoLoadState('loading')
-                  setPhotoRetry(0)
-                }}
-                aria-label="上一张照片"
-                style={{ ...photoViewerButtonStyle, width: '58px', fontSize: '12px' }}
-              >
-                上一张
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setPhotoZoom(zoom => Math.max(1, zoom - 0.5))}
-              aria-label="缩小照片"
-              style={photoViewerButtonStyle}
-            >
-              −
-            </button>
-            <span style={{ minWidth: '48px', textAlign: 'center', fontSize: '14px' }}>
-              {Math.round(photoZoom * 100)}%
-            </span>
-            <button
-              type="button"
-              onClick={() => setPhotoZoom(zoom => Math.min(3, zoom + 0.5))}
-              aria-label="放大照片"
-              style={photoViewerButtonStyle}
-            >
-              +
-            </button>
-            {technicianPhotos.length > 1 && (
-              <button
-                type="button"
-                onClick={() => {
-                  setPhotoViewerIndex(index => (index + 1) % technicianPhotos.length)
-                  setPhotoZoom(1)
-                  setPhotoLoadState('loading')
-                  setPhotoRetry(0)
-                }}
-                aria-label="下一张照片"
-                style={{ ...photoViewerButtonStyle, width: '58px', fontSize: '12px' }}
-              >
-                下一张
-              </button>
-            )}
-          </div>
         </div>
       )}
     </div>

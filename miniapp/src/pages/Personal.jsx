@@ -4,7 +4,10 @@ import OrderSummary from '../components/OrderSummary'
 import BrandArtwork from '../components/BrandArtwork'
 import AccountHeader from '../components/AccountHeader'
 import ModuleIcon from '../components/ModuleIcon'
-import { bindBackButton, openTelegramLink } from '../utils/twa'
+import { Button } from '../components/ui/Button'
+import { EmptyState } from '../components/ui/EmptyState'
+import '../components/ui/ui.css'
+import { bindBackButton, errorText, openTelegramLink } from '../utils/twa'
 import { isTelegramMemberEntry } from '../utils/membership'
 import { money, orderMatches } from '../utils/commerce'
 import { useModuleScroll } from '../utils/moduleState'
@@ -42,17 +45,15 @@ export default function Personal() {
       </div>
     </header>
     </AccountHeader>
-    {error && <p className="membership-error" role="alert">{error}</p>}
+    {error && <p className="membership-error" role="alert">{errorText(error)}</p>}
     {!account ? <section className="membership-panel" role="status">
       {telegramEntry ? <>
         <h2>{loading ? '正在识别 Telegram 账户' : '账户信息暂不可用'}</h2>
         <p>{loading ? '无需登录，正在读取你的账户信息。' : '无需登录。请重新读取账户，或稍后重试。'}</p>
-        {!loading && <button type="button" onClick={() => accountAction(refresh)}>重新读取账户</button>}
-      </> : <>
-        <h2>请从 Telegram 打开“我的”</h2>
-        <p>账户会由 Telegram 自动识别，无需登录。</p>
-        <a className="account-primary-link" href="https://t.me/haotianzhaopian_bot?startapp=personal">在 Telegram 中打开</a>
-      </>}
+        {!loading && <Button type="button" variant="primary" onClick={() => accountAction(refresh)}>重新读取账户</Button>}
+      </> : <EmptyState actionLabel="在 Telegram 中打开" onAction={() => openTelegramLink('https://t.me/haotianzhaopian_bot?startapp=personal')}>
+        请从 Telegram 打开「我的」。账户会由 Telegram 自动识别，无需登录。
+      </EmptyState>}
     </section> : <>
       {account.can_test && isTelegramMemberEntry() && <Link className="personal-admin-entry" to="/admin">
         <span className="personal-admin-icon"><ModuleIcon name="personal" /></span>
@@ -81,7 +82,7 @@ export default function Personal() {
             </Link>)}
         </div>
         <p>最近30笔</p>
-        {attention ? <OrderSummary order={attention} /> : orders[0] ? <OrderSummary order={orders[0]} /> : <p>暂无订单</p>}
+        {attention ? <OrderSummary order={attention} /> : orders[0] ? <OrderSummary order={orders[0]} /> : <EmptyState>暂无订单</EmptyState>}
       </section>
       <section className="membership-panel">
         <div className="membership-row"><h2>我的消费</h2><Link to="/consumption">查看消费记录</Link></div>
@@ -89,11 +90,11 @@ export default function Personal() {
       </section>
     </>}
     <footer className="personal-footer" aria-label="帮助与客服">
-      <button className="personal-support" type="button" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>
+      <Button className="personal-support" type="button" variant="quiet" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>
         帮助 / 联系人工客服昊天
-      </button>
+      </Button>
       {account && <div className="personal-account-actions">
-        <button type="button" disabled={busy} onClick={() => accountAction(refresh)}>{busy ? '处理中…' : '刷新账户'}</button>
+        <Button type="button" variant="ghost" disabled={busy} onClick={() => accountAction(refresh)}>{busy ? '处理中…' : '刷新账户'}</Button>
       </div>}
     </footer>
   </main>

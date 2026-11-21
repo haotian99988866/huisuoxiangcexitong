@@ -25,8 +25,7 @@ from delivery_posts import (
 )
 from delivery_age import extract_work_no, parse_price_table, price_for_work_no
 from image_hash import ImageDeduper, ensure_columns as ensure_image_hash_columns
-from image_cache import ImageCache
-from video_cache import VideoCache
+from media_caches import delivery_video_cache, image_cache, video_cache
 from music import ensure_tables as ensure_music_tables, catalog as music_catalog, audio_file as music_audio_file
 from music_stream import RemoteAudio, audio_response as music_stream_response
 from tenants import load_tenant, public_config, TenantUnavailable
@@ -44,6 +43,17 @@ from technician_photo_ocr import (
     extract_technician_category,
     extract_technician_profile,
 )
+from venues_public import (
+    DELIVERY_VENUE_IDS,
+    apple_category,
+    confirmed_adult_technician_codes,
+    parse_venue,
+    underage_technician_codes,
+)
+
+_underage_technician_codes = underage_technician_codes
+_confirmed_adult_technician_codes = confirmed_adult_technician_codes
+_apple_category = apple_category
 
 load_dotenv()
 
@@ -102,17 +112,14 @@ def _local_admin_debug(data):
     )
 
 
-image_cache = ImageCache(os.path.join(
-    os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "image-cache"
-))
-video_cache = VideoCache(os.path.join(
-    os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "ktv-video-cache"
-))
-delivery_video_cache = VideoCache(os.path.join(
-    os.getenv("LOCALAPPDATA") or tempfile.gettempdir(), "Huisuo", "delivery-video-cache"
-))
-
 from venue_pricing import dihao_category_for_photo as _dihao_category_for_photo
+
+def _view_endpoint():
+    endpoint = request.endpoint or ""
+    if endpoint.startswith("media."):
+        return endpoint.split(".", 1)[1]
+    return endpoint
+
 
 def get_db_connection():
     return pymysql.connect(
@@ -141,7 +148,7 @@ def tenant_context():
     slug = header if header is not None else query
     if slug is not None and request.path in {"/admin-hotel-save", "/admin-delivery-upload", "/admin-venue-recommendation-save"}:
         return jsonify({"error": "租户入口不开放后台上传管理"}), 403
-    if slug is not None and request.endpoint == "hotel_image":
+    if slug is not None and _view_endpoint() == "hotel_image":
         return jsonify({"error": "租户入口暂未开放酒店推荐"}), 403
     if slug is not None and request.path == "/member-deposit":
         return jsonify({"error": "会所入口不开放充值"}), 403
@@ -157,7 +164,7 @@ def tenant_context():
     if request.endpoint == "webhook":
         body = request.get_json(silent=True)
         if not isinstance(body, dict):
-            return jsonify({"error": "Request body must be a JSON object"}), 400
+            return jsonify({"error": "请求体须为 JSON 对象"}), 400
         allowed = {"tenant_config", "get_venues", "get_venue_detail", "get_technicians",
                    "get_movies", "get_movie_series", "get_staff", "get_staff_detail",
                    "get_delivery_archive", "get_venue_recommendations"}
@@ -169,18 +176,18 @@ def tenant_context():
             try:
                 venue_id = int(body.get("id", body.get("venue_id")))
             except (ValueError, TypeError):
-                return jsonify({"error": "A valid venue id is required"}), 400
+                return jsonify({"error": "请提供有效的会所编号"}), 400
             if venue_id not in g.tenant["venue_ids"]:
                 return jsonify({"error": "此入口未开放该会所"}), 403
         if body.get("action") in {"get_staff", "get_delivery_archive", "get_venue_recommendations"} and body.get("venue_id") not in g.tenant["venue_ids"]:
             return jsonify({"error": "此入口未开放该会所档案"}), 403
-    elif request.endpoint == "venue_recommendation_image" and not venue_recommendations.SHARED_VENUE_IDS.intersection(g.tenant["venue_ids"]):
+    elif _view_endpoint() == "venue_recommendation_image" and not venue_recommendations.SHARED_VENUE_IDS.intersection(g.tenant["venue_ids"]):
         return jsonify({"error": "此入口未开放该会所推荐"}), 403
-    elif request.endpoint == "announcement_media" and not g.tenant.get("announcements_enabled"):
+    elif _view_endpoint() == "announcement_media" and not g.tenant.get("announcements_enabled"):
         return jsonify({"error": "此入口未开放公告"}), 403
-    elif request.endpoint == "music_audio":
+    elif _view_endpoint() == "music_audio":
         return jsonify({"error": "此租户入口暂未开放音乐"}), 403
-    elif request.endpoint == "staff_photo_image":
+    elif _view_endpoint() == "staff_photo_image":
         from staff_archive import photo
         try:
             row = photo(request.view_args["photo_id"])
@@ -189,14 +196,15 @@ def tenant_context():
         except pymysql.MySQLError:
             logger.exception("Staff archive media tenant scope failed")
             return jsonify({"error": "人员档案暂不可用"}), 503
-    elif request.endpoint in {"technician_photo_image", "ktv_video", "delivery_media"}:
-        if request.endpoint == "delivery_media" and not DELIVERY_VENUE_IDS.intersection(g.tenant["venue_ids"]):
+    elif _view_endpoint() in {"technician_photo_image", "ktv_video", "delivery_media"}:
+        view = _view_endpoint()
+        if view == "delivery_media" and not DELIVERY_VENUE_IDS.intersection(g.tenant["venue_ids"]):
             return jsonify({"error": "此入口未开放外送"}), 403
         table, field = {
             "technician_photo_image": ("technician_photos", "photo_id"),
             "ktv_video": ("ktv_room_videos", "video_id"),
             "delivery_media": ("delivery_media", "media_id"),
-        }[request.endpoint]
+        }[view]
         conn = None
         try:
             conn = get_db_connection()
@@ -224,180 +232,10 @@ def tenant_cache_policy(response):
         "get_staff", "get_staff_detail", "get_delivery_archive", "staff_customer_status", "staff_customer_subscribe", "staff_customer_catalog",
         "delivery_customer_status", "delivery_customer_subscribe"}
     hotel_request = isinstance(body, dict) and body.get("action") in {"get_hotels", "get_venue_recommendations"}
-    if request.path in {"/member-deposit", "/admin-hotel-save", "/admin-delivery-upload", "/admin-venue-recommendation-save"} or hotel_request or request.endpoint in {"hotel_image", "venue_recommendation_image"} or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
+    if request.path in {"/member-deposit", "/admin-hotel-save", "/admin-delivery-upload", "/admin-venue-recommendation-save"} or hotel_request or _view_endpoint() in {"hotel_image", "venue_recommendation_image"} or staff_request or admin_request or music_request or payment_request or getattr(g, "tenant", None) is not None or "tenant" in request.args or "X-Tenant" in request.headers:
         response.headers["Cache-Control"] = "private, no-store"
         response.vary.add("X-Tenant")
     return response
-
-
-def parse_venue(venue):
-    venue["search_tags"] = venue["search_tags"].split(",") if venue["search_tags"] else []
-    technician_codes = venue.get("technician_codes") or ""
-    venue["technician_list"] = [
-        code.strip() for code in technician_codes.split(",") if code.strip()
-    ]
-    venue["on_duty_count"] = len(venue["technician_list"])
-    venue["description"] = None
-    return venue
-
-
-def _underage_technician_codes(photos):
-    underage_codes = set()
-    for photo in photos:
-        technician_code = photo["technician_code"] or (
-            extract_labeled_technician_code(photo["ocr_text"])
-        )
-        if technician_code is None:
-            continue
-        profile = extract_technician_profile(
-            [photo["ocr_text"] or ""],
-            technician_code,
-        )
-        age = profile.get("age")
-        if age and age.isdigit() and int(age) < 18:
-            underage_codes.add(technician_code)
-    return underage_codes
-
-
-def _confirmed_adult_technician_codes(photos):
-    adult_codes = set()
-    for photo in photos:
-        technician_code = photo["technician_code"] or (
-            extract_labeled_technician_code(photo["ocr_text"])
-        )
-        if technician_code is None:
-            continue
-        profile = extract_technician_profile(
-            [photo["ocr_text"] or ""],
-            technician_code,
-        )
-        age = profile.get("age")
-        if age and age.isdigit() and int(age) >= 18:
-            adult_codes.add(technician_code)
-    return adult_codes
-
-
-@app.get("/photos/<int:photo_id>/image")
-def technician_photo_image(photo_id):
-    conn = None
-    cur = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT p.file_id, p.venue_id, p.status, p.technician_code,
-                   p.duty_date,
-                   p.ocr_text,
-                   EXISTS (
-                       SELECT 1
-                       FROM attendance_daily a
-                       WHERE a.venue_id = p.venue_id
-                             AND a.duty_date = p.duty_date
-                             AND FIND_IN_SET(p.technician_code, a.technician_codes) > 0
-                   ) AS is_on_roster
-            FROM technician_photos p
-            WHERE p.id = %s
-            """,
-            (photo_id,),
-        )
-        photo = cur.fetchone()
-        underage_codes = set()
-        if photo is not None and photo["venue_id"] == 5:
-            cur.execute(
-                """
-                SELECT technician_code, ocr_text
-                FROM technician_photos
-                WHERE venue_id = %s AND duty_date = %s
-                """,
-                (photo["venue_id"], photo["duty_date"]),
-            )
-            underage_codes = _underage_technician_codes(cur.fetchall())
-        adult_codes = set()
-        if photo is not None and photo["venue_id"] == 6:
-            cur.execute(
-                """
-                SELECT technician_code, ocr_text
-                FROM technician_photos
-                WHERE venue_id = %s AND duty_date = %s
-                """,
-                (photo["venue_id"], photo["duty_date"]),
-            )
-            adult_codes = _confirmed_adult_technician_codes(cur.fetchall())
-    except pymysql.MySQLError:
-        logger.exception("Failed to look up technician photo %s", photo_id)
-        return jsonify({"error": "Database request failed"}), 500
-    finally:
-        if cur is not None:
-            cur.close()
-        if conn is not None:
-            conn.close()
-
-    if photo is None:
-        return jsonify({"error": "Photo not found"}), 404
-
-    is_matched_roster_photo = (
-        photo["status"] == "matched"
-        and photo["technician_code"] is not None
-        and photo["is_on_roster"]
-    )
-    is_labeled_kaidi_photo = (
-        photo["venue_id"] == 4
-        and photo["status"] in {"matched", "pending_review"}
-        and extract_labeled_technician_code(photo["ocr_text"]) is not None
-    )
-    is_labeled_atlantic_photo = (
-        photo["venue_id"] == 5
-        and photo["status"] in {"matched", "pending_review"}
-        and extract_labeled_technician_code(photo["ocr_text"]) is not None
-        and (
-            photo["technician_code"]
-            or extract_labeled_technician_code(photo["ocr_text"])
-        ) not in underage_codes
-    )
-    is_labeled_dihao_photo = (
-        photo["venue_id"] == 6
-        and photo["status"] in {"matched", "pending_review"}
-        and (
-            photo["technician_code"]
-            or extract_labeled_technician_code(photo["ocr_text"])
-        ) in adult_codes
-    )
-    if (
-        not is_matched_roster_photo
-        and not is_labeled_kaidi_photo
-        and not is_labeled_atlantic_photo
-        and not is_labeled_dihao_photo
-    ):
-        return jsonify({"error": "Photo not found"}), 404
-
-    return _telegram_image(photo["file_id"])
-
-
-@app.get("/staff-photos/<int:photo_id>/image")
-def staff_photo_image(photo_id):
-    from staff_archive import photo
-    try:
-        row = photo(photo_id)
-        if not row:
-            return jsonify({"error": "人员照片不存在或已停用"}), 404
-        return _telegram_image(row["file_id"])
-    except pymysql.MySQLError:
-        logger.exception("Staff archive photo unavailable")
-        return jsonify({"error": "人员照片暂不可用"}), 503
-
-
-DELIVERY_VENUE_IDS = {7, 8, 9, 10}
-
-
-APPLE_CATEGORY_KEYWORDS = (("小苹果", "small"), ("红苹果", "red"))
-
-
-def _apple_category(text):
-    for keyword, category in APPLE_CATEGORY_KEYWORDS:
-        if keyword in text:
-            return category
-    return None
 
 
 def classify_apple_rows(rows):
@@ -531,28 +369,6 @@ def delivery_archive(venue_id, category=None):
             "shift_date": start.date().isoformat()}
 
 
-@app.get("/ktv-videos/<int:video_id>")
-def ktv_video(video_id):
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT file_id FROM ktv_room_videos WHERE id = %s AND venue_id = 3",
-                (video_id,),
-            )
-            row = cur.fetchone()
-    except pymysql.MySQLError:
-        logger.exception("Failed to look up KTV video %s", video_id)
-        return jsonify({"error": "Database request failed"}), 500
-    finally:
-        if conn is not None:
-            conn.close()
-    if row is None:
-        return jsonify({"error": "Video not found"}), 404
-    return cached_video_response(row["file_id"], video_cache)
-
-
 def cached_video_response(file_id, cache):
     try:
         cached = cache.get(file_id)
@@ -573,175 +389,10 @@ def cached_video_response(file_id, cache):
     return response
 
 
-def warm_ktv_video_cache():
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id, file_id FROM ktv_room_videos WHERE venue_id = 3 ORDER BY id DESC")
-            rows = cur.fetchall()
-    finally:
-        conn.close()
-    warm_video_rows(rows, video_cache, "KTV")
-
-
-def warm_delivery_video_cache():
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT MAX(m.id) AS id, m.file_id
-                FROM delivery_media m
-                JOIN delivery_people p ON p.id=m.person_id
-                LEFT JOIN (
-                    SELECT person_id, MAX(created_at) AS latest_duty
-                    FROM delivery_media
-                    WHERE media_type='photo' AND archive_only=FALSE
-                    GROUP BY person_id
-                ) duty ON duty.person_id=p.id
-                WHERE m.media_type='video' AND p.deleted_at IS NULL
-                      AND p.merged_into_id IS NULL AND p.consent_status='granted'
-                GROUP BY m.file_id
-                ORDER BY MAX(duty.latest_duty) DESC, MAX(m.id) DESC
-                """
-            )
-            rows = cur.fetchall()
-    finally:
-        conn.close()
-    warm_video_rows(rows, delivery_video_cache, "Delivery")
-
-
-def warm_video_rows(rows, cache, label):
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        logger.error("Cannot warm %s videos: Telegram is not configured", label)
-        return
-    reserved = 0
-    for row in rows:
-        try:
-            cached = cache.get(row["file_id"])
-            if cached is not None:
-                reserved += cached.stat().st_size
-                if reserved >= cache.max_bytes:
-                    break
-                continue
-            with requests.get(
-                f"https://api.telegram.org/bot{token}/getFile",
-                params={"file_id": row["file_id"]}, timeout=(5, 15),
-            ) as info:
-                info.raise_for_status()
-                payload = info.json()
-            result = payload.get("result") or {}
-            path, size = result.get("file_path"), result.get("file_size")
-            if not payload.get("ok") or not path or not isinstance(size, int):
-                raise ValueError("Telegram did not return a video path and size")
-            if size <= 0 or size > cache.max_file_bytes:
-                raise ValueError("Video exceeds cache file size limit or has no size")
-            if reserved + size > cache.max_bytes:
-                logger.warning("%s video cache budget reached; remaining videos use Telegram", label)
-                break
-            with requests.get(
-                f"https://api.telegram.org/file/bot{token}/{quote(path, safe='/')}",
-                stream=True, timeout=(5, 30),
-            ) as upstream:
-                upstream.raise_for_status()
-                cache.store(
-                    row["file_id"], upstream.iter_content(chunk_size=256 * 1024),
-                    os.path.splitext(path)[1].lower(), size,
-                )
-            reserved += size
-            logger.info("%s video %s cached (%s bytes)", label, row["id"], size)
-        except (requests.RequestException, ValueError, OSError) as exc:
-            logger.error("Cannot cache %s video %s (%s); will retry", label, row["id"], type(exc).__name__)
-
-
-def maintain_ktv_video_cache(stop, *, delivery=False):
-    while not stop.is_set():
-        try:
-            if delivery:
-                warm_delivery_video_cache()
-            else:
-                warm_ktv_video_cache()
-        except pymysql.MySQLError:
-            logger.exception("Cannot query %s videos for cache warmup; will retry", "delivery" if delivery else "KTV")
-        if stop.wait(60):
-            break
-
-
-@app.get("/movie-thumb/<int:message_id>")
-def movie_thumb(message_id):
-    try:
-        file_id = movie_thumb_file_id(message_id)
-    except pymysql.MySQLError:
-        logger.exception("Failed to look up movie thumb %s", message_id)
-        return jsonify({"error": "Database request failed"}), 500
-    if not file_id:
-        return jsonify({"error": "Thumbnail not found"}), 404
-    return _telegram_image(file_id)
-
-
-@app.get("/short-drama-thumb/<int:message_id>")
-def short_drama_thumb(message_id):
-    if g.tenant is not None:
-        return jsonify({"error": "此租户入口暂未开放短剧"}), 403
-    try:
-        file_id = movie_thumb_file_id(message_id, DRAMA_CHANNEL_ID)
-    except pymysql.MySQLError:
-        logger.exception("Failed to look up short drama thumb %s", message_id)
-        return jsonify({"error": "Database request failed"}), 500
-    if not file_id:
-        return jsonify({"error": "Thumbnail not found"}), 404
-    return _telegram_image(file_id)
-
-
-@app.get("/music-audio/<int:track_id>")
-def music_audio(track_id):
-    try:
-        result = music_audio_file(track_id, stream=True)
-        if result is None:
-            return jsonify({"error": "歌曲不存在或已下架"}), 404
-        if isinstance(result, RemoteAudio):
-            return music_stream_response(result)
-        path, mimetype = result
-        response = send_file(path, mimetype=mimetype, conditional=True, max_age=0)
-        response.headers["Cache-Control"] = "private, no-store"
-        return response
-    except (ValueError, OSError):
-        logger.exception("Local music file unavailable")
-        return jsonify({"error": "音频文件暂不可用，请联系管理员"}), 503
-    except pymysql.MySQLError:
-        logger.exception("Music audio lookup failed")
-        return jsonify({"error": "音乐服务暂不可用"}), 503
-
-
-@app.get("/delivery-media/<int:media_id>")
-def delivery_media(media_id):
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT file_id, media_type FROM delivery_media WHERE id = %s",
-                (media_id,),
-            )
-            row = cur.fetchone()
-    except pymysql.MySQLError:
-        logger.exception("Failed to look up delivery media %s", media_id)
-        return jsonify({"error": "Database request failed"}), 500
-    finally:
-        if conn is not None:
-            conn.close()
-    if row is None:
-        return jsonify({"error": "Media not found"}), 404
-    if row["media_type"] == "photo":
-        return _telegram_image(row["file_id"])
-    return cached_video_response(row["file_id"], delivery_video_cache)
-
-
 def _telegram_image(file_id):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
-        return jsonify({"error": "Image service is not configured"}), 503
+        return jsonify({"error": "图片服务未配置"}), 503
 
     def download():
         with requests.get(
@@ -766,10 +417,10 @@ def _telegram_image(file_id):
         )
     except (requests.RequestException, ValueError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
         logger.error("Failed to retrieve Telegram image (%s)", type(exc).__name__)
-        return jsonify({"error": "Image service is temporarily unavailable"}), 502
+        return jsonify({"error": "图片服务暂时不可用"}), 502
     except OSError:
         logger.exception("Failed to read, process or cache image")
-        return jsonify({"error": "Image cache is temporarily unavailable"}), 503
+        return jsonify({"error": "图片缓存暂时不可用"}), 503
     response = Response(data, mimetype=content_type)
     response.headers["Cache-Control"] = "private, max-age=300"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -790,7 +441,7 @@ MEDIA_CONTENT_TYPES = {
 def _proxy_telegram_media(file_id):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
-        return jsonify({"error": "Video service is not configured"}), 503
+        return jsonify({"error": "视频服务未配置"}), 503
     try:
         info = requests.get(
             f"https://api.telegram.org/bot{token}/getFile",
@@ -799,7 +450,7 @@ def _proxy_telegram_media(file_id):
         ).json()
         file_path = (info.get("result") or {}).get("file_path")
         if not info.get("ok") or not file_path:
-            return jsonify({"error": "Video is unavailable (file too large)"}), 502
+            return jsonify({"error": "视频过大，暂时无法播放"}), 502
         upstream_headers = {}
         range_header = request.headers.get("Range")
         if range_header and re.fullmatch(r"bytes=\d*-\d*", range_header):
@@ -812,10 +463,10 @@ def _proxy_telegram_media(file_id):
         )
         if upstream.status_code not in (200, 206):
             upstream.close()
-            return jsonify({"error": "Video is unavailable"}), 502
+            return jsonify({"error": "视频暂时不可用"}), 502
     except (requests.RequestException, ValueError) as exc:
         logger.error("Failed to retrieve Telegram media (%s)", type(exc).__name__)
-        return jsonify({"error": "Video service is temporarily unavailable"}), 502
+        return jsonify({"error": "视频服务暂时不可用"}), 502
 
     extension = os.path.splitext(file_path)[1].lower()
     content_type = MEDIA_CONTENT_TYPES.get(extension, "video/mp4")
@@ -840,67 +491,35 @@ def _proxy_telegram_media(file_id):
     return response
 
 
-@app.get("/announcement-media/<int:ident>/<int:index>")
-def announcement_media(ident, index):
-    try:
-        media = announcements.media_file(ident, index)
-        if media is None:
-            return jsonify({"error": "公告媒体不存在或已下架"}), 404
-        path = announcements.local_media_path(media["filename"])
-        if not path.is_file():
-            return jsonify({"error": "公告媒体暂不可用，请稍后重试"}), 503
-        if media["kind"] == "video":
-            from announcement_video import playback_path
-            path = playback_path(path)
-        content_type = "image/jpeg" if media["kind"] == "photo" else (
-            "video/webm" if path.suffix == ".webm" else "video/mp4"
-        )
-        response = send_file(path, mimetype=content_type,
-                             conditional=True, max_age=0)
-        response.headers["Cache-Control"] = "private, no-store"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        if media["kind"] == "video":
-            response.headers["Accept-Ranges"] = "bytes"
-            response.headers["X-Video-Prepared"] = "faststart" if path.parent.name == "video-faststart" else "original"
-        return response
-    except pymysql.MySQLError:
-        logger.exception("Announcement media unavailable")
-        return jsonify({"error": "公告媒体暂不可用"}), 503
+from media_warmup import (
+    maintain_ktv_video_cache as _maintain_ktv_video_cache,
+    warm_delivery_video_cache as _warm_delivery_video_cache,
+    warm_ktv_video_cache as _warm_ktv_video_cache,
+    warm_video_rows,
+)
 
 
-@app.get("/hotel-images/<hotel_id>")
-def hotel_image(hotel_id):
-    try:
-        picture = hotels.image(hotel_id)
-        if picture is None:
-            return jsonify({"error": "酒店照片不存在或已下架"}), 404
-        response = Response(picture, mimetype="image/jpeg")
-        response.headers["Cache-Control"] = "private, no-store"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        return response
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except pymysql.MySQLError:
-        logger.exception("Hotel image unavailable")
-        return jsonify({"error": "酒店照片暂不可用"}), 503
+def warm_ktv_video_cache():
+    _warm_ktv_video_cache(get_db_connection, video_cache)
 
 
-@app.get("/venue-recommendation-images/<ident>")
-def venue_recommendation_image(ident):
-    try:
-        media = venue_recommendations.media(ident)
-        if media is None:
-            return jsonify({"error": "推荐媒体不存在、未开始或已下架"}), 404
-        response = send_file(io.BytesIO(media["image"]),
-                             mimetype="video/mp4" if media["media_type"] == "video" else "image/jpeg",
-                             conditional=True, etag=False, max_age=0)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        return response
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except pymysql.MySQLError:
-        logger.exception("Venue recommendation image unavailable")
-        return jsonify({"error": "推荐媒体暂不可用"}), 503
+def warm_delivery_video_cache():
+    _warm_delivery_video_cache(get_db_connection, delivery_video_cache)
+
+
+def maintain_ktv_video_cache(stop, *, delivery=False):
+    _maintain_ktv_video_cache(
+        stop,
+        get_db_connection,
+        delivery=delivery,
+        ktv_cache=video_cache,
+        delivery_cache=delivery_video_cache,
+    )
+
+
+from api import register_blueprints
+
+register_blueprints(app)
 
 
 @app.errorhandler(413)
@@ -920,26 +539,19 @@ def upload_too_large(error):
 @app.post("/admin-delivery-upload")
 @app.post("/admin-venue-recommendation-save")
 def webhook():
-    proof_upload = request.path == "/member-deposit"
-    hotel_upload = request.path == "/admin-hotel-save"
-    delivery_upload = request.path == "/admin-delivery-upload"
-    recommendation_upload = request.path == "/admin-venue-recommendation-save"
-    if hotel_upload or delivery_upload or recommendation_upload:
-        try:
-            data = json.loads(request.form.get("payload", ""))
-        except (ValueError, TypeError):
-            return jsonify({"error": "上传资料格式无效"}), 400
-        if isinstance(data, dict):
-            data["action"] = ("admin_venue_recommendation_save" if recommendation_upload else
-                              "admin_delivery_staff_upload" if delivery_upload else "admin_hotel_save")
-    else:
-        data = {**request.form, "action": "member_deposit"} if proof_upload else request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"error": "Request body must be a JSON object"}), 400
+    from api.webhook import parse_webhook_payload, try_public_read_handlers
 
-    action = data.get("action")
-    if not isinstance(action, str):
-        return jsonify({"error": "A valid action is required"}), 400
+    parsed = parse_webhook_payload(request)
+    if "error" in parsed:
+        message, status = parsed["error"]
+        return jsonify({"error": message}), status
+
+    data = parsed["data"]
+    action = parsed["action"]
+    proof_upload = parsed["proof_upload"]
+    hotel_upload = parsed["hotel_upload"]
+    delivery_upload = parsed["delivery_upload"]
+    recommendation_upload = parsed["recommendation_upload"]
     if action in {"admin_dashboard", "admin_tenant_save", "admin_deposits", "admin_deposit_proof", "admin_deposit_review",
                   "admin_credited_customers",
                   "admin_hotels", "admin_hotel_save", "admin_hotel_image",
@@ -1241,37 +853,10 @@ def webhook():
                 raise
             logger.error("Telegram Stars funding service unavailable action=%s", action)
             return jsonify({"error": "Telegram Stars 服务暂不可用，请刷新核对库存和订单，勿重复付款"}), 503
-    if action == "tenant_config":
-        return jsonify({"tenant": public_config(g.tenant) if g.tenant else None})
-    if action == "get_hotels":
-        try:
-            return jsonify(hotels.catalog(data))
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-        except pymysql.MySQLError:
-            logger.exception("Hotel catalog unavailable")
-            return jsonify({"error": "酒店推荐暂不可用，请稍后重试"}), 503
-    if action == "get_venue_recommendations":
-        try:
-            return jsonify(venue_recommendations.catalog(data))
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-        except pymysql.MySQLError:
-            logger.exception("Venue recommendations unavailable")
-            return jsonify({"error": "会所推荐暂不可用，请稍后重试"}), 503
-    if action in {"get_announcements", "get_announcement"}:
-        try:
-            result = announcements.catalog(data.get("page", 1)) if action == "get_announcements" else announcements.detail(data.get("id"))
-            if result is None:
-                return jsonify({"error": "公告不存在或已下架"}), 404
-            response = jsonify(result)
-            response.headers["Cache-Control"] = "private, no-store"
-            return response
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-        except pymysql.MySQLError:
-            logger.exception("Announcement service unavailable")
-            return jsonify({"error": "公告暂不可用，请稍后重试"}), 503
+    public_response = try_public_read_handlers(action, data)
+    if public_response is not None:
+        return public_response
+    # Remaining webhook actions stay here until migrated into api.webhook.PUBLIC_READ_HANDLERS.
     if action in {"subscription_catalog", "subscription_save",
                   "staff_customer_status", "staff_customer_subscribe", "staff_customer_catalog",
                   "delivery_customer_status", "delivery_customer_subscribe"}:
@@ -1533,16 +1118,16 @@ def webhook():
                 return jsonify(movie_catalog(category, query, limit=data.get("limit", 120), page=data.get("page", 1)))
             series = str(data.get("series") or "").strip()[:255]
             if not series:
-                return jsonify({"error": "A series name is required"}), 400
+                return jsonify({"error": "请提供剧集名称"}), 400
             return jsonify({"episodes": movie_episodes(series)})
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except pymysql.MySQLError:
             logger.exception("Failed to load movies")
-            return jsonify({"error": "Database request failed"}), 500
+            return jsonify({"error": "数据库请求失败，请稍后重试"}), 500
 
     if action not in {"get_venues", "get_venue_detail", "get_technicians"}:
-        return jsonify({"error": "Unknown action"}), 400
+        return jsonify({"error": "未知操作"}), 400
 
     venue_id = None
     if action in {"get_venue_detail", "get_technicians"}:
@@ -1551,7 +1136,7 @@ def webhook():
             if venue_id < 1:
                 raise ValueError
         except (TypeError, ValueError):
-            return jsonify({"error": "A valid venue id is required"}), 400
+            return jsonify({"error": "请提供有效的会所编号"}), 400
 
     conn = None
     cur = None
@@ -1701,12 +1286,14 @@ def webhook():
 
                 if attendance or venue["id"] in {4, 5, 6}:
                     if venue["id"] in {4, 5, 6}:
+                        # 公开仅 matched；pending_review 不进列表
                         cur.execute(
                             """
                             SELECT id, technician_code, channel_id, msg_id,
                                    ocr_text, file_id, status, image_hash
                             FROM technician_photos
                             WHERE venue_id = %s
+                                  AND status = 'matched'
                                   AND created_at >= %s AND created_at < %s
                             ORDER BY id
                             """,
@@ -1741,18 +1328,16 @@ def webhook():
                     photos = _dedupe_photos_by_hash(cur.fetchall())
                     underage_codes = (
                         _underage_technician_codes(photos)
-                        if venue["id"] == 5
+                        if venue["id"] in {4, 5, 6}
                         else set()
                     )
                     adult_codes = (
                         _confirmed_adult_technician_codes(photos)
-                        if venue["id"] == 6
+                        if venue["id"] in {4, 5, 6}
                         else set()
                     )
                     profile_texts = {}
-                    seen_file_ids = set()
                     seen_coded_file_ids = set()
-                    photo_count = 0
                     category_codes = {}
                     for photo in photos:
                         technician_code = photo["technician_code"]
@@ -1760,28 +1345,18 @@ def webhook():
                             technician_code = technician_code or (
                                 extract_labeled_technician_code(photo["ocr_text"])
                             )
-                            if (
-                                venue["id"] == 5
-                                and technician_code in underage_codes
-                            ):
+                            if technician_code is None:
+                                continue
+                            if technician_code in underage_codes:
                                 continue
                             if (
-                                venue["id"] == 6
-                                and (
-                                    technician_code is None
-                                    or technician_code not in adult_codes
-                                )
+                                venue["id"] in {4, 5, 6}
+                                and technician_code not in adult_codes
                             ):
                                 continue
                             file_id = photo["file_id"]
                             unique_file_id = file_id or f"photo:{photo['id']}"
-                            if unique_file_id not in seen_file_ids:
-                                seen_file_ids.add(unique_file_id)
-                                photo_count += 1
-                            if (
-                                technician_code is None
-                                or unique_file_id in seen_coded_file_ids
-                            ):
+                            if unique_file_id in seen_coded_file_ids:
                                 continue
                             seen_coded_file_ids.add(unique_file_id)
                             venue["technician_photos"].setdefault(
@@ -1842,10 +1417,11 @@ def webhook():
                             photo["technician_code"], []
                         ).append(photo_link)
                     if venue["id"] in {4, 5, 6}:
-                        venue["on_duty_count"] = photo_count
                         venue["technician_list"] = list(
                             venue["technician_photos"]
                         )
+                        # 出勤人数只计已识别工号，不含无工号图
+                        venue["on_duty_count"] = len(venue["technician_list"])
                     if venue["id"] in {5, 6}:
                         venue["technician_categories"] = [
                             {
@@ -1908,7 +1484,7 @@ def webhook():
             )
             venue = cur.fetchone()
             if venue is None:
-                return jsonify({"error": "Venue not found"}), 404
+                return jsonify({"error": "找不到该会所"}), 404
             venue["description"] = None
             return jsonify(venue)
 
@@ -1917,7 +1493,7 @@ def webhook():
             (venue_id,),
         )
         if cur.fetchone() is None:
-            return jsonify({"error": "Venue not found"}), 404
+            return jsonify({"error": "找不到该会所"}), 404
 
         cur.execute(
             """
@@ -1931,7 +1507,7 @@ def webhook():
         return jsonify({"list": cur.fetchall()})
     except pymysql.MySQLError:
         logger.exception("Database request failed for action %s", action)
-        return jsonify({"error": "Database request failed"}), 500
+        return jsonify({"error": "数据库请求失败，请稍后重试"}), 500
     finally:
         if cur is not None:
             cur.close()

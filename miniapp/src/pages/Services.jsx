@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import ModuleIcon from '../components/ModuleIcon'
 import AccountHeader from '../components/AccountHeader'
+import '../components/ui/ui.css'
 import { bindBackButton } from '../utils/twa'
 import { useModuleScroll } from '../utils/moduleState'
 import './Membership.css'
@@ -13,7 +14,7 @@ export default function Services() {
     <AccountHeader><header className="membership-header">
       <h1>服务中心</h1>
     </header></AccountHeader>
-    <p className="consumption-intro">精选服务，轻松开通</p>
+    <p className="consumption-intro">订阅、会员、话费与酒店推荐，一站办理</p>
     <section className="membership-panel" aria-labelledby="service-subscriptions">
       <Link className="service-product" to="/subscriptions">
         <span className="service-product-icon"><ModuleIcon name="announcements" /></span>
