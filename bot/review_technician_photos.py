@@ -56,14 +56,22 @@ def main():
     approve_parser = commands.add_parser("approve", help="确认一张照片对应的工号")
     approve_parser.add_argument("photo_id", type=int)
     approve_parser.add_argument("technician_code")
+    approve_parser.add_argument(
+        "--archive",
+        action="store_true",
+        help="不校验当班名单，直接 matched 写入人员档案（日韩专场等）",
+    )
     args = parser.parse_args()
 
     if args.command == "list":
         list_pending()
         return
 
-    if review_pending_photo(args.photo_id, args.technician_code):
-        print(f"已确认：照片 {args.photo_id} -> 工号 {args.technician_code}")
+    if review_pending_photo(
+        args.photo_id, args.technician_code, require_roster=not args.archive
+    ):
+        mode = "档案核准" if args.archive else "名单核准"
+        print(f"已确认（{mode}）：照片 {args.photo_id} -> 工号 {args.technician_code}")
     else:
         parser.error(f"照片 {args.photo_id} 不存在或已处理")
 

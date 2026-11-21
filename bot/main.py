@@ -24,6 +24,11 @@ from attendance_ops import (
     pending_photos_in_shift,
     record_event as record_attendance_event,
 )
+from mingxi_complete_attendance import (
+    is_complete_attendance_text,
+    post_complete_attendance_reply,
+    remember_album_photo,
+)
 from technician_photo_ocr import (
     match_pending_technician_photos,
     save_technician_photo,
@@ -889,6 +894,12 @@ def handle_photo_message(message):
             result["technician_code"],
             result["id"],
         )
+        if venue_config["venue_id"] == PLATE_CODE_VENUE_ID and result.get("technician_code"):
+            remember_album_photo(
+                result["technician_code"],
+                message.message_id,
+                channel_id=chat_id_str,
+            )
     else:
         logger.info(
             "OCR 待人工核对 venue=%s photo_id=%s candidates=%s",
@@ -908,6 +919,10 @@ def handle_attendance_text(message):
             schedule_footer(bot, message.chat.id)
         return
     text = message.text or message.caption or ""
+
+    # 完整版由机器人回复，不再当初稿解析，避免循环
+    if is_complete_attendance_text(text):
+        return
 
     # 只处理包含出勤关键词的消息（含晚班/名单，减少频道漏网）
     if not any(keyword in text for keyword in ATTENDANCE_KEYWORDS):
@@ -929,6 +944,7 @@ def handle_attendance_text(message):
     logger.info("出勤同步结果 venue=%s msg=%s", venue_config["venue_name"], msg)
     matched_count = 0
     pending_left = 0
+    attendance = None
     if ok:
         attendance = (
             parse_plate_attendance_text(text)
@@ -981,9 +997,11 @@ def handle_attendance_text(message):
         )
         notify_attendance_failure(venue_config["venue_name"], msg, text[:160])
 
-    # 出勤结果写日志，不往频道发确认（订阅推送仍走 notify_attendance）
+    # 出勤结果写日志；名玺成功后先回完整版，再挂底
     logger.info("出勤同步 venue=%s ok=%s msg=%s", venue_config["venue_name"], ok, msg)
     if ok:
+        if venue_config["venue_id"] == PLATE_CODE_VENUE_ID and attendance:
+            post_complete_attendance_reply(bot, message, venue_config, attendance)
         post_footer(bot, message.chat.id)
 
 

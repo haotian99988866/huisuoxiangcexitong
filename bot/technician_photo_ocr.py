@@ -492,9 +492,16 @@ def match_pending_technician_photos(
         conn.close()
 
 
-def review_pending_photo(photo_id: int, technician_code: str):
-    if not re.fullmatch(r"\d{2,3}", technician_code):
-        raise ValueError("Technician code must contain 2 or 3 digits")
+def review_pending_photo(photo_id: int, technician_code: str, *, require_roster=True):
+    """人工确认待核对照片。
+
+    require_roster=True：工号须出现在该日出勤名单（默认）。
+    require_roster=False：不校验名单，直接 matched 以便写入人员档案
+    （名玺日韩专场等名单外工号）。
+    """
+    code = str(technician_code or "").strip()
+    if not re.fullmatch(r"\d{1,4}", code):
+        raise ValueError("Technician code must contain 1 to 4 digits")
 
     conn = get_conn()
     cur = None
@@ -513,29 +520,30 @@ def review_pending_photo(photo_id: int, technician_code: str):
         if photo is None or photo["status"] != "pending_review":
             return False
 
-        cur.execute(
-            """
-            SELECT technician_codes
-            FROM attendance_daily
-            WHERE venue_id = %s AND duty_date = %s
-            ORDER BY FIELD(duty_shift, '晚班', '早班'), created_at DESC
-            LIMIT 1
-            """,
-            (photo["venue_id"], photo["duty_date"]),
-        )
-        attendance = cur.fetchone()
-        roster_codes = {
-            code.strip()
-            for code in (attendance["technician_codes"] if attendance else "").split(",")
-            if code.strip()
-        }
-        matching_roster_codes = {
-            code for code in roster_codes
-            if _normalize_code(code) == _normalize_code(technician_code)
-        }
-        if len(matching_roster_codes) != 1:
-            raise ValueError("Technician code is not in that attendance roster")
-        technician_code = next(iter(matching_roster_codes))
+        if require_roster:
+            cur.execute(
+                """
+                SELECT technician_codes
+                FROM attendance_daily
+                WHERE venue_id = %s AND duty_date = %s
+                ORDER BY FIELD(duty_shift, '晚班', '早班'), created_at DESC
+                LIMIT 1
+                """,
+                (photo["venue_id"], photo["duty_date"]),
+            )
+            attendance = cur.fetchone()
+            roster_codes = {
+                item.strip()
+                for item in (attendance["technician_codes"] if attendance else "").split(",")
+                if item.strip()
+            }
+            matching_roster_codes = {
+                item for item in roster_codes
+                if _normalize_code(item) == _normalize_code(code)
+            }
+            if len(matching_roster_codes) != 1:
+                raise ValueError("Technician code is not in that attendance roster")
+            code = next(iter(matching_roster_codes))
 
         cur.execute(
             """
@@ -543,7 +551,7 @@ def review_pending_photo(photo_id: int, technician_code: str):
             SET technician_code = %s, status = 'matched', reviewed_at = CURRENT_TIMESTAMP
             WHERE id = %s AND status = 'pending_review'
             """,
-            (technician_code, photo_id),
+            (code, photo_id),
         )
         conn.commit()
         return cur.rowcount == 1

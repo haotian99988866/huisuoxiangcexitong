@@ -52,7 +52,7 @@ async function requestStaff(action, fields, signal) {
   return result
 }
 
-export default function StaffGallery({ venue, admin = false, onSelect, search = '', selectedId = null, allowSkip = false, photoFirst = false, attendanceOnly = false, onBrowseAlbum }) {
+export default function StaffGallery({ venue, admin = false, onSelect, search = '', selectedId = null, allowSkip = false, photoFirst = false, attendanceOnly = false, onBrowseAlbum, openStaffId = null }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -97,6 +97,12 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     }).finally(() => clearTimeout(timeout))
     return () => { active = false; clearTimeout(timeout); controller.abort() }
   }, [venue.id, attempt, admin])
+  // 出勤完整版深链：打开指定人员详情
+  useEffect(() => {
+    if (!data?.members?.length || !openStaffId) return
+    const target = data.members.find(member => String(member.id) === String(openStaffId))
+    if (target) setSelected(target)
+  }, [data, openStaffId])
   useEffect(() => {
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible' && !selected && !replacement && !busy) setAttempt(value => value + 1)

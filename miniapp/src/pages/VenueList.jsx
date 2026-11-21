@@ -35,10 +35,13 @@ export default function VenueList() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const requestedModule = searchParams.get('module')
+  const deepVenueId = searchParams.get('venue')
+  const deepStaffId = searchParams.get('staff')
+  const deepAlbum = searchParams.get('album') === '1'
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   useEffect(() => subscribeFullscreen(setIsFullscreen), [])
   const [list, setList] = useState([])
-  const [showStaffArchive, setShowStaffArchive] = useState(false)
+  const [showStaffArchive, setShowStaffArchive] = useState(() => deepAlbum)
   const [selectedId, setSelectedId] = useModuleState('venue.selection', '')
   const [lastVenueId, setLastVenueId] = useModuleState('venue.lastClub', '')
   const [deliveryCategoryId, setDeliveryCategoryId] = useModuleState('delivery.category', '')
@@ -75,6 +78,10 @@ export default function VenueList() {
   useEffect(() => {
     if (!list.length || !requestedModule) return
     setSelectedId(current => {
+      // 出勤完整版深链指定会所
+      if (deepVenueId && list.some(venue => String(venue.id) === String(deepVenueId))) {
+        return String(deepVenueId)
+      }
       const selected = list.find(venue => String(venue.id) === current)
       const wantsDelivery = requestedModule === 'delivery'
       if (selected && Boolean(selected.delivery_categories) === wantsDelivery) return current
@@ -82,7 +89,11 @@ export default function VenueList() {
       if (!wantsDelivery && candidates.some(venue => String(venue.id) === lastVenueId)) return lastVenueId
       return String(pickHomeVenue(candidates)?.id || current)
     })
-  }, [requestedModule, list, setSelectedId, lastVenueId])
+  }, [requestedModule, list, setSelectedId, lastVenueId, deepVenueId])
+
+  useEffect(() => {
+    if (deepAlbum) setShowStaffArchive(true)
+  }, [deepAlbum, deepStaffId])
 
   useEffect(() => {
     const selected = list.find(venue => String(venue.id) === selectedId)
@@ -348,11 +359,12 @@ export default function VenueList() {
                 onBrowseAlbum={() => setShowStaffArchive(true)}
               />
               : <StaffGallery
-                key={`${selectedVenue.id}-${showStaffArchive}`}
+                key={`${selectedVenue.id}-${showStaffArchive}-${deepStaffId || ''}`}
                 venue={selectedVenue}
                 photoFirst
                 attendanceOnly={!showStaffArchive}
                 onBrowseAlbum={() => setShowStaffArchive(true)}
+                openStaffId={deepStaffId}
               />
             : hasStaffArchive && showStaffArchive
             ? isDelivery
