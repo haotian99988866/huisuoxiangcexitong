@@ -22,6 +22,17 @@
 .operations-health-counts dt, .operations-health-counts dd { margin: 0; }
 .operations-health-counts .has-problem { background: #fff0e8; color: #974719; }
 .operations-health-footnote { margin: 14px 0 0; }
+.operations-health-section { margin: 0 0 12px; }
+.operations-health-venue-counts { margin-top: 8px; }
+.operations-health-events { margin-top: 8px; }
+.operations-health-events ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.operations-health-events .has-problem-text { color: #974719; }
 @media (max-width: 540px) {
   .operations-health-grid { grid-template-columns: minmax(0, 1fr); }
   .operations-health-card { padding: 12px; }

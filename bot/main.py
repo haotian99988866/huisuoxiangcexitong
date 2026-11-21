@@ -18,6 +18,12 @@ from attendance_parser import (
     parse_plate_attendance_text,
     save_daily_attendance,
 )
+from attendance_ops import (
+    ATTENDANCE_KEYWORDS,
+    notify_attendance_failure,
+    pending_photos_in_shift,
+    record_event as record_attendance_event,
+)
 from technician_photo_ocr import (
     match_pending_technician_photos,
     save_technician_photo,
@@ -903,8 +909,8 @@ def handle_attendance_text(message):
         return
     text = message.text or message.caption or ""
 
-    # 只处理包含出勤关键词的消息
-    if not any(keyword in text for keyword in ['出勤', '按摩部', '技师', '白班']):
+    # 只处理包含出勤关键词的消息（含晚班/名单，减少频道漏网）
+    if not any(keyword in text for keyword in ATTENDANCE_KEYWORDS):
         if get_venue_config(message.chat.id):
             schedule_footer(bot, message.chat.id)
         return
@@ -921,6 +927,8 @@ def handle_attendance_text(message):
     # 解析并保存出勤
     ok, msg = save_daily_attendance(venue_config["venue_id"], text)
     logger.info("出勤同步结果 venue=%s msg=%s", venue_config["venue_name"], msg)
+    matched_count = 0
+    pending_left = 0
     if ok:
         attendance = (
             parse_plate_attendance_text(text)
@@ -934,8 +942,20 @@ def handle_attendance_text(message):
             attendance["duty_date"],
             attendance["codes"],
         )
+        pending_left = pending_photos_in_shift(venue_config["venue_id"]) or 0
         if matched_count:
-            logger.info("出勤名单补匹配 photos=%s venue=%s", matched_count, venue_config["venue_name"])
+            logger.info(
+                "出勤名单补匹配 photos=%s pending_left=%s venue=%s",
+                matched_count,
+                pending_left,
+                venue_config["venue_name"],
+            )
+        elif pending_left:
+            logger.info(
+                "出勤名单已入库，仍有待核对照片 pending=%s venue=%s",
+                pending_left,
+                venue_config["venue_name"],
+            )
         if notify_attendance(
             bot,
             venue_config["venue_id"],
@@ -944,6 +964,22 @@ def handle_attendance_text(message):
             len(attendance["codes"]),
         ):
             logger.info("已向订阅用户推送出勤提醒 venue=%s", venue_config["venue_name"])
+        record_attendance_event(
+            venue_config["venue_id"],
+            venue_config["venue_name"],
+            True,
+            msg,
+            rematched=matched_count,
+            pending_left=pending_left,
+        )
+    else:
+        record_attendance_event(
+            venue_config["venue_id"],
+            venue_config["venue_name"],
+            False,
+            msg,
+        )
+        notify_attendance_failure(venue_config["venue_name"], msg, text[:160])
 
     # 出勤结果写日志，不往频道发确认（订阅推送仍走 notify_attendance）
     logger.info("出勤同步 venue=%s ok=%s msg=%s", venue_config["venue_name"], ok, msg)

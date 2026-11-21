@@ -33,6 +33,65 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? '时间不可用' : date.toLocaleString('zh-CN', { hour12: false })
 }
 
+function AttendanceSyncPanel({ sync }) {
+  const venues = sync.venues || []
+  const events = sync.recent_events || []
+  const missing = venues.filter(item => !item.roster_available)
+  const pendingTotal = venues.reduce((sum, item) => sum + (item.pending_review || 0), 0)
+  return <div className="operations-health-section" role="status">
+    <p className="operations-health-checked">
+      本班出勤（{sync.shift || '—'}）：已入库 {venues.length - missing.length}/{venues.length} 家
+      · 本班待核对照片 {pendingTotal} 张
+      {sync.error ? '（出勤统计暂不可用）' : ''}
+    </p>
+    {venues.length > 0 && <dl className="operations-health-counts operations-health-venue-counts">
+      {venues.map(item => <div
+        className={!item.roster_available || item.pending_review ? 'has-problem' : ''}
+        key={item.venue_id}
+      >
+        <dt>{item.venue_name}</dt>
+        <dd>
+          {item.roster_available
+            ? `${item.code_count}人 · ${item.duty_shift || item.shift}`
+            : '名单未同步'}
+          {item.pending_review ? ` · 待核${item.pending_review}` : ''}
+        </dd>
+      </div>)}
+    </dl>}
+    {events.length > 0 && <div className="operations-health-events">
+      <p className="operations-health-note">最近同步</p>
+      <ul>
+        {events.slice(0, 5).map((event, index) => <li key={`${event.created_at}-${index}`}>
+          <span className={event.ok ? '' : 'has-problem-text'}>
+            {event.ok ? '成功' : '失败'} · {event.venue_name}
+          </span>
+          {' · '}{formatTime(event.created_at)}
+          {event.ok
+            ? ` · 补匹配 ${event.rematched} · 仍待核 ${event.pending_left}`
+            : ` · ${event.message}`}
+        </li>)}
+      </ul>
+    </div>}
+  </div>
+}
+
+function PhotoReviewPanel({ review }) {
+  const byVenue = review.shift_pending_by_venue || []
+  return <div className="operations-health-section" role="status">
+    <p className="operations-health-checked">
+      技师照片待核对：{review.pending_review ?? '—'} 张
+      · 近7日 OCR 失败：{review.ocr_errors_7d ?? '—'}
+      {review.error ? '（统计暂不可用）' : ''}
+    </p>
+    {byVenue.length > 0 && <dl className="operations-health-counts operations-health-venue-counts">
+      {byVenue.map(item => <div className="has-problem" key={item.venue_id}>
+        <dt>{item.venue_name}</dt>
+        <dd>本班待核 {item.pending_review}</dd>
+      </div>)}
+    </dl>}
+  </div>
+}
+
 function ComponentCard({ component }) {
   const hasProblem = Object.entries(component.counts).some(([status, count]) =>
     problemStatuses.has(status) && count > 0)
@@ -111,11 +170,8 @@ export default function OperationsHealth() {
     {loading && !data && <p role="status">正在读取任务状态…</p>}
     {data && <>
       <p className="operations-health-checked">检查时间：{formatTime(data.checked_at)}</p>
-      {data.technician_photo_review && <p className="operations-health-checked" role="status">
-        技师照片待核对：{data.technician_photo_review.pending_review ?? '—'} 张
-        · 近7日 OCR 失败：{data.technician_photo_review.ocr_errors_7d ?? '—'}
-        {data.technician_photo_review.error ? '（统计暂不可用）' : ''}
-      </p>}
+      {data.attendance_sync && <AttendanceSyncPanel sync={data.attendance_sync} />}
+      {data.technician_photo_review && <PhotoReviewPanel review={data.technician_photo_review} />}
       <div className="operations-health-grid">
         {data.components.map(component => <ComponentCard key={component.key} component={component} />)}
       </div>

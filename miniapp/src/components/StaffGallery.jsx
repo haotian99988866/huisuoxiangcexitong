@@ -13,6 +13,30 @@ import LazyMedia from './media/LazyMedia'
 import PhotoSkeleton from './media/PhotoSkeleton'
 import './StaffGallery.css'
 
+function attendanceEmptyCopy({
+  attendanceOnly,
+  rosterAvailable,
+  pendingPhotos,
+  hasDutyCodes,
+  unarchivedCount,
+  searchTerm,
+}) {
+  if (searchTerm) return '没有匹配的工号。'
+  if (!attendanceOnly) return '暂无人员。档案随每日出勤与可识别照片自动积累。'
+  if (!rosterAvailable && !hasDutyCodes) {
+    return pendingPhotos > 0
+      ? '本班名单尚未从频道同步，已有照片待核对。请稍后刷新，或先查看人员相册。'
+      : '本班名单尚未从频道同步。请稍后刷新，或先查看人员相册。'
+  }
+  if (pendingPhotos > 0) {
+    return '本班名单已有，照片仍在核对中。可先查看人员相册，或稍后刷新。'
+  }
+  if (unarchivedCount > 0) {
+    return `本班名单已同步（${unarchivedCount}人尚无公开档案照片）。可先查看人员相册。`
+  }
+  return '当前没有可展示的本班出勤档案。'
+}
+
 function cardOverlayLabel({ attendanceOnly, dutyPhoto, dutyText }) {
   if (attendanceOnly) return dutyPhoto ? '本班' : '待更新'
   return dutyText
@@ -201,17 +225,29 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
           : '请从 Telegram 主入口打开，才能订阅出勤提醒。'}</p>
         <SubscriptionFeedback subscription={subscription} />
       </>}
-      {!data.roster_available && <p className="staff-meta">{attendanceOnly ? '当前班次尚未发布出勤，请切换人员相册查看历史照片。' : '当前班次尚未发布出勤，照片仍可查看；未出勤天数依据最近发布记录。'}</p>}
+      {!data.roster_available && !attendanceCodes.size && <p className="staff-meta">{attendanceOnly
+        ? ((data.pending_photo_count || 0) > 0
+          ? '本班名单尚未同步，频道已有照片待核对。'
+          : '本班名单尚未从频道同步。')
+        : '当前班次尚未发布出勤，照片仍可查看；未出勤天数依据最近发布记录。'}</p>}
       {onSelect && allowSkip && <button type="button" className="staff-skip"
         onClick={() => onSelect(null)}>暂不关联技师，后续可补录</button>}
-      {!visibleMembers.length && (attendanceOnly && onBrowseAlbum && !searchTerm ? (
-        <div className="staff-empty-cta" role="status">
-          <p>当前没有可展示的本班出勤档案。</p>
-          <button type="button" onClick={onBrowseAlbum}>查看人员相册</button>
-        </div>
-      ) : !visibleMembers.length && <p className="staff-meta">
-        {searchTerm ? '没有匹配的工号。' : attendanceOnly ? '当前没有可展示的本班出勤档案。' : '暂无人员。档案随每日出勤与可识别照片自动积累。'}
-      </p>)}
+      {!visibleMembers.length && (() => {
+        const emptyText = attendanceEmptyCopy({
+          attendanceOnly,
+          rosterAvailable: Boolean(data.roster_available),
+          pendingPhotos: data.pending_photo_count || 0,
+          hasDutyCodes: attendanceCodes.size > 0,
+          unarchivedCount: unarchivedCodes.length,
+          searchTerm,
+        })
+        return attendanceOnly && onBrowseAlbum && !searchTerm ? (
+          <div className="staff-empty-cta" role="status">
+            <p>{emptyText}</p>
+            <button type="button" onClick={onBrowseAlbum}>查看人员相册</button>
+          </div>
+        ) : <p className="staff-meta">{emptyText}</p>
+      })()}
       <div className="staff-grid">
         {visibleMembers.map(member => {
           const dutyPhoto = attendanceOnly && venue.technician_photos?.[member.code]?.[0]

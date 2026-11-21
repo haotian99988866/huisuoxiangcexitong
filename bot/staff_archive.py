@@ -292,8 +292,24 @@ def listing(data, admin=False):
                 member["price_usd"] is not None,
                 Decimal(member["price_usd"]) if member["price_usd"] is not None else Decimal("0"),
                 member["id"]), reverse=True)
-        return {"members": members, "total": total, "shift": shift,
-                "roster_available": bool(roster or photo_duty_ids), "venue_id": venue_id}
+            cur.execute(
+                """
+                SELECT COUNT(*) AS pending
+                FROM technician_photos
+                WHERE venue_id = %s AND status = 'pending_review'
+                      AND created_at >= %s AND created_at < %s
+                """,
+                (venue_id, start, end),
+            )
+            pending_photo_count = int((cur.fetchone() or {}).get("pending") or 0)
+        return {
+            "members": members,
+            "total": total,
+            "shift": shift,
+            "roster_available": bool(roster or photo_duty_ids),
+            "pending_photo_count": pending_photo_count,
+            "venue_id": venue_id,
+        }
     finally:
         conn.close()
 
@@ -447,7 +463,16 @@ def start_worker():
         while True:
             try:
                 sync()
-            except Exception:
-                logger.exception("Staff archive synchronization failed; source records retained until successful sync")
+                from attendance_ops import record_staff_archive_heartbeat
+                record_staff_archive_heartbeat()
+            except Exception as exc:
+                logger.exception(
+                    "Staff archive synchronization failed; source records retained until successful sync"
+                )
+                try:
+                    from attendance_ops import record_staff_archive_failure
+                    record_staff_archive_failure(exc)
+                except Exception:
+                    logger.exception("Staff archive failure status write failed")
             threading.Event().wait(15)
     threading.Thread(target=run, name="staff-archive", daemon=True).start()

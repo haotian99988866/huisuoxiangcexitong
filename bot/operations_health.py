@@ -182,9 +182,13 @@ def _announcement_pending(component, path):
 
 def _technician_photo_review_stats():
     """只读：待核对积压与近期 OCR 失败计数，供运营健康面板展示。"""
+    from duty_shift import SHIFT_VENUE_IDS, current_shift_window
+    from attendance_ops import VENUE_LABELS
+
     conn = None
     try:
         conn = get_conn()
+        start, end, shift = current_shift_window()
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT COUNT(*) AS pending FROM technician_photos WHERE status = 'pending_review'"
@@ -199,16 +203,51 @@ def _technician_photo_review_stats():
                 """
             )
             ocr_errors = int((cur.fetchone() or {}).get("ocr_errors") or 0)
-        return {"pending_review": pending, "ocr_errors_7d": ocr_errors}
+            cur.execute(
+                """
+                SELECT venue_id, COUNT(*) AS pending
+                FROM technician_photos
+                WHERE status = 'pending_review'
+                      AND created_at >= %s AND created_at < %s
+                      AND venue_id IN ({placeholders})
+                GROUP BY venue_id
+                """.format(
+                    placeholders=",".join(["%s"] * len(SHIFT_VENUE_IDS))
+                ),
+                (start, end, *sorted(SHIFT_VENUE_IDS)),
+            )
+            by_venue = [
+                {
+                    "venue_id": row["venue_id"],
+                    "venue_name": VENUE_LABELS.get(
+                        row["venue_id"], f"会所{row['venue_id']}"
+                    ),
+                    "pending_review": int(row["pending"] or 0),
+                    "shift": shift,
+                }
+                for row in cur.fetchall()
+            ]
+        return {
+            "pending_review": pending,
+            "ocr_errors_7d": ocr_errors,
+            "shift_pending_by_venue": by_venue,
+            "shift": shift,
+        }
     except pymysql.MySQLError:
         logger.exception("Technician photo review stats unavailable")
-        return {"pending_review": None, "ocr_errors_7d": None, "error": "unavailable"}
+        return {
+            "pending_review": None,
+            "ocr_errors_7d": None,
+            "shift_pending_by_venue": [],
+            "error": "unavailable",
+        }
     finally:
         if conn is not None:
             conn.close()
 
 
 def snapshot():
+    from attendance_ops import shift_attendance_snapshot, staff_archive_component
     from channel_sync import state_directory
     from movie_ingest import SOURCES, store_path
 
@@ -223,6 +262,7 @@ def snapshot():
                    include_queue=False),
         _component(jobs_path, "announcement_indexer", "公告入库", "announcement_indexer",
                    include_queue=False),
+        staff_archive_component(),
     ]
     _announcement_pending(components[-1], jobs_path)
     for username, source_id in NEWS_SOURCES:
@@ -281,4 +321,5 @@ def snapshot():
         "components": components,
         "stale_after_seconds": HEARTBEAT_STALE_SECONDS,
         "technician_photo_review": _technician_photo_review_stats(),
+        "attendance_sync": shift_attendance_snapshot(),
     }
