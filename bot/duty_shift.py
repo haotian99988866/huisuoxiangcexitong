@@ -17,3 +17,12 @@ def current_shift_window(now=None):
     if now >= night_start:
         return night_start, day_start + timedelta(days=1), "晚班"
     return night_start - timedelta(days=1), day_start, "晚班"
+
+
+def canonical_shift_name(duty_shift, when=None):
+    """名玺等「实时出勤」统一成白班/晚班，白班与晚班同一套窗口规则。"""
+    if duty_shift == "早班":
+        return "白班"
+    if duty_shift in {"白班", "晚班"}:
+        return duty_shift
+    return current_shift_window(when)[2]

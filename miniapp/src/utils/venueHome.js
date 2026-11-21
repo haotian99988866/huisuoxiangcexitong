@@ -209,3 +209,5 @@ export const getDihaoCategoryCodes = (selectedVenue, category) => (
 export const PHOTO_FIRST_VENUE_IDS = [2, 4, 5, 6, 7, 8, 9, 10]
 export const STAFF_ARCHIVE_VENUE_IDS = [1, 2, 4, 5, 6]
 export const CHANNEL_PHOTO_VENUE_IDS = ['4', '5', '6']
+/** 当班出勤只看出勤初稿/文字名单，不依赖当班频道发图 */
+export const ROSTER_DUTY_VENUE_IDS = [1, 2]

@@ -11,6 +11,7 @@ import useCustomerSubscriptions from '../utils/useCustomerSubscriptions'
 import { SubscriptionControl, SubscriptionFeedback } from './CustomerDutyControls'
 import LazyMedia from './media/LazyMedia'
 import PhotoSkeleton from './media/PhotoSkeleton'
+import { ROSTER_DUTY_VENUE_IDS } from '../utils/venueHome'
 import './StaffGallery.css'
 
 function attendanceEmptyCopy({
@@ -20,15 +21,19 @@ function attendanceEmptyCopy({
   hasDutyCodes,
   unarchivedCount,
   searchTerm,
+  rosterDutyOnly,
 }) {
   if (searchTerm) return '没有匹配的工号。'
   if (!attendanceOnly) return '暂无人员。档案随每日出勤与可识别照片自动积累。'
   if (!rosterAvailable && !hasDutyCodes) {
+    if (rosterDutyOnly) {
+      return '本班出勤初稿尚未同步。请稍后刷新，或先查看人员相册。'
+    }
     return pendingPhotos > 0
       ? '本班名单尚未从频道同步，已有照片待核对。请稍后刷新，或先查看人员相册。'
       : '本班名单尚未从频道同步。请稍后刷新，或先查看人员相册。'
   }
-  if (pendingPhotos > 0) {
+  if (!rosterDutyOnly && pendingPhotos > 0) {
     return '本班名单已有，照片仍在核对中。可先查看人员相册，或稍后刷新。'
   }
   if (unarchivedCount > 0) {
@@ -37,8 +42,11 @@ function attendanceEmptyCopy({
   return '当前没有可展示的本班出勤档案。'
 }
 
-function cardOverlayLabel({ attendanceOnly, dutyPhoto, dutyText }) {
-  if (attendanceOnly) return dutyPhoto ? '本班' : '待更新'
+function cardOverlayLabel({ attendanceOnly, dutyPhoto, dutyText, rosterDutyOnly }) {
+  if (attendanceOnly) {
+    if (rosterDutyOnly) return dutyText || '本班'
+    return dutyPhoto ? '本班' : '待更新'
+  }
   return dutyText
 }
 
@@ -159,9 +167,19 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   const ordinaryMassage = venue.id === 1
   const changed = admin && detail && description !== detail.description
   const searchTerm = search.trim().toLocaleLowerCase()
+  const rosterDutyOnly = ROSTER_DUTY_VENUE_IDS.includes(Number(venue.id))
   const attendanceCodes = new Set((venue.technician_list || []).map(String))
-  const isOnDuty = member => venue.id === 2
+  const isOnDuty = member => rosterDutyOnly
     ? attendanceCodes.has(String(member.code)) : Boolean(member.duty_label)
+  // 白班/晚班同一套：不用「实时出勤」当蒙层文案
+  const shiftName = (() => {
+    const preferred = data?.shift || venue.current_shift
+    const raw = preferred || venue.duty_shift_today || '本班'
+    if (raw === '早班') return '白班'
+    if (raw === '实时出勤') return preferred || '本班'
+    return raw
+  })()
+  const shiftDutyText = `${shiftName}出勤`
   const serviceTags = member => photoFirst && attendanceCodes.has(String(member.code))
     ? [...new Set((venue.attendance_groups || [])
       .filter(group => group.group_type === 'service' &&
@@ -232,9 +250,11 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
         <SubscriptionFeedback subscription={subscription} />
       </>}
       {!data.roster_available && !attendanceCodes.size && <p className="staff-meta">{attendanceOnly
-        ? ((data.pending_photo_count || 0) > 0
-          ? '本班名单尚未同步，频道已有照片待核对。'
-          : '本班名单尚未从频道同步。')
+        ? (rosterDutyOnly
+          ? '本班出勤初稿尚未同步。'
+          : ((data.pending_photo_count || 0) > 0
+            ? '本班名单尚未同步，频道已有照片待核对。'
+            : '本班名单尚未从频道同步。'))
         : '当前班次尚未发布出勤，照片仍可查看；未出勤天数依据最近发布记录。'}</p>}
       {onSelect && allowSkip && <button type="button" className="staff-skip"
         onClick={() => onSelect(null)}>暂不关联技师，后续可补录</button>}
@@ -246,6 +266,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
           hasDutyCodes: attendanceCodes.size > 0,
           unarchivedCount: unarchivedCodes.length,
           searchTerm,
+          rosterDutyOnly,
         })
         return attendanceOnly && onBrowseAlbum && !searchTerm ? (
           <div className="staff-empty-cta" role="status">
@@ -256,15 +277,18 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       })()}
       <div className="staff-grid">
         {visibleMembers.map(member => {
-          const dutyPhoto = attendanceOnly && venue.technician_photos?.[member.code]?.[0]
-          // 列表优先单人封面，避免出勤拼图占满卡片。
+          const dutyPhoto = !rosterDutyOnly && attendanceOnly
+            && venue.technician_photos?.[member.code]?.[0]
+          // 列表优先档案封面；照片出勤会所才回退当班图。
           const coverId = member.cover || dutyPhoto
           const coverKind = member.cover ? 'staff' : dutyPhoto ? 'duty' : null
           const prices90 = photoFirst ? member.price_options?.filter(option => option.minutes === 90) ||
             (member.price_usd != null && member.price_detail?.includes('90分钟') ? [{ price_usd: member.price_usd }] : []) : []
           const tags = photoFirst ? serviceTags(member).slice(0, 2) : serviceTags(member)
-          const onDuty = Boolean(!admin && subscription.states?.[member.id]
-            ? subscription.states[member.id].published_at : member.duty_label)
+          const onDuty = rosterDutyOnly && attendanceOnly
+            ? true
+            : Boolean(!admin && subscription.states?.[member.id]
+              ? subscription.states[member.id].published_at : member.duty_label)
           return <article className="staff-card" key={member.id}>
           <button type="button" className="staff-open" onClick={() => setSelected(member)}>
             <div className="staff-cover">
@@ -276,7 +300,8 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
                 {cardOverlayLabel({
                   attendanceOnly,
                   dutyPhoto: Boolean(dutyPhoto),
-                  dutyText: dutyLabel(member),
+                  dutyText: rosterDutyOnly && attendanceOnly ? shiftDutyText : dutyLabel(member),
+                  rosterDutyOnly,
                 })}
               </span>
               {tags.length > 0 && <span className="mingxi-staff-tags" aria-label="本班项目标签">

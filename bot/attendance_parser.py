@@ -343,6 +343,11 @@ def save_daily_attendance(venue_id: int, text: str):
         return False, "❌ 未解析到有效日期"
     if not data["codes"]:
         return False, "❌ 未解析到任何技师工号"
+    # 名玺白班/晚班同一套：入库班次只保留白班、晚班
+    if venue_id == PLATE_CODE_VENUE_ID:
+        from duty_shift import canonical_shift_name
+
+        data["duty_shift"] = canonical_shift_name(data["duty_shift"])
 
     conn = get_db_connection()
     cur = None

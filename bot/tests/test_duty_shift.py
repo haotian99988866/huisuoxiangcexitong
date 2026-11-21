@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime
 
-from duty_shift import current_shift_window
+from duty_shift import canonical_shift_name, current_shift_window
 
 
 class CurrentShiftWindowTest(unittest.TestCase):
@@ -23,6 +23,19 @@ class CurrentShiftWindowTest(unittest.TestCase):
         self.assertEqual(name, "晚班")
         self.assertEqual(start, datetime(2026, 10, 24, 18, 0))
         self.assertEqual(end, datetime(2026, 10, 25, 6, 0))
+
+    def test_canonical_shift_name(self):
+        self.assertEqual(canonical_shift_name("白班"), "白班")
+        self.assertEqual(canonical_shift_name("晚班"), "晚班")
+        self.assertEqual(canonical_shift_name("早班"), "白班")
+        self.assertEqual(
+            canonical_shift_name("实时出勤", datetime(2026, 10, 24, 10, 0)),
+            "白班",
+        )
+        self.assertEqual(
+            canonical_shift_name("实时出勤", datetime(2026, 10, 24, 20, 0)),
+            "晚班",
+        )
 
 
 if __name__ == "__main__":

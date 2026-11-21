@@ -29,7 +29,7 @@ from media_caches import delivery_video_cache, image_cache, video_cache
 from music import ensure_tables as ensure_music_tables, catalog as music_catalog, audio_file as music_audio_file
 from music_stream import RemoteAudio, audio_response as music_stream_response
 from tenants import load_tenant, public_config, TenantUnavailable
-from duty_shift import SHIFT_VENUE_IDS, current_shift_window
+from duty_shift import SHIFT_VENUE_IDS, canonical_shift_name, current_shift_window
 from visit_stats import ensure_table, record_visit, verify_init_data
 from movies import (
     ensure_tables as ensure_movie_tables,
@@ -1228,7 +1228,7 @@ def webhook():
                 if venue["id"] in SHIFT_VENUE_IDS:
                     cur.execute(
                         """
-                        SELECT duty_date, technician_codes, duty_shift
+                        SELECT duty_date, technician_codes, duty_shift, created_at
                         FROM attendance_daily
                         WHERE venue_id = %s
                               AND created_at >= %s AND created_at < %s
@@ -1253,9 +1253,16 @@ def webhook():
                 venue["technician_list"] = [
                     code.strip() for code in codes.split(",") if code.strip()
                 ] if codes else []
-                venue["duty_shift_today"] = (
-                    attendance["duty_shift"] if attendance else None
-                )
+                if attendance:
+                    raw_shift = attendance["duty_shift"]
+                    # 名玺历史「实时出勤」按发布时间归一为白班/晚班
+                    venue["duty_shift_today"] = (
+                        canonical_shift_name(raw_shift, attendance.get("created_at"))
+                        if venue["id"] == 2
+                        else raw_shift
+                    )
+                else:
+                    venue["duty_shift_today"] = None
                 venue["on_duty_count"] = len(venue["technician_list"])
                 venue["technician_photos"] = {}
                 venue["technician_profiles"] = {}
@@ -1284,7 +1291,8 @@ def webhook():
                             for group in cur.fetchall()
                         ]
 
-                if attendance or venue["id"] in {4, 5, 6}:
+                # 名玺(2)当班出勤只看出勤初稿，不读当班频道照片
+                if venue["id"] != 2 and (attendance or venue["id"] in {4, 5, 6}):
                     if venue["id"] in {4, 5, 6}:
                         # 公开仅 matched；pending_review 不进列表
                         cur.execute(
