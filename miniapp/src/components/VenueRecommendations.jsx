@@ -7,6 +7,26 @@ import MusicDialog from './MusicDialog'
 import CopyBooking from './CopyBooking'
 import './VenueRecommendations.css'
 
+const MAX_RECOMMENDATIONS = 8
+
+/** 去重并限条，避免同图/同题反复刷屏。 */
+function uniqueRecommendations(items) {
+  const seen = new Set()
+  const out = []
+  for (const item of items) {
+    const key = [
+      item.kind,
+      String(item.title || '').trim().toLowerCase(),
+      String(item.image_url || '').split('?')[0],
+    ].join('|')
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(item)
+    if (out.length >= MAX_RECOMMENDATIONS) break
+  }
+  return out
+}
+
 function RecommendationVideo({ src, active, autoPlayAllowed, onEnded, onDimensions, onOpen, title, tabIndex }) {
   const video = useRef(null)
   const [playError, setPlayError] = useState('')
@@ -33,12 +53,20 @@ function RecommendationVideo({ src, active, autoPlayAllowed, onEnded, onDimensio
     } else element.pause()
     return () => { current = false; element.pause() }
   }, [active, autoPlayAllowed, src])
+  const showFrame = event => {
+    const element = event.currentTarget
+    onDimensions(element.videoWidth, element.videoHeight)
+    // 停在 0 时常只显示灰底，轻推一帧让封面可见。
+    if (!active && element.readyState >= 1 && element.currentTime < 0.05) {
+      try { element.currentTime = 0.1 } catch { /* ignore seek races */ }
+    }
+  }
   return <div className="venue-recommendation-video">
     <button type="button" className="venue-recommendation-photo" onClick={onOpen}
       tabIndex={tabIndex} aria-label={`查看推荐说明：${title}`}>
     <video ref={video} src={src} muted playsInline disablePictureInPicture disableRemotePlayback
-      controlsList="nodownload nofullscreen noremoteplayback" preload={active ? 'auto' : 'metadata'}
-      aria-label={title} onLoadedMetadata={event => onDimensions(event.currentTarget.videoWidth, event.currentTarget.videoHeight)}
+      controlsList="nodownload nofullscreen noremoteplayback" preload="auto"
+      aria-label={title} onLoadedMetadata={showFrame} onLoadedData={showFrame}
       onPlay={event => { if (!active) event.currentTarget.pause(); else { setPlayError(''); setPlaying(true) } }}
       onPause={() => setPlaying(false)}
       onEnded={() => { if (active) onEnded() }}
@@ -106,8 +134,8 @@ export default function VenueRecommendations({ venueId }) {
     update(); media.addEventListener('change', update)
     return () => media.removeEventListener('change', update)
   }, [])
-  const items = (data?.recommendations || []).filter(item =>
-    item.enabled && Date.parse(item.starts_at) <= now + clockOffset && Date.parse(item.ends_at) > now + clockOffset)
+  const items = uniqueRecommendations((data?.recommendations || []).filter(item =>
+    item.enabled && Date.parse(item.starts_at) <= now + clockOffset && Date.parse(item.ends_at) > now + clockOffset))
   const activeIndex = items.length ? index % items.length : 0
   const selected = items.find(item => item.id === selectedId)
   const hasItems = items.length > 0
@@ -119,8 +147,9 @@ export default function VenueRecommendations({ venueId }) {
       const navigation = document.querySelector('nav[aria-label="主导航"]')
       const bottom = navigation ? window.innerHeight - navigation.getBoundingClientRect().top : 65
       setRailWidth(width)
-      // Reserve the caption (46px), attendance row (44px), and spacing (12px).
-      setMediaHeight(Math.min(180, Math.max(64, window.innerHeight - top - bottom - width * 2 / 3 - 102)))
+      // 给竖版视频留够高度；过矮时只剩灰底看不清画面。
+      const reserved = window.innerHeight - top - bottom - width * 2 / 3 - 102
+      setMediaHeight(Math.min(180, Math.max(120, reserved)))
     }
     resizeViewport()
     window.addEventListener('resize', resizeViewport)
@@ -138,7 +167,10 @@ export default function VenueRecommendations({ venueId }) {
     item.media_width && item.media_height ? item.media_width / item.media_height : 1)
   const cardWidth = item => Math.min(railWidth, Math.max(96, mediaHeight * ratio(item)))
   const cycleWidth = items.reduce((width, item) => width + cardWidth(item) + 12, 0)
-  const sideCopies = items.length > 1 ? Math.max(1, Math.ceil(railWidth / cycleWidth)) : 0
+  // 条数少时不做无限循环拷贝，避免 2～3 条左右来回刷。
+  const sideCopies = items.length > 4 && cycleWidth > 0
+    ? Math.max(1, Math.ceil(railWidth / cycleWidth))
+    : 0
   const middleStart = sideCopies * items.length
   const slides = Array.from({ length: sideCopies * 2 + 1 }, (_, copy) =>
     items.map(item => ({ item, copy }))).flat()

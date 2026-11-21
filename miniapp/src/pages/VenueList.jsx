@@ -29,6 +29,7 @@ import {
   roomyTechnicianGridStyle,
   technicianGridStyle,
 } from '../utils/venueHome'
+import PhotoSkeleton from '../components/media/PhotoSkeleton'
 
 export default function VenueList() {
   const [searchParams] = useSearchParams()
@@ -161,6 +162,7 @@ export default function VenueList() {
     setSelectedTechnicianCode('')
   }, [selectedVenue?.id, selectedVenue?.categoryKey])
   const isDeliveryDayShift = deliveryCategories.length > 0 && currentShift === '白班'
+  const showRecommendations = isPhotoFirst && !(isDeliveryDayShift && !showStaffArchive)
   const dutyShiftToday = currentShift || selectedVenue?.duty_shift_today
   const dutyLabel = currentShift ? `${currentShift}出勤` : '今日出勤'
   const serviceItems = selectedVenue?.service_items || []
@@ -319,9 +321,7 @@ export default function VenueList() {
       />
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
-          正在读取…
-        </div>
+        <PhotoSkeleton count={4} label="正在读取会所…" />
       ) : error ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#c53030' }}>
           {error}
@@ -332,16 +332,28 @@ export default function VenueList() {
           <p>暂无会所数据</p>
         </div>
       ) : !selectedVenue ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
-          正在读取…
-        </div>
+        <PhotoSkeleton count={4} label="正在读取会所…" />
       ) : (
         <div id="venue-personnel-content">
-          {isPhotoFirst && <VenueRecommendations venueId={selectedVenue.id} />}
+          {showRecommendations && (
+            <VenueRecommendations venueId={selectedVenue.id} />
+          )}
           {isPhotoFirst
             ? isDelivery
-              ? <DeliveryArchive key={`${deliveryCategoryKey(selectedVenue)}-${showStaffArchive}`} venue={selectedVenue} photoFirst attendanceOnly={!showStaffArchive} />
-              : <StaffGallery key={`${selectedVenue.id}-${showStaffArchive}`} venue={selectedVenue} photoFirst attendanceOnly={!showStaffArchive} />
+              ? <DeliveryArchive
+                key={`${deliveryCategoryKey(selectedVenue)}-${showStaffArchive}`}
+                venue={selectedVenue}
+                photoFirst
+                attendanceOnly={!showStaffArchive}
+                onBrowseAlbum={() => setShowStaffArchive(true)}
+              />
+              : <StaffGallery
+                key={`${selectedVenue.id}-${showStaffArchive}`}
+                venue={selectedVenue}
+                photoFirst
+                attendanceOnly={!showStaffArchive}
+                onBrowseAlbum={() => setShowStaffArchive(true)}
+              />
             : hasStaffArchive && showStaffArchive
             ? isDelivery
               ? <DeliveryArchive key={deliveryCategoryKey(selectedVenue)} venue={selectedVenue} />

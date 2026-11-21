@@ -3,7 +3,8 @@
 .venue-recommendation-rail::-webkit-scrollbar { display: none; }
 .venue-recommendation-slide { box-sizing: border-box; flex: 0 0 auto; min-width: 0; padding: 0; border: 1px solid var(--ink-line); border-radius: 14px; overflow: hidden; background: var(--ink-reading); color: var(--ink-text); text-align: left; scroll-snap-align: center; font: inherit; }
 .venue-recommendation-photo { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
-.venue-recommendation-slide img, .venue-recommendation-slide video, .venue-recommendation-image-error { display: block; width: 100%; height: var(--recommendation-height); aspect-ratio: var(--media-ratio, 1); object-fit: contain; background: var(--ink-surface); }
+.venue-recommendation-slide img, .venue-recommendation-image-error { display: block; width: 100%; height: var(--recommendation-height); aspect-ratio: var(--media-ratio, 1); object-fit: cover; object-position: center top; background: var(--ink-surface); }
+.venue-recommendation-slide video { display: block; width: 100%; height: var(--recommendation-height); aspect-ratio: var(--media-ratio, 1); object-fit: contain; object-position: center; background: #1c1f26; }
 .venue-recommendation-video { position: relative; }
 .venue-recommendation-video p { margin: 0; padding: 8px; color: #b42318; font-size: 11px; }
 .venue-recommendation-play { width: 100%; min-height: 44px; padding: 8px; border: 0; color: var(--ink-accent); background: var(--ink-reading); font: inherit; font-size: 11px; cursor: pointer; }

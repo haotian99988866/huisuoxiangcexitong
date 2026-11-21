@@ -1,0 +1,30 @@
+.photo-skeleton { margin: 0 0 16px; }
+.photo-skeleton__label {
+  margin: 0 0 12px;
+  color: var(--ink-muted, #8a7a6a);
+  font-size: 13px;
+  text-align: center;
+}
+.photo-skeleton__grid {
+  display: grid;
+  gap: 12px;
+}
+.photo-skeleton__card { min-width: 0; }
+.photo-skeleton__cover {
+  aspect-ratio: 3 / 4;
+  border-radius: 14px;
+  background: linear-gradient(110deg, #efe8de 25%, #f6f1e8 40%, #efe8de 55%);
+  background-size: 200% 100%;
+  animation: photo-skeleton-shine 1.2s ease-in-out infinite;
+}
+.photo-skeleton__line {
+  height: 10px;
+  margin-top: 8px;
+  border-radius: 6px;
+  background: #ebe4d8;
+}
+.photo-skeleton__line--short { width: 55%; }
+@keyframes photo-skeleton-shine {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}

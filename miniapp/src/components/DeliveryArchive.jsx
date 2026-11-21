@@ -6,15 +6,15 @@ import CopyBooking from './CopyBooking'
 import { bookingUrl } from '../utils/booking'
 import useCustomerSubscriptions from '../utils/useCustomerSubscriptions'
 import { SubscriptionControl, SubscriptionFeedback } from './CustomerDutyControls'
+import LazyMedia from './media/LazyMedia'
+import PhotoSkeleton from './media/PhotoSkeleton'
 import './StaffGallery.css'
 
-export default function DeliveryArchive({ venue, photoFirst = false, attendanceOnly = false }) {
+export default function DeliveryArchive({ venue, photoFirst = false, attendanceOnly = false, onBrowseAlbum }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
-  const [failed, setFailed] = useState(new Set())
   const [selected, setSelected] = useState(null)
-  const [failedMedia, setFailedMedia] = useState(new Set())
   const [mediaIndex, setMediaIndex] = useState(0)
   const touchStart = useRef(null)
   const subscription = useCustomerSubscriptions(venue.id, () => setAttempt(value => value + 1), { delivery: true })
@@ -22,6 +22,13 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
     const state = subscription.states?.[person.id]
     return state ? state.published_at ? '今晚出勤' : state.shift === '晚班' ? '本班未见照片' : '外送仅晚班'
       : person.attendance_overlay
+  }
+  const shortOverlay = person => {
+    const label = dutyLabel(person)
+    if (label === '今晚出勤') return '本班'
+    if (label === '外送仅晚班') return '仅晚班'
+    if (label === '本班未见照片') return '待更新'
+    return label
   }
   const contact = selected ? bookingUrl({
     title: `你好，我想预约${venue.categoryLabel || venue.name}`,
@@ -67,6 +74,11 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
   const people = (data?.people || []).filter(person => !attendanceOnly || person.on_duty)
   const pageMedia = selected ? photoFirst ? selected.media.slice(mediaIndex, mediaIndex + 1) : selected.media : []
   const move = direction => setMediaIndex(index => (index + direction + selected.media.length) % selected.media.length)
+  const emptyMessage = attendanceOnly
+    ? data?.shift === '白班'
+      ? `西港外送仅展示晚班出勤。白班请联系${contactName()}，或先浏览人员相册。`
+      : '当前没有可展示的晚班出勤档案，可先浏览人员相册。'
+    : '暂无可展示的人员档案。'
   return <section className={`staff-gallery${photoFirst ? ' mingxi-photo-gallery' : ''}`} aria-label={photoFirst ? attendanceOnly ? '外送出勤照片' : '外送人员相册' : '外送人员档案'}>
     <div className="staff-heading">
       <h2>{photoFirst ? <>{attendanceOnly ? data?.shift || venue.current_shift || '晚班' : '相册'}
@@ -75,7 +87,7 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
       <button type="button" onClick={() => setAttempt(value => value + 1)}>刷新</button>
     </div>
     {error && <p role="alert" className="membership-error">{error}</p>}
-    {!data && !error && <p role="status">正在读取人员档案…</p>}
+    {!data && !error && <PhotoSkeleton count={4} label="正在读取人员档案…" />}
     {data && <>
       {!photoFirst && <>
       <p className="staff-meta">全部人员 · {data.people.length} 份档案 · {data.shift_date} {data.shift}。
@@ -85,10 +97,12 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
         : '请从 Telegram 主入口打开，才能订阅出勤提醒。'}</p>
       <SubscriptionFeedback subscription={subscription} />
       </>}
-      {!people.length && <p className="staff-meta">{attendanceOnly
-        ? data.shift === '白班' ? `西港外送仅展示晚班出勤，白班请联系${contactName()}，可切换人员相册查看照片。`
-          : '当前没有可展示的晚班出勤档案，可切换人员相册查看照片。'
-        : '暂无可展示的人员档案。'}</p>}
+      {!people.length && (attendanceOnly && onBrowseAlbum ? (
+        <div className="staff-empty-cta" role="status">
+          <p>{emptyMessage}</p>
+          <button type="button" onClick={onBrowseAlbum}>查看人员相册</button>
+        </div>
+      ) : <p className="staff-meta">{emptyMessage}</p>)}
       <div className="staff-grid">
         {people.map(person => {
           const cover = person.media.find(item => item.type === 'photo')
@@ -96,22 +110,20 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
             <button type="button" className="staff-open" onClick={() => {
               setSelected(person)
               setMediaIndex(0)
-              setFailedMedia(new Set())
             }}>
               <div className="staff-cover">
-                {cover && !failed.has(cover.id)
-                  ? <img loading="lazy" alt={`档案 #${person.id}`}
-                    src={mediaUrl(`${API_BASE_URL}/delivery-media/${cover.id}?thumb=1`)}
-                    onError={() => setFailed(current => new Set([...current, cover.id]))} />
-                  : <span>{cover ? '照片暂不可用' : '视频档案 · 点击查看'}</span>}
+                {cover
+                  ? <LazyMedia alt={`档案 #${person.id}`}
+                    src={mediaUrl(`${API_BASE_URL}/delivery-media/${cover.id}?thumb=1`)} />
+                  : <span>视频档案 · 点击查看</span>}
                 <span className={`staff-attendance-overlay${dutyLabel(person) === '今晚出勤' ? ' is-on-duty' : ''}`}>
-                  {dutyLabel(person)}
+                  {photoFirst ? shortOverlay(person) : dutyLabel(person)}
                 </span>
               </div>
               <div className="staff-card-info">
                 <strong>档案 #{person.id}</strong>
                 {photoFirst && <span className="mingxi-staff-price">价格请咨询</span>}
-                <small>{person.media.length} 条照片/视频</small>
+                {!photoFirst && <small>{person.media.length} 条照片/视频</small>}
               </div>
             </button>
             {!photoFirst && <SubscriptionControl id={person.id} onDuty={person.on_duty} subscription={subscription} />}
@@ -127,7 +139,6 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
             ? '持续订阅，每个晚班提醒一次，可随时取消。请先在机器人聊天中点击开始。'
             : '请从 Telegram 主入口打开，才能订阅。'}仅提醒订阅后的频道照片新发布，出勤发布不代表实时在岗。</p>}
         </div><CopyBooking key={selected.id} url={contact} /></>}>
-        <p className="staff-meta">{dutyLabel(selected)}</p>
         <div className="staff-detail-media">
         {photoFirst && selected.media.length > 1 && <div className="staff-pages">
           <button type="button" onClick={() => move(-1)}>上一张</button>
@@ -144,15 +155,14 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
             touchStart.current = null
           }}
           onTouchCancel={() => { touchStart.current = null }}>
-          {failedMedia.has(item.id) ? <p role="alert">媒体加载失败，请关闭后重试。</p> :
-            item.type === 'video' ? <video className="staff-detail-photo" controls playsInline preload="metadata"
-              src={mediaUrl(`${API_BASE_URL}/delivery-media/${item.id}`)}
-              onError={() => setFailedMedia(current => new Set([...current, item.id]))} /> :
-              <img className="staff-detail-photo" loading="lazy" alt={`档案 #${selected.id}`}
-                src={mediaUrl(`${API_BASE_URL}/delivery-media/${item.id}`)}
-                onError={() => setFailedMedia(current => new Set([...current, item.id]))} />}
+          {item.type === 'video'
+            ? <LazyMedia as="video" className="staff-detail-photo" controls playsInline preload="metadata"
+              src={mediaUrl(`${API_BASE_URL}/delivery-media/${item.id}`)} />
+            : <LazyMedia className="staff-detail-photo" alt={`档案 #${selected.id}`}
+              src={mediaUrl(`${API_BASE_URL}/delivery-media/${item.id}`)} />}
         </div>)}
         </div>
+        <p className="staff-meta">{dutyLabel(selected)} · 发布不代表实时在岗</p>
       </MusicDialog>}
     </>}
   </section>

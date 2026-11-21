@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
+import './components/media/photo-skeleton.css'
 import { openTelegramLink } from './utils/twa'
 import { notifyContactProfile } from './utils/contactProfile'
 

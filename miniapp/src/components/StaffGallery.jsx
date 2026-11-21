@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import MusicDialog from './MusicDialog'
 import { API_BASE_URL } from '../utils/twa'
-import { mediaUrl, tenantHeaders, contactName } from '../utils/tenant'
+import { mediaUrl, tenantHeaders } from '../utils/tenant'
 import CopyBooking from './CopyBooking'
 import { requestAdmin } from '../utils/admin'
 import { bookingUrl } from '../utils/booking'
@@ -9,7 +9,14 @@ import { useAnalyticsScreen } from '../utils/analytics'
 import { money } from '../utils/commerce'
 import useCustomerSubscriptions from '../utils/useCustomerSubscriptions'
 import { SubscriptionControl, SubscriptionFeedback } from './CustomerDutyControls'
+import LazyMedia from './media/LazyMedia'
+import PhotoSkeleton from './media/PhotoSkeleton'
 import './StaffGallery.css'
+
+function cardOverlayLabel({ attendanceOnly, dutyPhoto, dutyText }) {
+  if (attendanceOnly) return dutyPhoto ? '本班' : '待更新'
+  return dutyText
+}
 
 async function requestStaff(action, fields, signal) {
   const response = await fetch(`${API_BASE_URL}/webhook`, {
@@ -21,7 +28,7 @@ async function requestStaff(action, fields, signal) {
   return result
 }
 
-export default function StaffGallery({ venue, admin = false, onSelect, search = '', selectedId = null, allowSkip = false, photoFirst = false, attendanceOnly = false }) {
+export default function StaffGallery({ venue, admin = false, onSelect, search = '', selectedId = null, allowSkip = false, photoFirst = false, attendanceOnly = false, onBrowseAlbum }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -30,7 +37,6 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   const [detailError, setDetailError] = useState('')
   const [selected, setSelected] = useState(null)
   const [imageIndex, setImageIndex] = useState(0)
-  const [failedImages, setFailedImages] = useState(new Set())
   const [replacement, setReplacement] = useState(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -78,7 +84,6 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     setDetailError('')
     setDescription('')
     setImageIndex(0)
-    setFailedImages(new Set())
     if (!selected) return
     let active = true
     const controller = new AbortController()
@@ -105,7 +110,6 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     return () => { active = false; clearTimeout(timer); controller.abort() }
   }, [selected, admin])
 
-  const failImage = id => setFailedImages(current => new Set([...current, id]))
   const changePerson = async () => {
     if (busy || !replacement) return
     setBusy(true)
@@ -188,7 +192,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     </div>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {notice && <p className="membership-notice" role="status">{notice}</p>}
-    {!data && !error && <p role="status">正在读取人员档案…</p>}
+    {!data && !error && <PhotoSkeleton count={4} label="正在读取人员档案…" />}
     {data && <>
       {!photoFirst && <p className="staff-meta">{`全部人员 · ${data.total}位 · ${data.shift}`}</p>}
       {!admin && !photoFirst && <>
@@ -200,26 +204,38 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       {!data.roster_available && <p className="staff-meta">{attendanceOnly ? '当前班次尚未发布出勤，请切换人员相册查看历史照片。' : '当前班次尚未发布出勤，照片仍可查看；未出勤天数依据最近发布记录。'}</p>}
       {onSelect && allowSkip && <button type="button" className="staff-skip"
         onClick={() => onSelect(null)}>暂不关联技师，后续可补录</button>}
-      {!visibleMembers.length && <p className="staff-meta">
+      {!visibleMembers.length && (attendanceOnly && onBrowseAlbum && !searchTerm ? (
+        <div className="staff-empty-cta" role="status">
+          <p>当前没有可展示的本班出勤档案。</p>
+          <button type="button" onClick={onBrowseAlbum}>查看人员相册</button>
+        </div>
+      ) : !visibleMembers.length && <p className="staff-meta">
         {searchTerm ? '没有匹配的工号。' : attendanceOnly ? '当前没有可展示的本班出勤档案。' : '暂无人员。档案随每日出勤与可识别照片自动积累。'}
-      </p>}
+      </p>)}
       <div className="staff-grid">
         {visibleMembers.map(member => {
           const dutyPhoto = attendanceOnly && venue.technician_photos?.[member.code]?.[0]
-          const cover = dutyPhoto || member.cover
+          // 列表优先单人封面，避免出勤拼图占满卡片。
+          const coverId = member.cover || dutyPhoto
+          const coverKind = member.cover ? 'staff' : dutyPhoto ? 'duty' : null
           const prices90 = photoFirst ? member.price_options?.filter(option => option.minutes === 90) ||
             (member.price_usd != null && member.price_detail?.includes('90分钟') ? [{ price_usd: member.price_usd }] : []) : []
-          const tags = serviceTags(member)
+          const tags = photoFirst ? serviceTags(member).slice(0, 2) : serviceTags(member)
+          const onDuty = Boolean(!admin && subscription.states?.[member.id]
+            ? subscription.states[member.id].published_at : member.duty_label)
           return <article className="staff-card" key={member.id}>
           <button type="button" className="staff-open" onClick={() => setSelected(member)}>
             <div className="staff-cover">
-              {cover && !member.blocked && !failedImages.has(`${dutyPhoto ? 'duty' : 'staff'}-${cover}`)
-                ? <img loading="lazy" src={mediaUrl(`${API_BASE_URL}/${dutyPhoto ? 'photos' : 'staff-photos'}/${cover}/image?thumb=1`)}
-                  alt={`工号 ${member.code}`} onError={() => failImage(`${dutyPhoto ? 'duty' : 'staff'}-${cover}`)} />
-                : <span>{member.blocked ? '暂不展示' : cover ? '照片暂不可用' : '照片待更新'}</span>}
-              <span className={`staff-attendance-overlay${(!admin && subscription.states?.[member.id]
-                ? subscription.states[member.id].published_at : member.duty_label) ? ' is-on-duty' : ''}`}>
-                {attendanceOnly ? `${data.shift}名单已发布${!dutyPhoto ? ' · 档案照片' : ''}` : dutyLabel(member)}
+              {coverId && !member.blocked
+                ? <LazyMedia src={mediaUrl(`${API_BASE_URL}/${coverKind === 'duty' ? 'photos' : 'staff-photos'}/${coverId}/image?thumb=1`)}
+                  alt={`工号 ${member.code}`} />
+                : <span>{member.blocked ? '暂不展示' : '照片待更新'}</span>}
+              <span className={`staff-attendance-overlay${onDuty ? ' is-on-duty' : ''}`}>
+                {cardOverlayLabel({
+                  attendanceOnly,
+                  dutyPhoto: Boolean(dutyPhoto),
+                  dutyText: dutyLabel(member),
+                })}
               </span>
               {tags.length > 0 && <span className="mingxi-staff-tags" aria-label="本班项目标签">
                 {tags.map(tag => <span key={tag}>{tag}</span>)}
@@ -230,7 +246,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
               {photoFirst && <span className="mingxi-staff-price">{prices90.length
                 ? `$${money(Math.min(...prices90.map(option => Number(option.price_usd))))}${prices90.length > 1 ? '起' : ''} / 90分钟`
                 : '90分钟价待确认'}</span>}
-              <small>{attendanceOnly ? dutyPhoto ? '本班照片' : member.duty_source === 'photo' ? '本班照片已发布 · 相册封面' : '本班照片待更新' : `${member.photo_count}张照片`}</small>
+              {!photoFirst && <small>{`${member.photo_count}张照片`}</small>}
             </div>
           </button>
           {!admin && !photoFirst && <SubscriptionControl id={member.id} onDuty={Boolean(member.duty_label)} subscription={subscription} />}
@@ -265,7 +281,8 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
                 `人员档案编号：${selected.id}`,
                 ordinaryMassage && '仅咨询正规按摩服务',
                 selected.price_usd != null && `价格：$${money(selected.price_usd)} 起 · ${selected.price_detail}`,
-                ...(selected.price_options || []).map(option => `${option.board} · ${option.minutes}分钟 · ${option.label} $${money(option.price_usd)}`),
+                ...(selected.price_options || []).map(option =>
+                  `${option.board} · ${option.minutes}分钟 · ${option.label} $${money(option.price_usd)}`),
               ],
               links: photo ? [new URL(mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`), window.location.origin).href] : [],
             })} />}
@@ -275,47 +292,48 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
           ? '持续订阅，白班、晚班每班提醒一次，可随时取消。请先在机器人聊天中点击开始。'
           : '请从 Telegram 主入口打开，才能订阅。'}只提醒订阅后的新发布，不补发历史；出勤发布不代表实时在岗。</p>}
       </div>}>
+      <div className="staff-detail-media">
+      {detailLoading && <p role="status">正在读取相册…</p>}
+      {detailError && <p className="membership-error" role="alert">{detailError}</p>}
+      {detail && !detail.photos.length && <p>照片待更新</p>}
+      {photo && <>
+        <LazyMedia className="staff-detail-photo" src={mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`)}
+          onTouchStart={event => { touchStart.current = event.touches[0]?.clientX ?? null }}
+          onTouchEnd={event => {
+            const start = touchStart.current
+            touchStart.current = null
+            if (!photoFirst || start === null || !detail?.photos.length) return
+            const delta = (event.changedTouches[0]?.clientX ?? start) - start
+            if (Math.abs(delta) > 60) setImageIndex(index => Math.max(0, Math.min(detail.photos.length - 1, index + (delta < 0 ? 1 : -1))))
+          }}
+          alt={`工号 ${selected.code} 的第 ${imageIndex + 1} 张照片`} />
+        {detail.photos.length > 1 && <div className="staff-pages">
+          <button type="button" disabled={imageIndex === 0} onClick={() => setImageIndex(value => value - 1)}>上一张</button>
+          <span>{imageIndex + 1} / {detail.photos.length}</span>
+          <button type="button" disabled={imageIndex + 1 === detail.photos.length} onClick={() => setImageIndex(value => value + 1)}>下一张</button>
+        </div>}
+        {!photoFirst && <p className="staff-meta">首次收录：{photo.first_seen}</p>}
+      </>}
+      </div>
       <div className="staff-detail-summary">
       {serviceTags(selected).length > 0 && <div className="mingxi-staff-tags" aria-label="本班项目标签">
         {serviceTags(selected).map(tag => <span key={tag}>{tag}</span>)}
       </div>}
       {ordinaryMassage && !admin ? <><p className="staff-detail-duty">{dutyLabel(selected)}</p>
       {customerDuty?.published_at && <p className="staff-meta">发布时间：{customerDuty.published_at}</p>}
-      <p className="staff-meta">仅提供正规按摩信息。未发布不代表实际休息或离职，已发布不代表实时在岗。</p></> : <>
+      <p className="staff-meta">仅提供正规按摩信息。已发布不代表实时在岗。</p></> : <>
       <p className="staff-detail-duty">{dutyLabel(selected)}</p>
       {photoFirst && selected.price_options?.length
         ? <div className="mingxi-detail-prices">{selected.price_options.map(option =>
           <p key={`${option.board}-${option.minutes}`}>{option.board} · {option.minutes}分钟 · {option.label} ${money(option.price_usd)}</p>)}</div>
         : <p>{selected.price_usd === null || selected.price_usd === undefined
           ? '价格待确认' : `$${money(selected.price_usd)} 起 · ${selected.price_detail}`}</p>}
-      {selected.last_duty_at && <p className="staff-meta">最近出勤发布：{selected.last_duty_at}</p>}
-      {!selected.duty_label && <p className="staff-meta">天数按最近出勤发布记录计算，未发布不代表实际休息或离职。</p>}
+      {!photoFirst && selected.last_duty_at && <p className="staff-meta">最近出勤发布：{selected.last_duty_at}</p>}
+      {!photoFirst && !selected.duty_label && <p className="staff-meta">天数按最近出勤发布记录计算，未发布不代表实际休息或离职。</p>}
       {!photoFirst && <p className="staff-meta">档案编号 {selected.id} · 未确认当班出勤不代表休息或离职</p>}
-      {selected.duty_source === 'photo' && <p className="staff-meta">出勤标签依据会所本班次发布的出勤照片，实际在岗请联系核实。</p>}
-      </>}
-      </div>
-      <div className="staff-detail-media">
-      {detailLoading && <p role="status">正在读取相册…</p>}
-      {detailError && <p className="membership-error" role="alert">{detailError}</p>}
-      {detail && !detail.photos.length && <p>照片待更新</p>}
-      {photo && <>
-        {failedImages.has(photo.id) ? <p role="alert">照片暂不可用，请稍后重试或联系{contactName()}核对。</p>
-          : <img className="staff-detail-photo" src={mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`)}
-            onTouchStart={event => { touchStart.current = event.touches[0]?.clientX ?? null }}
-            onTouchEnd={event => {
-              const start = touchStart.current
-              touchStart.current = null
-              if (!photoFirst || start === null || !detail?.photos.length) return
-              const delta = (event.changedTouches[0]?.clientX ?? start) - start
-              if (Math.abs(delta) > 60) setImageIndex(index => Math.max(0, Math.min(detail.photos.length - 1, index + (delta < 0 ? 1 : -1))))
-            }}
-            alt={`工号 ${selected.code} 的第 ${imageIndex + 1} 张照片`} onError={() => failImage(photo.id)} />}
-        <p className="staff-meta">首次收录：{photo.first_seen}</p>
-        {detail.photos.length > 1 && <div className="staff-pages">
-          <button type="button" disabled={imageIndex === 0} onClick={() => setImageIndex(value => value - 1)}>上一张</button>
-          <span>{imageIndex + 1} / {detail.photos.length}</span>
-          <button type="button" disabled={imageIndex + 1 === detail.photos.length} onClick={() => setImageIndex(value => value + 1)}>下一张</button>
-        </div>}
+      {photoFirst
+        ? <p className="staff-meta">发布不代表实时在岗，实际请联系核实。</p>
+        : selected.duty_source === 'photo' && <p className="staff-meta">出勤标签依据会所本班次发布的出勤照片，实际在岗请联系核实。</p>}
       </>}
       </div>
       {admin && detail && <div className="staff-admin-description">
