@@ -117,6 +117,33 @@ def lookup_album_msg_ids(codes, channel_id=MINGXI_CHANNEL_ID):
             conn.close()
 
 
+def list_album_entries(channel_id=MINGXI_CHANNEL_ID):
+    """全部已索引人员：[(code, msg_id), ...]，工号排序。"""
+    ensure_tables()
+    conn = None
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT code, msg_id FROM mingxi_channel_album
+                WHERE channel_id = %s
+                ORDER BY
+                    LENGTH(code),
+                    CAST(code AS UNSIGNED),
+                    code
+                """,
+                (str(channel_id),),
+            )
+            return [(row["code"], int(row["msg_id"])) for row in cur.fetchall()]
+    except pymysql.MySQLError:
+        logger.exception("Mingxi album list failed")
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def rebuild_index_from_channel(bot, *, start_msg=10390, end_msg=10488, dig_chat_id=None):
     """转发探测频道现帖，按 caption 重建索引（不依赖旧库 msg_id）。"""
     from visit_stats import admin_ids

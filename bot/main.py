@@ -26,7 +26,9 @@ from attendance_ops import (
 )
 from mingxi_complete_attendance import (
     is_complete_attendance_text,
+    is_full_roster_request,
     post_complete_attendance_reply,
+    post_full_roster,
     remember_album_photo,
 )
 from technician_photo_ocr import (
@@ -920,20 +922,36 @@ def handle_attendance_text(message):
         return
     text = message.text or message.caption or ""
 
-    # 完整版由机器人回复，不再当初稿解析，避免循环
+    # 完整版 / 全部名单由机器人回复，不再当初稿解析，避免循环
     if is_complete_attendance_text(text):
+        return
+
+    chat_id = message.chat.id
+    venue_config = get_venue_config(chat_id)
+
+    # 名玺：全部名单与今日出勤分开；频道发「全部名单」触发
+    if (
+        venue_config
+        and venue_config["venue_id"] == PLATE_CODE_VENUE_ID
+        and is_full_roster_request(text)
+    ):
+        logger.info("收到名玺全部名单指令 chat=%s", chat_id)
+        post_full_roster(
+            bot,
+            chat_id,
+            venue_config,
+            reply_to_message_id=message.message_id,
+        )
+        post_footer(bot, chat_id)
         return
 
     # 只处理包含出勤关键词的消息（含晚班/名单，减少频道漏网）
     if not any(keyword in text for keyword in ATTENDANCE_KEYWORDS):
-        if get_venue_config(message.chat.id):
+        if venue_config:
             schedule_footer(bot, message.chat.id)
         return
 
     logger.info("收到出勤公告 chat=%s text=%s", message.chat.id, text[:100])
-
-    chat_id = message.chat.id
-    venue_config = get_venue_config(chat_id)
 
     if not venue_config:
         logger.info("出勤公告未匹配会所 chat=%s", chat_id)

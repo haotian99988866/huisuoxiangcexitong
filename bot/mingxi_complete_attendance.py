@@ -7,9 +7,11 @@ from html.parser import HTMLParser
 
 import telebot
 
+from db import get_conn
 from footer import footer_keyboard
 from mingxi_channel_album import (
     MINGXI_CHANNEL_ID,
+    list_album_entries,
     lookup_album_msg_ids,
     upsert_album_message,
 )
@@ -18,12 +20,73 @@ logger = logging.getLogger(__name__)
 
 PLATE_VENUE_ID = 2
 COMPLETE_MARKER = "【出勤完整版】"
+FULL_ROSTER_MARKER = "【人员全部名单】"
+FULL_ROSTER_TRIGGERS = ("全部名单", "全员名单", "人员全部名单")
 # 店介绍链接后续配置；本期可空
 INTRO_LINKS = ()  # (("环境介绍", msg_id), ...)
 
+_JP_KR_CODES = frozenset({"01", "02", "03", "05", "06", "07", "08"})
+_MINGXI_PLATE_CODES = frozenset({"77", "3333", "5555", "7777", "8888", "9999"})
+_GROUP_ORDER = (
+    "名玺牌",
+    "日韩专场",
+    "9号牌",
+    "8号牌",
+    "7号牌",
+    "6号牌",
+    "5号牌",
+    "俄罗斯",
+    "其他",
+)
+
 
 def is_complete_attendance_text(text: str) -> bool:
-    return COMPLETE_MARKER in (text or "")
+    return COMPLETE_MARKER in (text or "") or FULL_ROSTER_MARKER in (text or "")
+
+
+def is_full_roster_request(text: str) -> bool:
+    """频道短指令：发布与今日出勤分开的全部人员名单。"""
+    value = "".join((text or "").split())
+    if not value or is_complete_attendance_text(value):
+        return False
+    for prefix in ("请发", "发一下", "发", "请"):
+        if value.startswith(prefix):
+            value = value[len(prefix) :]
+            break
+    return value in FULL_ROSTER_TRIGGERS
+
+
+def classify_roster_group(code: str) -> str:
+    code = str(code or "").strip()
+    if code in _MINGXI_PLATE_CODES:
+        return "名玺牌"
+    if code in _JP_KR_CODES or (code.isdigit() and len(code) <= 2):
+        return "日韩专场"
+    if code == "7026":
+        return "俄罗斯"
+    if code.isdigit() and len(code) >= 3:
+        return f"{code[0]}号牌"
+    return "其他"
+
+
+def group_roster_codes(codes):
+    buckets = {name: [] for name in _GROUP_ORDER}
+    for code in codes:
+        code = str(code).strip()
+        if not code:
+            continue
+        name = classify_roster_group(code)
+        buckets.setdefault(name, [])
+        if code not in buckets[name]:
+            buckets[name].append(code)
+    groups = []
+    for name in _GROUP_ORDER:
+        if buckets.get(name):
+            groups.append({"group_name": name, "technician_codes": buckets[name]})
+    for name, items in buckets.items():
+        if name not in _GROUP_ORDER and items:
+            groups.append({"group_name": name, "technician_codes": items})
+    return groups
 
 
 def channel_numeric_id(channel_id) -> str:
@@ -173,6 +236,64 @@ def build_complete_attendance_html(
 
     lines.append("点工号跳转到频道相册对应照片。")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def build_full_roster_html(venue_name, channel_id, entries=None):
+    """全部人员名单（与今日出勤分开）；仅含频道相册索引中的工号。"""
+    entries = list(entries if entries is not None else list_album_entries(channel_id))
+    codes = [code for code, _msg_id in entries]
+    album_urls = {
+        code: message_link(channel_id, msg_id) for code, msg_id in entries
+    }
+    lines = [
+        FULL_ROSTER_MARKER,
+        f"{html.escape(venue_name)} · 人员全部名单",
+        f"共 {len(codes)} 人（与今日出勤分开，点工号看频道相册）",
+        "",
+    ]
+    if not codes:
+        lines.append("暂无已索引的频道相册人员。")
+        return "\n".join(lines).rstrip() + "\n"
+
+    for group in group_roster_codes(codes):
+        lines.append(f"<b>{html.escape(group['group_name'])}</b>")
+        chips = [
+            _format_code(code, album_urls.get(code))
+            for code in group["technician_codes"]
+        ]
+        lines.append("  ".join(chips))
+        lines.append("")
+    lines.append("今日谁在请看【出勤完整版】；本名单为频道相册全员目录。")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def post_full_roster(bot, channel_id, venue_config, reply_to_message_id=None):
+    """发布名玺人员全部名单（独立于今日出勤）。"""
+    if venue_config.get("venue_id") != PLATE_VENUE_ID:
+        return None
+    text = build_full_roster_html(
+        venue_config.get("venue_name") or "名玺水汇会所",
+        channel_id,
+    )
+    kwargs = {
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+        "reply_markup": footer_keyboard(),
+    }
+    if reply_to_message_id:
+        kwargs["reply_to_message_id"] = reply_to_message_id
+        kwargs["allow_sending_without_reply"] = True
+    try:
+        sent = bot.send_message(channel_id, text, **kwargs)
+        logger.info(
+            "名玺全部名单已发布 chat=%s msg=%s",
+            channel_id,
+            getattr(sent, "message_id", None),
+        )
+        return sent
+    except telebot.apihelper.ApiTelegramException:
+        logger.exception("名玺全部名单发送失败 chat=%s", channel_id)
+        return None
 
 
 class _HTMLTextExtractor(HTMLParser):
