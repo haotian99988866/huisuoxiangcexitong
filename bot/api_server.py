@@ -112,7 +112,10 @@ def _local_admin_debug(data):
     )
 
 
-from venue_pricing import dihao_category_for_photo as _dihao_category_for_photo
+from venue_pricing import (
+    dihao_category_for_photo as _dihao_category_for_photo,
+    staff_group_name as _staff_group_name,
+)
 
 def _view_endpoint():
     endpoint = request.endpoint or ""
@@ -1430,7 +1433,14 @@ def webhook():
                         )
                         # 出勤人数只计已识别工号，不含无工号图
                         venue["on_duty_count"] = len(venue["technician_list"])
-                    if venue["id"] in {5, 6}:
+                    if venue["id"] == 4:
+                        for technician_code in venue["technician_list"]:
+                            category_name = _staff_group_name(4, technician_code, [])
+                            if category_name:
+                                category_codes.setdefault(
+                                    category_name, []
+                                ).append(technician_code)
+                    if venue["id"] in {4, 5, 6} and category_codes:
                         venue["technician_categories"] = [
                             {
                                 "group_name": category_name,

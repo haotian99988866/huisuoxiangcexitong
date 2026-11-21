@@ -12,6 +12,7 @@ from image_hash import distance, SAME_IMAGE_DISTANCE
 from technician_photo_ocr import extract_labeled_technician_code, extract_technician_profile, extract_technician_category
 from venue_pricing import (
     staff_price,
+    staff_group_name,
     dihao_category_for_photo,
     mingxi_price_options,
     resolve_mingxi_board_name,
@@ -280,6 +281,7 @@ def listing(data, admin=False):
                 price, price_detail = staff_price(venue_id, row["code"], tags, services)
                 row["price_usd"] = str(price) if price is not None else None
                 row["price_detail"] = price_detail
+                row["group_name"] = staff_group_name(venue_id, row["code"], tags)
                 if venue_id == 2:
                     row["price_options"] = mingxi_price_options(tags)
                 label = roster["shift"] if roster and row["id"] not in photo_duty_ids else shift

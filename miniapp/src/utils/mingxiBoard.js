@@ -38,11 +38,42 @@ export function classifyMingxiBoard(code) {
 }
 
 export function memberMingxiBoard(member, codeBoardMap) {
+  if (member?.group_name) return normalizeMingxiBoard(member.group_name)
   const fromPrice = member?.price_options?.[0]?.board
   if (fromPrice) return normalizeMingxiBoard(fromPrice)
   const mapped = codeBoardMap?.get(String(member?.code))
   if (mapped) return mapped
   return classifyMingxiBoard(member?.code)
+}
+
+/** 会所统一筛选分组：名玺按牌，其他会所按类别/牌 */
+export function memberClubGroup(member, venueId, codeBoardMap, categoryMap) {
+  const id = Number(venueId)
+  if (id === 2) return memberMingxiBoard(member, codeBoardMap)
+  if (member?.group_name) return String(member.group_name)
+  const mapped = categoryMap?.get(String(member?.code))
+  if (mapped) return mapped
+  return '其他'
+}
+
+export function buildCategoryCodeMap(technicianCategories) {
+  const map = new Map()
+  for (const group of technicianCategories || []) {
+    const name = String(group.group_name || '').trim()
+    if (!name) continue
+    for (const code of group.technician_codes || []) {
+      const key = String(code).trim()
+      if (key && !map.has(key)) map.set(key, name)
+    }
+  }
+  return map
+}
+
+export function clubGroupSortIndex(group, venueId, categoryOrder = []) {
+  if (Number(venueId) === 2) return boardSortIndex(group)
+  if (group === '其他') return 999
+  const index = categoryOrder.indexOf(group)
+  return index >= 0 ? index : categoryOrder.length
 }
 
 /** 从出勤初稿 roster 分组建 工号→牌 */

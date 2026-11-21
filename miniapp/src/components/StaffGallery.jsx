@@ -11,12 +11,13 @@ import useCustomerSubscriptions from '../utils/useCustomerSubscriptions'
 import { SubscriptionControl, SubscriptionFeedback, SubscribedList } from './CustomerDutyControls'
 import LazyMedia from './media/LazyMedia'
 import PhotoSkeleton from './media/PhotoSkeleton'
-import { ROSTER_DUTY_VENUE_IDS } from '../utils/venueHome'
+import { CLUB_STYLE_VENUE_IDS, ROSTER_DUTY_VENUE_IDS } from '../utils/venueHome'
 import {
-  boardSortIndex,
+  buildCategoryCodeMap,
   buildCodeBoardMap,
+  clubGroupSortIndex,
   displayMingxiPrice,
-  memberMingxiBoard,
+  memberClubGroup,
   MINGXI_BOARD_ORDER,
 } from '../utils/mingxiBoard'
 import './StaffGallery.css'
@@ -49,9 +50,9 @@ function attendanceEmptyCopy({
   return '当前没有可展示的本班出勤档案。'
 }
 
-function cardOverlayLabel({ attendanceOnly, dutyPhoto, dutyText, rosterDutyOnly }) {
+function cardOverlayLabel({ attendanceOnly, dutyPhoto, dutyText, rosterDutyOnly, clubStyle }) {
   if (attendanceOnly) {
-    if (rosterDutyOnly) return null
+    if (rosterDutyOnly || clubStyle) return null
     return dutyPhoto ? '本班' : '待更新'
   }
   return dutyText
@@ -106,7 +107,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   // 订阅只改本地状态，勿触发整表重拉，避免屏幕一闪
   const subscription = useCustomerSubscriptions(venue.id, null, { enabled: !admin })
   const customerDuty = selected ? subscription.states?.[selected.id] : null
-  const isMingxi = Number(venue.id) === 2
+  const clubStyle = CLUB_STYLE_VENUE_IDS.includes(Number(venue.id))
   const dutyLabel = member => {
     const state = !admin && subscription.states?.[member.id]
     return state ? state.published_at ? `${state.shift}出勤` : '本班未发布出勤'
@@ -220,6 +221,17 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     () => buildCodeBoardMap(venue.attendance_groups),
     [venue.attendance_groups],
   )
+  const categoryMap = useMemo(
+    () => buildCategoryCodeMap(venue.technician_categories),
+    [venue.technician_categories],
+  )
+  const categoryOrder = useMemo(
+    () => (venue.technician_categories || [])
+      .map(group => String(group.group_name || '').trim())
+      .filter(Boolean),
+    [venue.technician_categories],
+  )
+  const memberGroup = member => memberClubGroup(member, venue.id, codeBoardMap, categoryMap)
   const baseMembers = useMemo(() => {
     const list = (data?.members || []).filter(member => {
       const onDuty = rosterDutyOnly
@@ -228,36 +240,49 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       return (!attendanceOnly || onDuty)
         && (!searchTerm || String(member.code).toLocaleLowerCase().includes(searchTerm))
     })
-    if (!isMingxi || !photoFirst) return list
+    if (!clubStyle || !photoFirst) return list
     return [...list].sort((left, right) => {
       const leftCover = memberCover(left, venue, rosterDutyOnly, attendanceOnly).id ? 0 : 1
       const rightCover = memberCover(right, venue, rosterDutyOnly, attendanceOnly).id ? 0 : 1
       if (leftCover !== rightCover) return leftCover - rightCover
-      return boardSortIndex(memberMingxiBoard(left, codeBoardMap))
-        - boardSortIndex(memberMingxiBoard(right, codeBoardMap))
+      const leftGroup = memberClubGroup(left, venue.id, codeBoardMap, categoryMap)
+      const rightGroup = memberClubGroup(right, venue.id, codeBoardMap, categoryMap)
+      const byGroup = clubGroupSortIndex(leftGroup, venue.id, categoryOrder)
+        - clubGroupSortIndex(rightGroup, venue.id, categoryOrder)
+      if (byGroup !== 0) return byGroup
+      if (leftGroup !== rightGroup) return leftGroup.localeCompare(rightGroup, 'zh')
+      return String(left.code).localeCompare(String(right.code), 'zh', { numeric: true })
     })
-  }, [data, attendanceOnly, searchTerm, isMingxi, photoFirst, venue, rosterDutyOnly, attendanceCodes, codeBoardMap])
+  }, [data, attendanceOnly, searchTerm, clubStyle, photoFirst, venue, rosterDutyOnly, attendanceCodes, codeBoardMap, categoryMap, categoryOrder])
   const boardChips = useMemo(() => {
-    if (!isMingxi || !photoFirst) return []
+    if (!clubStyle || !photoFirst) return []
     const counts = new Map()
     for (const member of baseMembers) {
-      const board = memberMingxiBoard(member, codeBoardMap)
+      const board = memberClubGroup(member, venue.id, codeBoardMap, categoryMap)
       counts.set(board, (counts.get(board) || 0) + 1)
     }
-    const ordered = MINGXI_BOARD_ORDER.filter(name => counts.has(name))
-      .map(name => ({ name, count: counts.get(name) }))
-    for (const [name, count] of counts) {
-      if (!MINGXI_BOARD_ORDER.includes(name)) ordered.push({ name, count })
+    if (Number(venue.id) === 2) {
+      const ordered = MINGXI_BOARD_ORDER.filter(name => counts.has(name))
+        .map(name => ({ name, count: counts.get(name) }))
+      for (const [name, count] of counts) {
+        if (!MINGXI_BOARD_ORDER.includes(name)) ordered.push({ name, count })
+      }
+      return ordered
     }
-    return ordered
-  }, [baseMembers, isMingxi, photoFirst, codeBoardMap])
+    return [...counts.entries()]
+      .sort((left, right) => clubGroupSortIndex(left[0], venue.id, categoryOrder)
+        - clubGroupSortIndex(right[0], venue.id, categoryOrder)
+        || left[0].localeCompare(right[0], 'zh'))
+      .map(([name, count]) => ({ name, count }))
+  }, [baseMembers, clubStyle, photoFirst, codeBoardMap, categoryMap, categoryOrder, venue.id])
   const visibleMembers = useMemo(() => {
-    if (!isMingxi || !photoFirst || boardFilter === '全部') return baseMembers
-    return baseMembers.filter(member => memberMingxiBoard(member, codeBoardMap) === boardFilter)
-  }, [baseMembers, isMingxi, photoFirst, boardFilter, codeBoardMap])
+    if (!clubStyle || !photoFirst || boardFilter === '全部') return baseMembers
+    return baseMembers.filter(member =>
+      memberClubGroup(member, venue.id, codeBoardMap, categoryMap) === boardFilter)
+  }, [baseMembers, clubStyle, photoFirst, boardFilter, codeBoardMap, categoryMap, venue.id])
   const unarchivedCodes = attendanceOnly && data
     ? [...attendanceCodes].filter(code => !data.members.some(member => String(member.code) === code)) : []
-  const selectedBoard = selected ? memberMingxiBoard(selected, codeBoardMap) : null
+  const selectedBoard = selected ? memberGroup(selected) : null
   const closeDetail = () => {
     if (busy) return
     if (changed && !window.confirm('说明尚未提交，确定放弃修改并关闭吗？')) return
@@ -301,37 +326,39 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   const galleryClass = [
     'staff-gallery',
     photoFirst ? 'mingxi-photo-gallery' : '',
-    photoFirst && isMingxi && attendanceOnly ? 'mingxi-duty-grid' : '',
-    photoFirst && isMingxi && !attendanceOnly ? 'mingxi-album-grid' : '',
+    photoFirst && clubStyle && attendanceOnly ? 'mingxi-duty-grid' : '',
+    photoFirst && clubStyle && !attendanceOnly ? 'mingxi-album-grid' : '',
   ].filter(Boolean).join(' ')
+  const filterEmptyText = '当前筛选没有可展示人员。'
+  const groupLabel = Number(venue.id) === 2 ? '牌' : '类别'
 
   return <section className={galleryClass} aria-label={`${venue.name}${photoFirst ? attendanceOnly ? '出勤照片' : '人员相册' : '人员档案'}`}>
     <div className="staff-heading">
       <h2>{photoFirst ? <>{attendanceOnly ? shiftName : '相册'}
         {data && <span className="mingxi-personnel-count"> · {attendanceOnly ? visibleMembers.length : data.total}位</span>}</> : '人员档案'}</h2>
-      {photoFirst && !isMingxi && <span className="staff-heading-note">{attendanceOnly ? '发布不代表实时在岗' : '点击照片查看相册'}</span>}
-      {photoFirst && isMingxi && !attendanceOnly && <span className="staff-heading-note">订阅出勤提醒</span>}
+      {photoFirst && !clubStyle && <span className="staff-heading-note">{attendanceOnly ? '发布不代表实时在岗' : '点击照片查看相册'}</span>}
+      {photoFirst && clubStyle && !attendanceOnly && <span className="staff-heading-note">订阅出勤提醒</span>}
       <button type="button" disabled={busy} onClick={() => setAttempt(value => value + 1)}>刷新</button>
     </div>
     {error && <p className="membership-error" role="alert">{error}</p>}
     {notice && <p className="membership-notice" role="status">{notice}</p>}
     {!data && !error && (
       <PhotoSkeleton
-        count={isMingxi && photoFirst ? 9 : 6}
-        columns={isMingxi && photoFirst ? 3 : 2}
-        dense={isMingxi && photoFirst}
-        chips={isMingxi && photoFirst}
+        count={clubStyle && photoFirst ? 9 : 6}
+        columns={clubStyle && photoFirst ? 3 : 2}
+        dense={clubStyle && photoFirst}
+        chips={clubStyle && photoFirst}
         label="正在读取人员档案…"
       />
     )}
     {data && <>
       {!photoFirst && <p className="staff-meta">{`全部人员 · ${data.total}位 · ${data.shift}`}</p>}
-      {!admin && ((isMingxi && photoFirst && !attendanceOnly) || !photoFirst) && <>
+      {!admin && ((clubStyle && photoFirst && !attendanceOnly) || !photoFirst) && <>
         <p className="staff-meta">{subscription.authenticated
           ? '未出勤技师可点「订阅出勤」；已订阅的人卡片会标「已订阅」，也可在上方清单取消。'
           : '请从 Telegram 主入口打开，才能订阅出勤提醒。'}</p>
         <SubscriptionFeedback subscription={subscription} />
-        {isMingxi && photoFirst && !attendanceOnly && (
+        {clubStyle && photoFirst && !attendanceOnly && (
           <SubscribedList members={data.members} subscription={subscription} />
         )}
       </>}
@@ -342,8 +369,8 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
             ? '本班名单尚未同步，频道已有照片待核对。'
             : '本班名单尚未从频道同步。'))
         : '当前班次尚未发布出勤，照片仍可查看；未出勤天数依据最近发布记录。'}</p>}
-      {isMingxi && photoFirst && boardChips.length > 0 && (
-        <div className="mingxi-board-chips" role="toolbar" aria-label="按牌筛选">
+      {clubStyle && photoFirst && boardChips.length > 0 && (
+        <div className="mingxi-board-chips" role="toolbar" aria-label={`按${groupLabel}筛选`}>
           <button type="button" aria-pressed={boardFilter === '全部'}
             onClick={() => setBoardFilter('全部')}>全部 · {baseMembers.length}</button>
           {boardChips.map(chip => (
@@ -366,22 +393,23 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
         })
         return attendanceOnly && onBrowseAlbum && !searchTerm ? (
           <div className="staff-empty-cta" role="status">
-            <p>{boardFilter !== '全部' ? `当前牌没有可展示人员。` : emptyText}</p>
+            <p>{boardFilter !== '全部' ? filterEmptyText : emptyText}</p>
             {boardFilter !== '全部'
               ? <button type="button" onClick={() => setBoardFilter('全部')}>查看全部</button>
               : <button type="button" onClick={onBrowseAlbum}>查看人员相册</button>}
           </div>
-        ) : <p className="staff-meta">{boardFilter !== '全部' ? '当前牌没有可展示人员。' : emptyText}</p>
+        ) : <p className="staff-meta">{boardFilter !== '全部' ? filterEmptyText : emptyText}</p>
       })()}
       <div className="staff-grid">
         {visibleMembers.map(member => {
           const cover = memberCover(member, venue, rosterDutyOnly, attendanceOnly)
-          const board = isMingxi && photoFirst ? memberMingxiBoard(member, codeBoardMap) : null
+          const board = clubStyle && photoFirst ? memberGroup(member) : null
           const overlay = cardOverlayLabel({
             attendanceOnly,
             dutyPhoto: cover.kind === 'duty',
             dutyText: rosterDutyOnly && attendanceOnly ? null : dutyLabel(member),
             rosterDutyOnly,
+            clubStyle,
           })
           const subState = subscription.states?.[member.id]
           const isSubscribed = Boolean(subState?.subscribed)
@@ -403,7 +431,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
               {isSubscribed && <span className="mingxi-subscribed-badge">已订阅</span>}
             </div>
             <div className="staff-card-info">
-              {isMingxi && photoFirst ? <>
+              {clubStyle && photoFirst ? <>
                 <strong>{member.code}{board ? ` · ${board}` : ''}</strong>
                 <span className="mingxi-staff-price">{cardPriceLabel(member)}</span>
               </> : <>
@@ -413,9 +441,9 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
               </>}
             </div>
           </button>
-          {!admin && (!photoFirst || (isMingxi && !attendanceOnly)) && (
+          {!admin && (!photoFirst || (clubStyle && !attendanceOnly)) && (
             <SubscriptionControl
-              compact={isMingxi && photoFirst}
+              compact={clubStyle && photoFirst}
               id={member.id}
               code={member.code}
               onDuty={Boolean(member.duty_label)}
@@ -433,7 +461,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       {unarchivedCodes.length > 0 && <p className="staff-meta">工号 {unarchivedCodes.join('、')} 尚未建立可展示档案。</p>}
     </>}
     {selected && <MusicDialog className={`${admin ? 'account-sheet staff-sheet staff-admin-detail' : ordinaryMassage ? 'staff-sheet' : 'account-sheet staff-sheet'}${photoFirst ? ' mingxi-photo-sheet' : ''}`}
-      title={ordinaryMassage ? `工号 ${selected.code}` : isMingxi && photoFirst
+      title={ordinaryMassage ? `工号 ${selected.code}` : clubStyle && photoFirst
         ? `工号 ${selected.code}${selectedBoard ? ` · ${selectedBoard}` : ''}`
         : `${venue.name} · 工号 ${selected.code}`}
       scrollBody onClose={closeDetail}
@@ -445,8 +473,8 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
         <button type="button" disabled={busy || !changed} onClick={() => setDescription(detail.description)}>取消修改</button>
         <button type="button" disabled={busy || !changed || description.length > 2000}
           onClick={saveDescription}>{busy ? '处理中…' : '确认并提交'}</button>
-      </div> : <div className={`staff-customer-actions${isMingxi && photoFirst ? ' mingxi-detail-actions' : ''}`}>
-        {isMingxi && photoFirst && selected.price_options?.length > 0 && (
+      </div> : <div className={`staff-customer-actions${clubStyle && photoFirst ? ' mingxi-detail-actions' : ''}`}>
+        {clubStyle && photoFirst && selected.price_options?.length > 0 && (
           <div className="mingxi-detail-prices" aria-label="牌价">
             {selected.price_options.map(option =>
               <p key={`${option.board}-${option.minutes}-${option.label}`}>
@@ -454,11 +482,18 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
               </p>)}
           </div>
         )}
-        {!(isMingxi && photoFirst && attendanceOnly) && <SubscriptionFeedback subscription={subscription} />}
+        {clubStyle && photoFirst && !(selected.price_options?.length > 0) && (
+          <div className="mingxi-detail-prices" aria-label="价格">
+            <p>{selected.price_usd == null
+              ? '价格待确认'
+              : `$${displayMingxiPrice(selected.price_usd)} · ${selected.price_detail || '价格待确认'}`}</p>
+          </div>
+        )}
+        {!(clubStyle && photoFirst && attendanceOnly) && <SubscriptionFeedback subscription={subscription} />}
         <div className="staff-customer-buttons">
-          {!(isMingxi && photoFirst && attendanceOnly) && (
+          {!(clubStyle && photoFirst && attendanceOnly) && (
             <SubscriptionControl
-              compact={isMingxi && photoFirst}
+              compact={clubStyle && photoFirst}
               id={selected.id}
               code={selected.code}
               onDuty={Boolean(selected.duty_label)}
@@ -467,13 +502,13 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
           )}
           {(!ordinaryMassage || customerDuty?.published_at || (!customerDuty && selected.duty_label)) &&
             <CopyBooking
-              compact={isMingxi && photoFirst}
-              label={isMingxi && photoFirst ? `联系${contactName()}` : null}
+              compact={clubStyle && photoFirst}
+              label={clubStyle && photoFirst ? `联系${contactName()}` : null}
               key={`${selected.id}-${photo?.id || ''}`}
               url={bookingUrl({
               title: `你好，我想咨询${venue.name} · 工号${selected.code}`,
               details: [
-                selectedBoard && `牌：${selectedBoard}`,
+                selectedBoard && `${groupLabel}：${selectedBoard}`,
                 ordinaryMassage && '仅咨询正规按摩服务',
                 selected.price_usd != null && `价格：$${money(selected.price_usd)} 起 · ${selected.price_detail}`,
                 ...(selected.price_options || []).map(option =>
@@ -482,18 +517,18 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
               links: photo ? [new URL(mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`), window.location.origin).href] : [],
             })} />}
         </div>
-        {!(isMingxi && photoFirst) && !photoFirst && <p className="staff-meta">{subscription.authenticated
+        {!(clubStyle && photoFirst) && !photoFirst && <p className="staff-meta">{subscription.authenticated
           ? '持续订阅，白班、晚班每班提醒一次，可随时取消。请先在机器人聊天中点击开始。'
           : '请从 Telegram 主入口打开，才能订阅。'}只提醒订阅后的新发布，不补发历史；出勤发布不代表实时在岗。</p>}
       </div>}>
       <div className="staff-detail-media">
-      {detailLoading && (isMingxi && photoFirst
+      {detailLoading && (clubStyle && photoFirst
         ? <PhotoSkeleton hero label="正在读取相册…" />
         : <p role="status">正在读取相册…</p>)}
       {detailError && <p className="membership-error" role="alert">{detailError}</p>}
       {detail && !detail.photos.length && !detailLoading && <p>照片待更新</p>}
       {photo && !detailLoading && <>
-        {isMingxi && photoFirst ? (
+        {clubStyle && photoFirst ? (
           <div className="mingxi-detail-hero"
             onTouchStart={event => { touchStart.current = event.touches[0]?.clientX ?? null }}
             onTouchEnd={event => {
@@ -521,7 +556,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
             }}
             alt={`工号 ${selected.code} 的第 ${imageIndex + 1} 张照片`} />
         )}
-        {detail.photos.length > 1 && (isMingxi && photoFirst ? (
+        {detail.photos.length > 1 && (clubStyle && photoFirst ? (
           <div className="mingxi-thumb-strip" role="tablist" aria-label="相册缩略图">
             {detail.photos.map((item, index) => (
               <button key={item.id} type="button" role="tab" aria-selected={index === imageIndex}
@@ -545,7 +580,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       <div className="staff-detail-summary">
       {ordinaryMassage && !admin ? <><p className="staff-detail-duty">{dutyLabel(selected)}</p>
       {customerDuty?.published_at && <p className="staff-meta">发布时间：{customerDuty.published_at}</p>}
-      <p className="staff-meta">仅提供正规按摩信息。已发布不代表实时在岗。</p></> : !(isMingxi && photoFirst) ? <>
+      <p className="staff-meta">仅提供正规按摩信息。已发布不代表实时在岗。</p></> : !(clubStyle && photoFirst) ? <>
       <p className="staff-detail-duty">{dutyLabel(selected)}</p>
       {photoFirst && selected.price_options?.length
         ? <div className="mingxi-detail-prices">{selected.price_options.map(option =>

@@ -211,3 +211,5 @@ export const STAFF_ARCHIVE_VENUE_IDS = [1, 2, 4, 5, 6]
 export const CHANNEL_PHOTO_VENUE_IDS = ['4', '5', '6']
 /** 当班出勤只看出勤初稿/文字名单，不依赖当班频道发图 */
 export const ROSTER_DUTY_VENUE_IDS = [1, 2]
+/** 会所统一名玺样式（不含按摩、KTV、外送） */
+export const CLUB_STYLE_VENUE_IDS = [2, 4, 5, 6]

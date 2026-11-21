@@ -90,6 +90,33 @@ def mingxi_price_options(tags):
     ]
 
 
+def _club_category(venue_id, code, tags):
+    known = [str(tag)[9:] for tag in tags or [] if str(tag).startswith("category:")]
+    if venue_id == 4:
+        if len(known) == 1:
+            return known[0]
+        if code in {"6666", "7777"}:
+            return "车模"
+        if str(code).isdigit() and len(str(code)) <= 3:
+            return f"{str(code)[0]}牌"
+        return None
+    if venue_id == 5:
+        return known[0] if len(known) == 1 else None
+    if venue_id == 6:
+        return known[0] if len(known) == 1 else dihao_category_for_photo(code, "")
+    return None
+
+
+def staff_group_name(venue_id, code, tags):
+    """列表/筛选用的牌或类别名。"""
+    if venue_id == 2:
+        for tag in tags or []:
+            if str(tag).startswith("board:"):
+                return resolve_mingxi_board_name(str(tag)[6:]) or str(tag)[6:].strip()
+        return None
+    return _club_category(venue_id, code, tags)
+
+
 def staff_price(venue_id, code, tags, services):
     candidates = []
     if venue_id == 1:
@@ -108,19 +135,7 @@ def staff_price(venue_id, code, tags, services):
     else:
         key = {4: "kaidiTechnicianCategories", 5: "atlanticTechnicianCategories",
                6: "dihaoTechnicianCategories"}[venue_id]
-        category = None
-        if venue_id == 4:
-            known = [tag[9:] for tag in tags if tag.startswith("category:")]
-            category = known[0] if len(known) == 1 else (
-                "车模" if code in {"6666", "7777"}
-                else code[0] + "牌" if code.isdigit() and len(code) <= 3 else None
-            )
-        elif venue_id == 5:
-            known = [tag[9:] for tag in tags if tag.startswith("category:")]
-            category = known[0] if len(known) == 1 else None
-        elif venue_id == 6:
-            known = [tag[9:] for tag in tags if tag.startswith("category:")]
-            category = known[0] if len(known) == 1 else dihao_category_for_photo(code, "")
+        category = _club_category(venue_id, code, tags)
         for item in PRICES[key]:
             if item["name"] == category and item.get("price") is not None:
                 candidates.append((Decimal(str(item["price"])), f"{category} · 90分钟"))

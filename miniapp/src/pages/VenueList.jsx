@@ -20,6 +20,7 @@ import {
   subscribeFullscreen,
 } from '../utils/twa'
 import {
+  CLUB_STYLE_VENUE_IDS,
   DELIVERY_VENUE_IDS,
   PHOTO_FIRST_VENUE_IDS,
   STAFF_ARCHIVE_VENUE_IDS,
@@ -161,7 +162,7 @@ export default function VenueList() {
     : selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
   const isPhotoFirst = PHOTO_FIRST_VENUE_IDS.includes(Number(selectedVenue?.id))
-  const isMingxiClub = Number(selectedVenue?.id) === 2
+  const isClubStyle = CLUB_STYLE_VENUE_IDS.includes(Number(selectedVenue?.id))
   const rosterGridStyle = technicianList.length <= 9
     ? roomyTechnicianGridStyle
     : technicianGridStyle
@@ -174,8 +175,8 @@ export default function VenueList() {
     setSelectedTechnicianCode('')
   }, [selectedVenue?.id, selectedVenue?.categoryKey])
   const isDeliveryDayShift = deliveryCategories.length > 0 && currentShift === '白班'
-  // 名玺人员档案/相册不展示推荐轮播，先露出名单
-  const showRecommendations = isPhotoFirst && !isMingxiClub
+  // 会所统一样式不展示推荐轮播，先露出名单
+  const showRecommendations = isPhotoFirst && !isClubStyle
     && !(isDeliveryDayShift && !showStaffArchive)
   const dutyShiftToday = currentShift || selectedVenue?.duty_shift_today
   const dutyLabel = currentShift ? `${currentShift}出勤` : '今日出勤'
