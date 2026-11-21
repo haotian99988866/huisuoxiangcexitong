@@ -17,7 +17,7 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
   const [selected, setSelected] = useState(null)
   const [mediaIndex, setMediaIndex] = useState(0)
   const touchStart = useRef(null)
-  const subscription = useCustomerSubscriptions(venue.id, () => setAttempt(value => value + 1), { delivery: true })
+  const subscription = useCustomerSubscriptions(venue.id, null, { delivery: true })
   const dutyLabel = person => {
     const state = subscription.states?.[person.id]
     return state ? state.published_at ? '今晚出勤' : state.shift === '晚班' ? '本班未见照片' : '外送仅晚班'

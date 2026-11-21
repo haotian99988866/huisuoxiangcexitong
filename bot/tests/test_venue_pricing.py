@@ -19,6 +19,10 @@ class VenuePricingTests(unittest.TestCase):
         self.assertEqual(mingxi_price_options(["board:日韩牌"]), [
             {"board": "日韩牌", "minutes": 90, "price_usd": "539", "label": "会员"},
         ])
+        self.assertEqual(
+            mingxi_price_options(["board:日韩专场"]),
+            mingxi_price_options(["board:日韩牌"]),
+        )
         self.assertEqual(mingxi_price_options([]), [])
         self.assertEqual(mingxi_price_options(["board:未知牌"]), [])
         self.assertEqual(resolve_mingxi_board_name("日韩专场"), "日韩牌")

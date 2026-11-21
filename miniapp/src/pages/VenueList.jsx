@@ -161,6 +161,7 @@ export default function VenueList() {
     : selectedVenue?.on_duty_count ?? 0
   const technicianList = selectedVenue?.technician_list || []
   const isPhotoFirst = PHOTO_FIRST_VENUE_IDS.includes(Number(selectedVenue?.id))
+  const isMingxiClub = Number(selectedVenue?.id) === 2
   const rosterGridStyle = technicianList.length <= 9
     ? roomyTechnicianGridStyle
     : technicianGridStyle
@@ -173,7 +174,9 @@ export default function VenueList() {
     setSelectedTechnicianCode('')
   }, [selectedVenue?.id, selectedVenue?.categoryKey])
   const isDeliveryDayShift = deliveryCategories.length > 0 && currentShift === '白班'
-  const showRecommendations = isPhotoFirst && !(isDeliveryDayShift && !showStaffArchive)
+  // 名玺人员档案/相册不展示推荐轮播，先露出名单
+  const showRecommendations = isPhotoFirst && !isMingxiClub
+    && !(isDeliveryDayShift && !showStaffArchive)
   const dutyShiftToday = currentShift || selectedVenue?.duty_shift_today
   const dutyLabel = currentShift ? `${currentShift}出勤` : '今日出勤'
   const serviceItems = selectedVenue?.service_items || []

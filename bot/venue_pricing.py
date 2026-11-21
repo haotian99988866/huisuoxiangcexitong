@@ -74,10 +74,17 @@ def mingxi_board_price_suffix(group_name):
 
 
 def mingxi_price_options(tags):
+    resolved = set()
+    for tag in tags or []:
+        if not str(tag).startswith("board:"):
+            continue
+        name = resolve_mingxi_board_name(str(tag)[6:]) or str(tag)[6:].strip()
+        if name:
+            resolved.add(name)
     return [
         {"board": board["board"], "minutes": minutes, "price_usd": str(board[field]),
          "label": label}
-        for board in PRICES["mingxiBoardPrices"] if "board:" + board["board"] in tags
+        for board in PRICES["mingxiBoardPrices"] if board["board"] in resolved
         for minutes, field, label in ((45, "half", "半价"), (90, "member", "会员"))
         if board.get(field) is not None
     ]
@@ -90,8 +97,13 @@ def staff_price(venue_id, code, tags, services):
             if "service:" + service["category"] in tags and service["price"] is not None:
                 candidates.append((Decimal(str(service["price"])), service["name"]))
     elif venue_id == 2:
+        resolved = {
+            resolve_mingxi_board_name(str(tag)[6:]) or str(tag)[6:].strip()
+            for tag in tags or []
+            if str(tag).startswith("board:")
+        }
         for board in PRICES["mingxiBoardPrices"]:
-            if "board:" + board["board"] in tags and board.get("half") is not None:
+            if board["board"] in resolved and board.get("half") is not None:
                 candidates.append((Decimal(str(board["half"])), f"{board['board']} · 45分钟"))
     else:
         key = {4: "kaidiTechnicianCategories", 5: "atlanticTechnicianCategories",

@@ -74,11 +74,13 @@ export default function useCustomerSubscriptions(venueId, onRefresh, { delivery 
   }, [venueId, authenticated, delivery])
   useEffect(() => {
     if (!states) return
-    const timer = setTimeout(() => { refresh(); onRefresh() },
-      Math.max(1000, states.shift_ends_at - Date.now()))
+    const timer = setTimeout(() => {
+      refresh()
+      onRefresh?.()
+    }, Math.max(1000, states.shift_ends_at - Date.now()))
     return () => clearTimeout(timer)
   }, [states?.shift_ends_at])
-  const toggle = async personId => {
+  const toggle = async (personId, meta = {}) => {
     const state = states?.states[personId]
     if (lock.current || refreshLock.current || !authenticated || corrupt || !state) return
     lock.current = true
@@ -89,6 +91,7 @@ export default function useCustomerSubscriptions(venueId, onRefresh, { delivery 
       [identity]: personId, enabled: !state.subscribed, revision: state.revision, request_id: newMemberOrderId(),
     }
     const next = { ...pending, [personId]: payload }
+    const who = meta.code ? `工号 ${meta.code}` : (meta.label || `档案 #${personId}`)
     try {
       sessionStorage.setItem(key, JSON.stringify(next))
       setPending(next)
@@ -101,8 +104,8 @@ export default function useCustomerSubscriptions(venueId, onRefresh, { delivery 
         setPending(remaining)
         setStates(current => ({ ...current, states: { ...current.states, [personId]: result } }))
         setNotice(result.subscribed
-          ? `档案 #${personId} 已持续订阅，${frequency}新发布出勤时提醒一次。请先在机器人聊天中点击开始。`
-          : `档案 #${personId} 已取消订阅，尚未领取发送的提醒已停止。`)
+          ? `${who} 已订阅：${frequency}有新出勤时提醒。再点一次即可取消。`
+          : `${who} 已取消订阅。`)
       }
     } catch (failure) {
       console.error('[Customer subscription save]', failure)
@@ -124,8 +127,8 @@ export default function useCustomerSubscriptions(venueId, onRefresh, { delivery 
       lock.current = false
       if (mounted.current) {
         setBusy(null)
+        // 只静默同步订阅状态，不回调父级整表刷新（否则列表清空重载会闪屏）
         await refresh()
-        onRefresh()
       }
     }
   }

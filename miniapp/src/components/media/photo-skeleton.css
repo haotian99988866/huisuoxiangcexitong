@@ -2,13 +2,32 @@
 .photo-skeleton__label {
   margin: 0 0 12px;
   color: var(--ink-muted, #8a7a6a);
-  font-size: 13px;
+  font-size: 12px;
   text-align: center;
+}
+.photo-skeleton__label--inline {
+  margin: 10px 0 0;
+}
+.photo-skeleton__chips {
+  display: flex;
+  gap: 8px;
+  overflow: hidden;
+  margin: 0 0 14px;
+}
+.photo-skeleton__chip {
+  flex: 0 0 auto;
+  width: 72px;
+  height: 36px;
+  border-radius: 999px;
+  background: linear-gradient(110deg, #efe8de 25%, #f6f1e8 40%, #efe8de 55%);
+  background-size: 200% 100%;
+  animation: photo-skeleton-shine 1.2s ease-in-out infinite;
 }
 .photo-skeleton__grid {
   display: grid;
-  gap: 12px;
+  gap: 12px 8px;
 }
+.photo-skeleton--dense .photo-skeleton__grid { gap: 12px 8px; }
 .photo-skeleton__card { min-width: 0; }
 .photo-skeleton__cover {
   aspect-ratio: 3 / 4;
@@ -17,14 +36,53 @@
   background-size: 200% 100%;
   animation: photo-skeleton-shine 1.2s ease-in-out infinite;
 }
+.photo-skeleton--dense .photo-skeleton__cover {
+  aspect-ratio: 3 / 3.35;
+  border-radius: 12px;
+}
 .photo-skeleton__line {
   height: 10px;
   margin-top: 8px;
   border-radius: 6px;
   background: #ebe4d8;
 }
+.photo-skeleton--dense .photo-skeleton__line {
+  height: 8px;
+  margin-top: 6px;
+}
 .photo-skeleton__line--short { width: 55%; }
+.photo-skeleton--hero { margin: 0; }
+.photo-skeleton__hero {
+  width: 100%;
+  height: min(52dvh, 420px);
+  border-radius: 14px;
+  background: linear-gradient(110deg, #efe8de 25%, #f6f1e8 40%, #efe8de 55%);
+  background-size: 200% 100%;
+  animation: photo-skeleton-shine 1.2s ease-in-out infinite;
+}
+.photo-skeleton__thumb-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.photo-skeleton__thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 72px;
+  border-radius: 10px;
+  background: linear-gradient(110deg, #efe8de 25%, #f6f1e8 40%, #efe8de 55%);
+  background-size: 200% 100%;
+  animation: photo-skeleton-shine 1.2s ease-in-out infinite;
+}
 @keyframes photo-skeleton-shine {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .photo-skeleton__cover,
+  .photo-skeleton__chip,
+  .photo-skeleton__hero,
+  .photo-skeleton__thumb {
+    animation: none;
+  }
 }

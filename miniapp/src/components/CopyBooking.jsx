@@ -3,7 +3,7 @@ import { contactName } from '../utils/tenant'
 import { openTelegramLink } from '../utils/twa'
 import './CopyBooking.css'
 
-export default function CopyBooking({ url, compact = false }) {
+export default function CopyBooking({ url, compact = false, label = null }) {
   const [status, setStatus] = useState('')
   const [failed, setFailed] = useState(false)
   const message = new URL(url).searchParams.get('text') || ''
@@ -20,13 +20,13 @@ export default function CopyBooking({ url, compact = false }) {
     }
   }
   return (
-    <div className="copy-contact">
+    <div className={`copy-contact${compact ? ' copy-contact-compact' : ''}`}>
       {!compact && <p className="copy-contact-hint">打开与{contactName()}的聊天并预填资料；若未带入，请粘贴后发送。</p>}
       <button type="button" className="home-copy-booking copy-contact-button" onClick={() => {
         copy()
         openTelegramLink(url)
       }}>
-        复制内容并联系{contactName()}
+        {label || `复制内容并联系${contactName()}`}
       </button>
       {status && <p role="status">{status}</p>}
       {failed && <textarea aria-label="预约信息" readOnly value={message}

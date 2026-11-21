@@ -10,7 +10,12 @@ from db import get_conn
 from duty_shift import current_shift_window
 from image_hash import distance, SAME_IMAGE_DISTANCE
 from technician_photo_ocr import extract_labeled_technician_code, extract_technician_profile, extract_technician_category
-from venue_pricing import staff_price, dihao_category_for_photo, mingxi_price_options
+from venue_pricing import (
+    staff_price,
+    dihao_category_for_photo,
+    mingxi_price_options,
+    resolve_mingxi_board_name,
+)
 
 logger = logging.getLogger(__name__)
 VENUE_IDS = frozenset({1, 2, 4, 5, 6})
@@ -124,8 +129,13 @@ def synchronize(cur):
                     (row["venue_id"], row["duty_date"]))
         mappings = cur.fetchall()
         for code, staff_id in zip(codes, ids):
-            tags = ["board:" + group["group_name"] for group in groups
-                    if code in (group["technician_codes"] or "").split(",")]
+            tags = []
+            for group in groups:
+                if code not in (group["technician_codes"] or "").split(","):
+                    continue
+                board = resolve_mingxi_board_name(group["group_name"]) or group["group_name"]
+                if board:
+                    tags.append("board:" + board)
             tags.extend("service:" + item["category"] for item in mappings if item["technician_code"] == code)
             _save_price_tags(cur, staff_id, tags, row["created_at"])
         if saved and saved["fingerprint"] == digest:

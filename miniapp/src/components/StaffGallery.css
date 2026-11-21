@@ -54,14 +54,273 @@
 .mingxi-photo-gallery > .staff-meta { margin: 0 0 12px; font-size: 11px; }
 .staff-gallery.mingxi-photo-gallery { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .mingxi-photo-gallery .staff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+.mingxi-photo-gallery.mingxi-duty-grid .staff-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 8px; }
+.mingxi-photo-gallery.mingxi-album-grid .staff-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 8px; }
+.mingxi-photo-gallery.mingxi-album-grid .staff-cover { aspect-ratio: 3 / 3.35; border-radius: 12px; }
+.mingxi-photo-gallery.mingxi-album-grid .staff-card-info strong { font-size: 12px; line-height: 1.35; }
+.mingxi-photo-gallery.mingxi-album-grid .mingxi-staff-price { font-size: 12px; }
 .mingxi-photo-gallery .staff-card { border: 0; border-radius: 0; background: transparent; }
 .mingxi-photo-gallery .staff-cover { aspect-ratio: 3 / 4; border-radius: 14px; }
+.mingxi-photo-gallery.mingxi-duty-grid .staff-cover { aspect-ratio: 3 / 3.35; border-radius: 12px; }
 .mingxi-photo-gallery .staff-cover img { object-fit: cover; object-position: center top; }
-.mingxi-photo-gallery .staff-card-info { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px; padding: 8px 0 0; }
+.mingxi-photo-gallery .staff-card-info { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; padding: 8px 0 0; }
+.mingxi-photo-gallery.mingxi-duty-grid .staff-card-info { padding-top: 6px; }
 .mingxi-photo-gallery .staff-card-info strong { font-size: 14px; }
-.mingxi-photo-gallery .mingxi-staff-price { color: var(--ink-accent); font-size: 11px; }
+.mingxi-photo-gallery.mingxi-duty-grid .staff-card-info strong { font-size: 12px; line-height: 1.35; }
+.mingxi-photo-gallery .mingxi-staff-price { color: var(--ink-accent); font-size: 11px; font-weight: 650; }
+.mingxi-photo-gallery.mingxi-duty-grid .mingxi-staff-price { font-size: 12px; }
 .mingxi-photo-gallery .staff-card-info small { flex-basis: 100%; }
 .mingxi-photo-gallery .staff-attendance-overlay { padding: 18px 10px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+.mingxi-board-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 0 0 14px;
+  padding: 2px 0 6px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.mingxi-board-chips::-webkit-scrollbar { display: none; }
+.mingxi-board-chips button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--ink-line);
+  border-radius: 999px;
+  background: var(--ink-reading);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mingxi-board-chips button[aria-pressed="true"] {
+  border-color: var(--ink-accent);
+  background: color-mix(in srgb, var(--ink-accent) 12%, var(--ink-reading));
+  color: var(--ink-accent);
+  font-weight: 650;
+}
+.mingxi-board-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  max-width: calc(100% - 16px);
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #1d2433d9;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.4;
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mingxi-photo-gallery.mingxi-duty-grid .mingxi-board-badge { top: 6px; left: 6px; font-size: 9px; padding: 2px 6px; }
+.mingxi-thumb-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 10px 0 4px;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.mingxi-thumb-strip button {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 72px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ink-surface);
+  cursor: pointer;
+}
+.mingxi-thumb-strip button.is-active { border-color: var(--ink-accent); }
+.mingxi-thumb-strip button img,
+.mingxi-thumb-strip button .lazy-media,
+.mingxi-thumb-strip button > * {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.mingxi-photo-sheet .mingxi-detail-prices {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--ink-line);
+  border-radius: 12px;
+  background: var(--ink-wash, #f6f1e8);
+}
+.mingxi-photo-sheet .mingxi-detail-prices p {
+  margin: 0;
+  color: var(--ink-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.mingxi-photo-gallery.mingxi-album-grid .delivery-subscribe {
+  border-top: 1px solid var(--ink-line);
+  font-size: 12px;
+  color: var(--ink-accent);
+}
+.mingxi-photo-gallery.mingxi-album-grid .delivery-subscribe.is-subscribed {
+  color: #b42318;
+  font-weight: 650;
+}
+.mingxi-subscribed-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #28746f;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  pointer-events: none;
+}
+.mingxi-photo-gallery.mingxi-duty-grid .mingxi-subscribed-badge,
+.mingxi-photo-gallery.mingxi-album-grid .mingxi-board-badge + .mingxi-subscribed-badge {
+  top: 8px;
+  right: 8px;
+}
+.mingxi-photo-gallery.mingxi-album-grid .mingxi-board-badge {
+  max-width: calc(100% - 72px);
+}
+.mingxi-subscribed-bar {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--ink-line);
+  border-radius: 12px;
+  background: var(--ink-wash, #f6f1e8);
+}
+.mingxi-subscribed-title {
+  margin: 0 0 8px;
+  color: var(--ink-text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.mingxi-subscribed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mingxi-subscribed-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--ink-line);
+  border-radius: 999px;
+  background: var(--ink-reading);
+  color: var(--ink-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mingxi-subscribed-chip span:last-child {
+  color: #b42318;
+  font-weight: 650;
+}
+.mingxi-subscribed-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.staff-card.is-subscribed {
+  outline: 1px solid color-mix(in srgb, #28746f 35%, transparent);
+  border-radius: 14px;
+}
+.mingxi-photo-sheet .dialog-panel-footer {
+  gap: 8px;
+}
+.mingxi-photo-sheet .mingxi-detail-actions {
+  gap: 8px;
+}
+.mingxi-photo-sheet .mingxi-detail-actions .staff-customer-buttons {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+  align-items: stretch;
+}
+.mingxi-photo-sheet .mingxi-detail-actions .staff-customer-buttons > button,
+.ink-app .mingxi-photo-sheet .mingxi-detail-actions .staff-customer-buttons > button,
+.mingxi-photo-sheet .mingxi-detail-actions .staff-customer-buttons > .copy-contact {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+}
+.mingxi-photo-sheet .mingxi-detail-actions .copy-contact-compact {
+  margin-top: 0;
+  text-align: stretch;
+}
+.mingxi-photo-sheet .mingxi-detail-actions .copy-contact-button,
+.ink-app .mingxi-photo-sheet .mingxi-detail-actions .copy-contact .copy-contact-button {
+  width: 100%;
+  height: 100%;
+  min-height: 46px;
+}
+.mingxi-photo-sheet .mingxi-detail-actions .delivery-subscribe-compact {
+  border: 1px solid var(--ink-line);
+  border-radius: 12px;
+  background: var(--ink-reading);
+  color: var(--ink-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+.mingxi-photo-sheet .mingxi-detail-actions .membership-notice,
+.mingxi-photo-sheet .mingxi-detail-actions .membership-error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+/* 预留主图高度，避免加载后整页突然拉高；contain 避免拼图文案被裁切 */
+.mingxi-photo-sheet .mingxi-detail-hero {
+  position: relative;
+  width: 100%;
+  height: min(52dvh, 420px);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #1c1f26;
+}
+.mingxi-photo-sheet .mingxi-detail-hero .staff-detail-photo {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+  object-position: center center;
+  border-radius: 0;
+  touch-action: pan-y;
+}
+.mingxi-photo-sheet .mingxi-detail-count {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #1d2433cc;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+  pointer-events: none;
+}
+.mingxi-photo-sheet .copy-contact-compact .copy-contact-button {
+  width: 100%;
+}
 .staff-empty-cta {
   display: grid;
   gap: 10px;
@@ -94,6 +353,7 @@
 .mingxi-photo-sheet .dialog-panel-body { display: flex; flex-direction: column; padding-top: 12px; }
 .mingxi-photo-sheet .staff-detail-media { order: -1; }
 .mingxi-photo-sheet .staff-detail-photo { max-height: 58dvh; width: 100%; touch-action: pan-y; }
+.mingxi-photo-sheet .mingxi-detail-hero .staff-detail-photo { max-height: none; }
 .mingxi-photo-sheet .staff-pages { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .mingxi-photo-sheet .staff-pages button { min-height: 44px; border: 1px solid var(--ink-line); border-radius: 10px; padding: 8px 12px; background: var(--ink-reading); color: var(--ink-text); font: inherit; font-size: 12px; }
 .mingxi-photo-sheet .staff-pages span { font-size: 12px; color: var(--ink-muted); }
