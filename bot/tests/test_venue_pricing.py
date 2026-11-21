@@ -1,7 +1,13 @@
 from decimal import Decimal
 import unittest
 
-from venue_pricing import staff_price, dihao_category_for_photo, mingxi_price_options
+from venue_pricing import (
+    dihao_category_for_photo,
+    mingxi_board_price_suffix,
+    mingxi_price_options,
+    resolve_mingxi_board_name,
+    staff_price,
+)
 
 
 class VenuePricingTests(unittest.TestCase):
@@ -15,6 +21,11 @@ class VenuePricingTests(unittest.TestCase):
         ])
         self.assertEqual(mingxi_price_options([]), [])
         self.assertEqual(mingxi_price_options(["board:未知牌"]), [])
+        self.assertEqual(resolve_mingxi_board_name("日韩专场"), "日韩牌")
+        self.assertEqual(mingxi_board_price_suffix("9号牌"), " · 半价$249 · 会员$499")
+        self.assertEqual(mingxi_board_price_suffix("日韩专场"), " · 会员$539")
+        self.assertEqual(resolve_mingxi_board_name("俄罗斯"), "7号牌")
+        self.assertEqual(mingxi_board_price_suffix("俄罗斯"), " · 半价$219 · 会员$439")
 
     def test_shared_board_prices_use_45_minute_start_price(self):
         price, description = staff_price(2, "902", ["board:9号牌"], [])

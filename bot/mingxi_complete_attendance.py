@@ -13,20 +13,61 @@ from mingxi_channel_album import (
     MINGXI_CHANNEL_ID,
     list_album_entries,
     lookup_album_msg_ids,
+    sync_album_from_matched_photos,
     upsert_album_message,
 )
+from venue_pricing import mingxi_board_price_suffix
 
 logger = logging.getLogger(__name__)
 
 PLATE_VENUE_ID = 2
 COMPLETE_MARKER = "【出勤完整版】"
 FULL_ROSTER_MARKER = "【人员全部名单】"
+ENV_NAV_MARKER = "【环境导航】"
+PROMO_MARKER = "【优惠】"
 FULL_ROSTER_TRIGGERS = ("全部名单", "全员名单", "人员全部名单")
-# 店介绍链接后续配置；本期可空
-INTRO_LINKS = ()  # (("环境介绍", msg_id), ...)
+# 固定入口：出勤/全员只链这里，不跟发整页导航（避免刷屏 + 实体上限）
+ENV_NAV_MSG_ID = 10503
+ENV_NAV_URL = f"https://t.me/mingxi03/{ENV_NAV_MSG_ID}"
+ATTENDANCE_MSG_ID = 10505  # 回退；发出勤后会写入锚点
+FULL_ROSTER_MSG_ID = 10506  # 回退；发名单后会写入锚点
+ANCHOR_ATTENDANCE = "attendance_complete"
+ANCHOR_ENV_NAV = "env_nav"
+ANCHOR_ROSTER = "full_roster"
+# 环境导航：来自 @mingxi03 #1622 起现帖扫描（优先 3189+ 新版实景）
+ENV_NAV_LINKS = (
+    ("价目表", "https://t.me/mingxi03/10501"),
+    ("大堂吧", "https://t.me/mingxi03/3189"),
+    ("女浴", "https://t.me/mingxi03/3190"),
+    ("男浴", "https://t.me/mingxi03/3191"),
+    ("台球厅", "https://t.me/mingxi03/3193"),
+    ("选秀厅", "https://t.me/mingxi03/3194"),
+    ("奶茶店", "https://t.me/mingxi03/3195"),
+    ("雪茄吧", "https://t.me/mingxi03/3197"),
+    ("美容区", "https://t.me/mingxi03/3198"),
+    ("理发区", "https://t.me/mingxi03/3199"),
+    ("足浴休息区", "https://t.me/mingxi03/3201"),
+    ("自助餐厅", "https://t.me/mingxi03/3202"),
+    ("棋牌麻将房", "https://t.me/mingxi03/3203"),
+    ("按摩包厢", "https://t.me/mingxi03/3204"),
+    ("中医理疗", "https://t.me/mingxi03/3205"),
+    ("KTV·玺御厅403", "https://t.me/mingxi03/3207"),
+    ("KTV·玺汇厅401", "https://t.me/mingxi03/3208"),
+    ("KTV·玺盈厅405", "https://t.me/mingxi03/3209"),
+    ("KTV·玺聚厅402", "https://t.me/mingxi03/3210"),
+    ("KTV·玺悦厅503", "https://t.me/mingxi03/3212"),
+    ("KTV·玺宸厅501", "https://t.me/mingxi03/3213"),
+    ("KTV·玺运厅502", "https://t.me/mingxi03/3214"),
+    ("KTV·玺顺厅505", "https://t.me/mingxi03/3215"),
+    ("教师情景房", "https://t.me/mingxi03/3217"),
+    ("护士情景房", "https://t.me/mingxi03/3218"),
+    ("空姐情景房", "https://t.me/mingxi03/3219"),
+    ("学生情景房", "https://t.me/mingxi03/3220"),
+    ("商务房", "https://t.me/mingxi03/3222"),
+)
 
-_JP_KR_CODES = frozenset({"01", "02", "03", "05", "06", "07", "08"})
-_MINGXI_PLATE_CODES = frozenset({"77", "3333", "5555", "7777", "8888", "9999"})
+_JP_KR_CODES = frozenset({"01", "02", "03", "05", "06", "07", "08", "77"})
+_MINGXI_PLATE_CODES = frozenset({"3333", "5555", "7777", "8888", "9999"})
 _GROUP_ORDER = (
     "名玺牌",
     "日韩专场",
@@ -35,13 +76,177 @@ _GROUP_ORDER = (
     "7号牌",
     "6号牌",
     "5号牌",
-    "俄罗斯",
     "其他",
 )
 
 
 def is_complete_attendance_text(text: str) -> bool:
-    return COMPLETE_MARKER in (text or "") or FULL_ROSTER_MARKER in (text or "")
+    """机器人托管公告（勿再当初稿出勤解析）。"""
+    value = text or ""
+    return (
+        COMPLETE_MARKER in value
+        or FULL_ROSTER_MARKER in value
+        or ENV_NAV_MARKER in value
+        or PROMO_MARKER in value
+    )
+
+
+def is_promo_text(text: str) -> bool:
+    return PROMO_MARKER in (text or "")
+
+
+def _public_msg_url(msg_id) -> str:
+    return f"https://t.me/mingxi03/{int(msg_id)}"
+
+
+def _attendance_nav_url() -> str:
+    msg_id = (
+        get_channel_anchor(MINGXI_CHANNEL_ID, ANCHOR_ATTENDANCE) or ATTENDANCE_MSG_ID
+    )
+    return _public_msg_url(msg_id)
+
+
+def _roster_nav_url() -> str:
+    msg_id = get_channel_anchor(MINGXI_CHANNEL_ID, ANCHOR_ROSTER) or FULL_ROSTER_MSG_ID
+    return _public_msg_url(msg_id)
+
+
+def _env_nav_url() -> str:
+    msg_id = get_channel_anchor(MINGXI_CHANNEL_ID, ANCHOR_ENV_NAV) or ENV_NAV_MSG_ID
+    return _public_msg_url(msg_id)
+
+
+def _hub_footer_lines(*, exclude=()):
+    """三条互链：出勤 / 全员 / 环境；exclude 里的不显示（避免链自己）。"""
+    skip = {str(item) for item in exclude}
+    parts = []
+    if "env" not in skip:
+        parts.append(
+            f'<a href="{html.escape(_env_nav_url(), quote=True)}">'
+            f"{html.escape(ENV_NAV_MARKER)}</a>"
+        )
+    if "attendance" not in skip:
+        parts.append(
+            f'<a href="{html.escape(_attendance_nav_url(), quote=True)}">'
+            f"{html.escape(COMPLETE_MARKER)}</a>"
+        )
+    if "roster" not in skip:
+        parts.append(
+            f'<a href="{html.escape(_roster_nav_url(), quote=True)}">'
+            f"{html.escape(FULL_ROSTER_MARKER)}</a>"
+        )
+    if not parts:
+        return []
+    return ["导航：" + "  |  ".join(parts)]
+
+
+def ensure_anchor_tables():
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mingxi_channel_anchors (
+                    channel_id VARCHAR(32) NOT NULL,
+                    kind VARCHAR(32) NOT NULL,
+                    msg_id BIGINT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (channel_id, kind)
+                )
+                """
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_channel_anchor(channel_id, kind):
+    ensure_anchor_tables()
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT msg_id FROM mingxi_channel_anchors
+                WHERE channel_id = %s AND kind = %s
+                """,
+                (str(channel_id), kind),
+            )
+            row = cur.fetchone()
+            return int(row["msg_id"]) if row else None
+    finally:
+        conn.close()
+
+
+def set_channel_anchor(channel_id, kind, msg_id):
+    ensure_anchor_tables()
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO mingxi_channel_anchors (channel_id, kind, msg_id)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE msg_id = VALUES(msg_id)
+                """,
+                (str(channel_id), kind, int(msg_id)),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _delete_channel_message(bot, channel_id, msg_id):
+    if not msg_id:
+        return
+    try:
+        bot.delete_message(channel_id, int(msg_id))
+        logger.info("已删除旧频道帖 chat=%s msg=%s", channel_id, msg_id)
+    except telebot.apihelper.ApiTelegramException:
+        logger.warning("删除旧频道帖失败 chat=%s msg=%s", channel_id, msg_id)
+
+
+def _pin_channel_message(bot, channel_id, msg_id):
+    if not msg_id:
+        return
+    try:
+        bot.pin_chat_message(channel_id, int(msg_id), disable_notification=True)
+    except telebot.apihelper.ApiTelegramException:
+        logger.warning("置顶失败 chat=%s msg=%s", channel_id, msg_id)
+
+
+def publish_complete_attendance(
+    bot,
+    channel_id,
+    text,
+    *,
+    reply_to_message_id=None,
+):
+    """发布今日出勤完整版：删旧帖、发新帖、记录锚点并置顶（永远挂着最新一条）。"""
+    channel_id = int(channel_id)
+    old_id = get_channel_anchor(channel_id, ANCHOR_ATTENDANCE)
+    kwargs = {
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+        "reply_markup": footer_keyboard(),
+    }
+    if reply_to_message_id:
+        kwargs["reply_to_message_id"] = reply_to_message_id
+        kwargs["allow_sending_without_reply"] = True
+    sent = bot.send_message(channel_id, text, **kwargs)
+    new_id = getattr(sent, "message_id", None)
+    if new_id:
+        set_channel_anchor(channel_id, ANCHOR_ATTENDANCE, new_id)
+        if old_id and int(old_id) != int(new_id):
+            _delete_channel_message(bot, channel_id, old_id)
+        _pin_channel_message(bot, channel_id, new_id)
+        # 环境导航继续挂着（频道可多置顶时两者并存）
+        env_id = get_channel_anchor(channel_id, ANCHOR_ENV_NAV) or ENV_NAV_MSG_ID
+        if env_id and int(env_id) != int(new_id):
+            _pin_channel_message(bot, channel_id, env_id)
+        refresh_cross_nav_messages(bot, channel_id)
+    return sent
 
 
 def is_full_roster_request(text: str) -> bool:
@@ -62,8 +267,9 @@ def classify_roster_group(code: str) -> str:
         return "名玺牌"
     if code in _JP_KR_CODES or (code.isdigit() and len(code) <= 2):
         return "日韩专场"
-    if code == "7026":
-        return "俄罗斯"
+    # 7026 等俄罗斯技师按 7 号牌归类计价
+    if code == "7026" or (code.isdigit() and len(code) >= 3 and code[0] == "7"):
+        return "7号牌"
     if code.isdigit() and len(code) >= 3:
         return f"{code[0]}号牌"
     return "其他"
@@ -138,20 +344,130 @@ def _format_code(code, href):
     return f'<a href="{safe}">{label}</a>'
 
 
+def _format_board_heading(group_name):
+    """牌名 + 后台价目表价格，如 9号牌 · 半价$249 · 会员$499。"""
+    name = str(group_name or "名单")
+    suffix = mingxi_board_price_suffix(name)
+    return f"<b>{html.escape(name)}{html.escape(suffix)}</b>"
+
+
+def build_env_nav_html(venue_name="名玺水汇会所", env_nav_links=None):
+    """独立一条环境导航（避免与全员工号链挤爆 Telegram 100 实体上限）。"""
+    links = ENV_NAV_LINKS if env_nav_links is None else env_nav_links
+    parts = [
+        _format_code(title, url) for title, url in links if title and url
+    ]
+    lines = [
+        ENV_NAV_MARKER,
+        f"{html.escape(venue_name)} · 环境导航",
+        "点名称查看实景 / 价目。",
+        "",
+    ]
+    if not parts:
+        lines.append("暂无环境导航链接。")
+        lines.append("")
+        lines.extend(_hub_footer_lines(exclude=("env",)))
+        return "\n".join(lines).rstrip() + "\n"
+    # 每行若干个，便于阅读
+    row = []
+    for i, part in enumerate(parts, 1):
+        row.append(part)
+        if i % 4 == 0:
+            lines.append("  |  ".join(row))
+            row = []
+    if row:
+        lines.append("  |  ".join(row))
+    lines.append("")
+    lines.extend(_hub_footer_lines(exclude=("env",)))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _edit_hub_message(bot, channel_id, msg_id, text):
+    if not msg_id or not text:
+        return
+    try:
+        bot.edit_message_text(
+            text,
+            int(channel_id),
+            int(msg_id),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=footer_keyboard(),
+        )
+    except telebot.apihelper.ApiTelegramException as exc:
+        if "message is not modified" not in str(exc).lower():
+            logger.warning(
+                "刷新导航帖失败 chat=%s msg=%s: %s", channel_id, msg_id, exc
+            )
+
+
+def refresh_cross_nav_messages(bot, channel_id, venue_name="名玺水汇会所"):
+    """出勤/全员/环境互相导航：锚点变化后刷新另外两条文末链接。"""
+    channel_id = int(channel_id)
+    env_id = get_channel_anchor(channel_id, ANCHOR_ENV_NAV) or ENV_NAV_MSG_ID
+    roster_id = get_channel_anchor(channel_id, ANCHOR_ROSTER) or FULL_ROSTER_MSG_ID
+    _edit_hub_message(bot, channel_id, env_id, build_env_nav_html(venue_name))
+    _edit_hub_message(
+        bot,
+        channel_id,
+        roster_id,
+        build_full_roster_html(venue_name, channel_id),
+    )
+
+
+def post_env_nav(bot, channel_id, venue_name="名玺水汇会所", reply_to_message_id=None):
+    """发布环境导航独立消息（仅初次/重建用；日常应 edit + pin）。"""
+    text = build_env_nav_html(venue_name)
+    kwargs = {
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+        "reply_markup": footer_keyboard(),
+    }
+    if reply_to_message_id:
+        kwargs["reply_to_message_id"] = reply_to_message_id
+        kwargs["allow_sending_without_reply"] = True
+    try:
+        return bot.send_message(channel_id, text, **kwargs)
+    except telebot.apihelper.ApiTelegramException:
+        logger.exception("名玺环境导航发送失败 chat=%s", channel_id)
+        return None
+
+
+def sync_env_nav_message(bot, channel_id=None, venue_name="名玺水汇会所", msg_id=ENV_NAV_MSG_ID):
+    """就地更新固定环境导航帖，并尽量置顶。"""
+    channel_id = int(channel_id or MINGXI_CHANNEL_ID)
+    text = build_env_nav_html(venue_name)
+    try:
+        bot.edit_message_text(
+            text,
+            channel_id,
+            int(msg_id),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=footer_keyboard(),
+        )
+    except telebot.apihelper.ApiTelegramException as exc:
+        # 内容未变时 Telegram 会报错，可忽略
+        if "message is not modified" not in str(exc).lower():
+            logger.exception("名玺环境导航编辑失败 msg=%s", msg_id)
+            return False
+    set_channel_anchor(channel_id, ANCHOR_ENV_NAV, msg_id)
+    _pin_channel_message(bot, channel_id, msg_id)
+    return True
+
+
 def build_complete_attendance_html(
     venue_name,
     attendance,
     channel_id,
     album_urls=None,
     album_msg_ids=None,
-    intro_links=None,
 ):
-    """生成完整版 HTML（含标记，避免被再次当初稿解析）。"""
+    """生成完整版 HTML（含标记，避免被再次当初稿解析）。环境导航另条发送。"""
     album_urls = dict(album_urls or {})
     # 兼容旧参数：仅有 msg_id 时回退为频道深链
     for code, msg_id in (album_msg_ids or {}).items():
         album_urls.setdefault(str(code), message_link(channel_id, msg_id))
-    intro_links = intro_links if intro_links is not None else INTRO_LINKS
     duty_date = attendance.get("duty_date")
     duty_shift = attendance.get("duty_shift") or "出勤"
     date_text = str(duty_date) if duty_date else "日期待确认"
@@ -179,7 +495,7 @@ def build_complete_attendance_html(
     missing = []
     for group in groups:
         name = group.get("group_name") or "名单"
-        lines.append(f"<b>{html.escape(str(name))}</b>")
+        lines.append(_format_board_heading(name))
         chips = []
         for code in group.get("technician_codes") or []:
             code = str(code).strip()
@@ -225,16 +541,8 @@ def build_complete_attendance_html(
         )
         lines.append("")
 
-    if intro_links:
-        parts = []
-        for title, msg_id in intro_links:
-            href = html.escape(message_link(channel_id, msg_id), quote=True)
-            parts.append(f'<a href="{href}">{html.escape(str(title))}</a>')
-        lines.append("—— 了解本店 ——")
-        lines.append("  |  ".join(parts))
-        lines.append("")
-
     lines.append("点工号跳转到频道相册对应照片。")
+    lines.extend(_hub_footer_lines(exclude=("attendance",)))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -253,28 +561,43 @@ def build_full_roster_html(venue_name, channel_id, entries=None):
     ]
     if not codes:
         lines.append("暂无已索引的频道相册人员。")
+        lines.extend(_hub_footer_lines(exclude=("roster",)))
         return "\n".join(lines).rstrip() + "\n"
 
     for group in group_roster_codes(codes):
-        lines.append(f"<b>{html.escape(group['group_name'])}</b>")
+        lines.append(_format_board_heading(group["group_name"]))
         chips = [
             _format_code(code, album_urls.get(code))
             for code in group["technician_codes"]
         ]
         lines.append("  ".join(chips))
         lines.append("")
-    lines.append("今日谁在请看【出勤完整版】；本名单为频道相册全员目录。")
+    lines.append("本名单为频道相册全员目录。")
+    lines.extend(_hub_footer_lines(exclude=("roster",)))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_promo_html(venue_name, body, *, valid_until=None):
+    """优惠独立公告（与出勤/全员分开，勿夹在名单里）。"""
+    lines = [
+        PROMO_MARKER,
+        f"{html.escape(venue_name)} · 优惠",
+    ]
+    if valid_until:
+        lines.append(f"有效期至 {html.escape(str(valid_until))}")
+    lines.append("")
+    lines.append(html.escape((body or "").strip()) or "（内容待补充）")
+    lines.append("")
+    lines.extend(_hub_footer_lines())
     return "\n".join(lines).rstrip() + "\n"
 
 
 def post_full_roster(bot, channel_id, venue_config, reply_to_message_id=None):
-    """发布名玺人员全部名单（独立于今日出勤）。"""
+    """发布名玺人员全部名单（独立于今日出勤）；不跟发环境导航。"""
     if venue_config.get("venue_id") != PLATE_VENUE_ID:
         return None
-    text = build_full_roster_html(
-        venue_config.get("venue_name") or "名玺水汇会所",
-        channel_id,
-    )
+    venue_name = venue_config.get("venue_name") or "名玺水汇会所"
+    text = build_full_roster_html(venue_name, channel_id)
     kwargs = {
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
@@ -285,10 +608,16 @@ def post_full_roster(bot, channel_id, venue_config, reply_to_message_id=None):
         kwargs["allow_sending_without_reply"] = True
     try:
         sent = bot.send_message(channel_id, text, **kwargs)
+        new_id = getattr(sent, "message_id", None)
+        if new_id:
+            set_channel_anchor(channel_id, ANCHOR_ROSTER, new_id)
+            refresh_cross_nav_messages(
+                bot, channel_id, venue_name
+            )
         logger.info(
             "名玺全部名单已发布 chat=%s msg=%s",
             channel_id,
-            getattr(sent, "message_id", None),
+            new_id,
         )
         return sent
     except telebot.apihelper.ApiTelegramException:
@@ -315,27 +644,26 @@ def post_complete_attendance_reply(bot, message, venue_config, attendance):
     """回复初稿：完整版。仅名玺会所。"""
     if venue_config.get("venue_id") != PLATE_VENUE_ID:
         return None
+    sync_album_from_matched_photos(message.chat.id)
     codes = list(attendance.get("codes") or [])
     for group in attendance.get("attendance_groups") or []:
         codes.extend(group.get("technician_codes") or [])
     album_urls, _msg_ids = resolve_album_links(
         PLATE_VENUE_ID, codes, channel_id=message.chat.id
     )
+    venue_name = venue_config.get("venue_name") or "名玺水汇会所"
     text = build_complete_attendance_html(
-        venue_config.get("venue_name") or "名玺水汇会所",
+        venue_name,
         attendance,
         message.chat.id,
         album_urls=album_urls,
     )
     try:
-        sent = bot.send_message(
+        sent = publish_complete_attendance(
+            bot,
             message.chat.id,
             text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
             reply_to_message_id=message.message_id,
-            allow_sending_without_reply=True,
-            reply_markup=footer_keyboard(),
         )
         logger.info(
             "名玺出勤完整版已回复 draft=%s complete=%s links=%s missing=%s",
@@ -411,21 +739,20 @@ def post_complete_for_latest_attendance(bot, channel_id, venue_config, reply_to_
             }
         ],
     }
+    sync_album_from_matched_photos(channel_id)
     album_urls, _msg_ids = resolve_album_links(
         PLATE_VENUE_ID, codes, channel_id=channel_id
     )
+    venue_name = venue_config.get("venue_name") or "名玺水汇会所"
     text = build_complete_attendance_html(
-        venue_config.get("venue_name") or "名玺水汇会所",
+        venue_name,
         attendance,
         channel_id,
         album_urls=album_urls,
     )
-    kwargs = {
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-        "reply_markup": footer_keyboard(),
-    }
-    if reply_to_message_id:
-        kwargs["reply_to_message_id"] = reply_to_message_id
-        kwargs["allow_sending_without_reply"] = True
-    return bot.send_message(channel_id, text, **kwargs)
+    return publish_complete_attendance(
+        bot,
+        channel_id,
+        text,
+        reply_to_message_id=reply_to_message_id,
+    )

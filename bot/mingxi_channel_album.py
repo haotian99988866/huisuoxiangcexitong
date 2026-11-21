@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date, datetime
 
 import pymysql
 
@@ -12,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 MINGXI_CHANNEL_ID = "-1002323001411"
 PLATE_VENUE_ID = 2
+# 用户要求：2月21日以后的照片收录；可点链接挂出勤文末
+RECENT_COLLECTION_SINCE = date(2026, 2, 21)
+# 本轮频道重发后仍存活帖的大致下限（重建索引起点）
+LIVE_ALBUM_MIN_MSG_ID = 10390
 
 # caption 常见：987 / 日本：06 / 工号：5555 / 名玺牌：3333 / 7026 特技
 _CAPTION_CODE = re.compile(
@@ -138,6 +143,102 @@ def list_album_entries(channel_id=MINGXI_CHANNEL_ID):
             return [(row["code"], int(row["msg_id"])) for row in cur.fetchall()]
     except pymysql.MySQLError:
         logger.exception("Mingxi album list failed")
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _as_since_datetime(since):
+    if isinstance(since, datetime):
+        return since
+    if isinstance(since, date):
+        return datetime(since.year, since.month, since.day)
+    return datetime(RECENT_COLLECTION_SINCE.year, RECENT_COLLECTION_SINCE.month, RECENT_COLLECTION_SINCE.day)
+
+
+def sync_album_from_matched_photos(
+    channel_id=MINGXI_CHANNEL_ID,
+    *,
+    since=RECENT_COLLECTION_SINCE,
+    min_msg_id=LIVE_ALBUM_MIN_MSG_ID,
+):
+    """把近期已匹配且消息号仍像现帖的照片写进相册索引。"""
+    ensure_tables()
+    since_dt = _as_since_datetime(since)
+    conn = None
+    synced = 0
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT technician_code AS code, MAX(msg_id) AS msg_id
+                FROM technician_photos
+                WHERE venue_id = %s
+                  AND status = 'matched'
+                  AND technician_code IS NOT NULL
+                  AND technician_code != ''
+                  AND created_at >= %s
+                  AND msg_id >= %s
+                  AND channel_id = %s
+                GROUP BY technician_code
+                """,
+                (PLATE_VENUE_ID, since_dt, int(min_msg_id), str(channel_id)),
+            )
+            rows = cur.fetchall()
+        for row in rows:
+            if upsert_album_message(row["code"], row["msg_id"], channel_id=channel_id):
+                synced += 1
+        return synced
+    except pymysql.MySQLError:
+        logger.exception("Mingxi album sync from photos failed")
+        return synced
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def list_recent_collection_entries(
+    channel_id=MINGXI_CHANNEL_ID,
+    *,
+    since=RECENT_COLLECTION_SINCE,
+):
+    """2月21日起收集过、且当前相册索引可点的工号。
+
+    以相册现帖为准；收集记录来自 technician_photos。
+    返回 [(code, msg_id), ...]。
+    """
+    ensure_tables()
+    since_dt = _as_since_datetime(since)
+    conn = None
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT a.code, a.msg_id
+                FROM mingxi_channel_album a
+                INNER JOIN (
+                    SELECT DISTINCT technician_code AS code
+                    FROM technician_photos
+                    WHERE venue_id = %s
+                      AND status = 'matched'
+                      AND technician_code IS NOT NULL
+                      AND technician_code != ''
+                      AND created_at >= %s
+                ) p ON p.code = a.code
+                WHERE a.channel_id = %s
+                ORDER BY
+                    LENGTH(a.code),
+                    CAST(a.code AS UNSIGNED),
+                    a.code
+                """,
+                (PLATE_VENUE_ID, since_dt, str(channel_id)),
+            )
+            return [(row["code"], int(row["msg_id"])) for row in cur.fetchall()]
+    except pymysql.MySQLError:
+        logger.exception("Mingxi recent collection list failed")
         return []
     finally:
         if conn is not None:

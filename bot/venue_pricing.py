@@ -27,6 +27,52 @@ def dihao_category_for_photo(code, text):
     return DIHAO_CATEGORIES.get(str(code)[0])
 
 
+# 出勤/名单分组名 → 价目表 board 名
+_MINGXI_BOARD_ALIASES = {
+    "日韩专场": "日韩牌",
+    "日韩牌": "日韩牌",
+    "俄罗斯": "7号牌",  # 7026 等归 7 牌计价
+}
+
+
+def resolve_mingxi_board_name(group_name):
+    """出勤分组名对齐 shared/venue-prices.json 的 board。"""
+    name = str(group_name or "").strip()
+    if not name:
+        return None
+    if name in _MINGXI_BOARD_ALIASES:
+        return _MINGXI_BOARD_ALIASES[name]
+    for board in PRICES.get("mingxiBoardPrices") or []:
+        if board.get("board") == name:
+            return name
+    return None
+
+
+def mingxi_board_price_suffix(group_name):
+    """牌名后的价签，如「 · 半价$249 · 会员$499」；无价则空串。"""
+    board_name = resolve_mingxi_board_name(group_name)
+    if not board_name:
+        return ""
+    board = next(
+        (
+            item
+            for item in PRICES.get("mingxiBoardPrices") or []
+            if item.get("board") == board_name
+        ),
+        None,
+    )
+    if not board:
+        return ""
+    parts = []
+    if board.get("half") is not None:
+        parts.append(f"半价${board['half']}")
+    if board.get("member") is not None:
+        parts.append(f"会员${board['member']}")
+    if not parts:
+        return ""
+    return " · " + " · ".join(parts)
+
+
 def mingxi_price_options(tags):
     return [
         {"board": board["board"], "minutes": minutes, "price_usd": str(board[field]),

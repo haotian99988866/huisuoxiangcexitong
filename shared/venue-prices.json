@@ -8,7 +8,7 @@
     {"board":"7号牌","member":439,"half":219},
     {"board":"8号牌","member":469,"half":239},
     {"board":"9号牌","member":499,"half":249},
-    {"board":"名玺牌","member":599,"half":299},
+    {"board":"名玺牌","member":599,"half":null},
     {"board":"日韩牌","member":539,"half":null}
   ],
   "kaidiTechnicianCategories": [
