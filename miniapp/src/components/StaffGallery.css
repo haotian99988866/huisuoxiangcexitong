@@ -345,10 +345,6 @@
   font-weight: 600;
   cursor: pointer;
 }
-.mingxi-staff-tags { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; }
-.mingxi-staff-tags > span { padding: 3px 8px; border: 1px solid var(--ink-line); border-radius: 999px; background: var(--ink-wash); color: var(--ink-accent); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
-.mingxi-photo-gallery .staff-cover > .mingxi-staff-tags { position: absolute; top: 8px; right: 8px; width: auto; max-width: calc(100% - 16px); flex-direction: column; align-items: flex-end; pointer-events: none; }
-.mingxi-photo-gallery .staff-cover > .mingxi-staff-tags > span { background: var(--ink-reading); box-shadow: 0 1px 5px #0002; }
 .mingxi-photo-gallery .staff-attendance-overlay { text-align: left; padding-inline: 10px; font-size: 10px; }
 .mingxi-photo-sheet .dialog-panel-body { display: flex; flex-direction: column; padding-top: 12px; }
 .mingxi-photo-sheet .staff-detail-media { order: -1; }

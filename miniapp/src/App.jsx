@@ -44,11 +44,6 @@ function StartParamRedirect() {
       navigate(`/music?playlist=${param.slice(9)}`, { replace: true })
       return
     }
-    // 名玺出勤完整版：ms_{staff_id} → 会所页打开该人员相册
-    if (/^ms_[1-9]\d{0,9}$/.test(param || '')) {
-      navigate(`/?module=venue&venue=2&staff=${param.slice(3)}&album=1`, { replace: true })
-      return
-    }
     const target = modules.find(item => item.startParam === param && param)
     if (target) navigate(target.path, { replace: true })
   }, [navigate])

@@ -24,12 +24,14 @@ from attendance_ops import (
     pending_photos_in_shift,
     record_event as record_attendance_event,
 )
+from mingxi_channel_album import extract_code_from_caption
 from mingxi_complete_attendance import (
     is_complete_attendance_text,
     is_full_roster_request,
     post_complete_attendance_reply,
     post_full_roster,
     remember_album_photo,
+    schedule_hub_refresh_after_album,
 )
 from technician_photo_ocr import (
     match_pending_technician_photos,
@@ -896,12 +898,6 @@ def handle_photo_message(message):
             result["technician_code"],
             result["id"],
         )
-        if venue_config["venue_id"] == PLATE_CODE_VENUE_ID and result.get("technician_code"):
-            remember_album_photo(
-                result["technician_code"],
-                message.message_id,
-                channel_id=chat_id_str,
-            )
     else:
         logger.info(
             "OCR 待人工核对 venue=%s photo_id=%s candidates=%s",
@@ -909,6 +905,22 @@ def handle_photo_message(message):
             result["id"],
             ",".join(result["candidate_codes"]) or "无",
         )
+
+    # 名玺：说明里的工号即可更新相册索引；连续发图防抖刷新全员/本班枢纽
+    if venue_config["venue_id"] == PLATE_CODE_VENUE_ID and not result.get("skipped"):
+        album_code = result.get("technician_code") or extract_code_from_caption(caption)
+        if album_code:
+            remember_album_photo(
+                album_code,
+                message.message_id,
+                channel_id=chat_id_str,
+            )
+            schedule_hub_refresh_after_album(
+                bot,
+                chat_id_str,
+                code=album_code,
+                venue_name=venue_config.get("venue_name") or "名玺水汇会所",
+            )
 
 # ===== 处理纯文字出勤公告（新增） =====
 @bot.message_handler(content_types=['text'])
@@ -942,7 +954,6 @@ def handle_attendance_text(message):
             venue_config,
             reply_to_message_id=message.message_id,
         )
-        post_footer(bot, chat_id)
         return
 
     # 只处理包含出勤关键词的消息（含晚班/名单，减少频道漏网）
@@ -1015,12 +1026,13 @@ def handle_attendance_text(message):
         )
         notify_attendance_failure(venue_config["venue_name"], msg, text[:160])
 
-    # 出勤结果写日志；名玺成功后先回完整版，再挂底
+    # 出勤结果写日志；名玺成功后发完整版（成功则删初稿）；其他会所再挂底
     logger.info("出勤同步 venue=%s ok=%s msg=%s", venue_config["venue_name"], ok, msg)
     if ok:
         if venue_config["venue_id"] == PLATE_CODE_VENUE_ID and attendance:
             post_complete_attendance_reply(bot, message, venue_config, attendance)
-        post_footer(bot, message.chat.id)
+        else:
+            post_footer(bot, message.chat.id)
 
 
 @bot.channel_post_handler(

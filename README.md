@@ -250,7 +250,7 @@ npm run build
 - 如需启用本地人脸候选比对，在 `bot` 目录、与 API 相同的 Windows 用户下运行 `.\venv\Scripts\python.exe .\delivery_staff.py download-models`。模型由 OpenCV Zoo 固定版本下载，文件写入 `%LOCALAPPDATA%\Huisuo\face-models`；服务使用其他账号时，可在 `bot/.env` 配置 `DELIVERY_FACE_MODEL_DIR` 并确保该账号可读。下载器校验固定 SHA-256，并保存模型许可证。
 - 外送比对只在本机运行，并按已确认获得授权处理；管理员可逐档撤回授权。候选只供人工核验，确认后才会合并。系统不持久化人脸特征模板；撤回授权后该档案会从后续比对和人员聚合中排除。原频道媒体和最新上新列表不受影响。候选扫描最多抽样 300 条媒体；基于 Telegram Bot API 的本地视频比对仅支持不超过 20 MB 的媒体。超限文件仍可按原有方式浏览，但不会用于比对。
 - 机器人仅处理配置频道中的图片消息；图片说明需要包含该频道对应的主标签。
-- “名玺水汇会所”出勤公告使用“9牌969”等格式，页面按牌号分组显示技师，并从“三通、潮喷、SM、双仪”等公告分区提取服务分类。部署此功能前需应用 `006_attendance_groups.sql` 迁移。
+- “名玺水汇会所”出勤公告使用“9牌969”等格式，页面按牌号分组显示技师，并从“三通、潮喷、SM、双仪”等公告分区提取服务分类。部署此功能前需应用 `006_attendance_groups.sql` 迁移。频道侧：初稿入库后发【出勤完整版】挂底（发新删旧、不置顶），【人员全部名单】与【环境导航】互链，名玺停用通用挂底；相册变更约 75 秒防抖刷新枢纽。运维脚本见 `bot/scripts/mingxi_sync_env_nav.py`、`bot/scripts/mingxi_rebuild_album_index.py`。
 - 技师照片 OCR 在运行机器人本机执行，不会将照片发送给 OCR 第三方服务。照片按出勤公告中的日期归档；若照片先于公告，公告保存后会自动尝试补匹配。
 - 只有 OCR 唯一识别出高置信度工号且工号在对应出勤名单中的照片会自动公开；有候选但未匹配的需人工核对；无候选工号不入库。待核对照片默认不显示在小程序。
 - 查看待核对项目：`cd .\bot; .\venv\Scripts\python.exe .\review_technician_photos.py list`。人工确认：`.\venv\Scripts\python.exe .\review_technician_photos.py approve <照片ID> <工号>`。只能确认该日期出勤名单中的工号。

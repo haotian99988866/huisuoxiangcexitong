@@ -1,4 +1,5 @@
-/** 名玺牌分层：与频道全员名单 / 价目表对齐 */
+/** 名玺牌分层：与频道全员名单 / 价目表对齐（频道称「日韩专场」，前端归一「日韩牌」） */
+import { isMingxiVenue } from './venueHome'
 
 const JP_KR_CODES = new Set(['01', '02', '03', '05', '06', '07', '08', '77'])
 const MINGXI_PLATE_CODES = new Set(['3333', '5555', '7777', '8888', '9999'])
@@ -48,8 +49,7 @@ export function memberMingxiBoard(member, codeBoardMap) {
 
 /** 会所统一筛选分组：名玺按牌，其他会所按类别/牌 */
 export function memberClubGroup(member, venueId, codeBoardMap, categoryMap) {
-  const id = Number(venueId)
-  if (id === 2) return memberMingxiBoard(member, codeBoardMap)
+  if (isMingxiVenue(venueId)) return memberMingxiBoard(member, codeBoardMap)
   if (member?.group_name) return String(member.group_name)
   const mapped = categoryMap?.get(String(member?.code))
   if (mapped) return mapped
@@ -70,7 +70,7 @@ export function buildCategoryCodeMap(technicianCategories) {
 }
 
 export function clubGroupSortIndex(group, venueId, categoryOrder = []) {
-  if (Number(venueId) === 2) return boardSortIndex(group)
+  if (isMingxiVenue(venueId)) return boardSortIndex(group)
   if (group === '其他') return 999
   const index = categoryOrder.indexOf(group)
   return index >= 0 ? index : categoryOrder.length

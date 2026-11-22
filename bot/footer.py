@@ -85,9 +85,37 @@ def footer_text(channel_id):
     return template.replace("{name}", config.get("venue_name", "西港会所·外送"))
 
 
+def skip_footer(channel_id):
+    """名玺频道用出勤/全员/环境枢纽承载入口，不再挂通用底栏。"""
+    config = LISTEN_CHANNELS.get(str(channel_id), {})
+    return config.get("venue_id") == 2
+
+
+def _clear_stored_footer(bot, channel_id):
+    """停用挂底时清掉频道里残留的旧底栏。"""
+    channel_id = str(channel_id)
+    old = _get_last(channel_id)
+    if not old:
+        return
+    try:
+        bot.delete_message(channel_id, old)
+    except Exception:
+        pass
+    conn = get_conn()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM bot_footers WHERE channel_id = %s", (channel_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def post_footer(bot, channel_id):
     """在频道最底部挂一条小程序推广信息,并删除上一条,保证频道里只留最新一条。"""
     channel_id = str(channel_id)
+    if skip_footer(channel_id):
+        _clear_stored_footer(bot, channel_id)
+        return None
     try:
         sent = bot.send_message(
             channel_id,
@@ -118,6 +146,13 @@ QUIET_SECONDS = 90
 def schedule_footer(bot, channel_id, delay=QUIET_SECONDS):
     """连续发内容的频道(外送):安静 delay 秒后才挂底,期间再有新内容则重新计时。"""
     channel_id = str(channel_id)
+    if skip_footer(channel_id):
+        _clear_stored_footer(bot, channel_id)
+        with _timers_lock:
+            old = _timers.pop(channel_id, None)
+            if old:
+                old.cancel()
+        return
     with _timers_lock:
         old = _timers.pop(channel_id, None)
         if old:

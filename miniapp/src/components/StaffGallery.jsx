@@ -11,7 +11,7 @@ import useCustomerSubscriptions from '../utils/useCustomerSubscriptions'
 import { SubscriptionControl, SubscriptionFeedback, SubscribedList } from './CustomerDutyControls'
 import LazyMedia from './media/LazyMedia'
 import PhotoSkeleton from './media/PhotoSkeleton'
-import { CLUB_STYLE_VENUE_IDS, ROSTER_DUTY_VENUE_IDS } from '../utils/venueHome'
+import { CLUB_STYLE_VENUE_IDS, ROSTER_DUTY_VENUE_IDS, isMingxiVenue } from '../utils/venueHome'
 import {
   buildCategoryCodeMap,
   buildCodeBoardMap,
@@ -261,7 +261,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       const board = memberClubGroup(member, venue.id, codeBoardMap, categoryMap)
       counts.set(board, (counts.get(board) || 0) + 1)
     }
-    if (Number(venue.id) === 2) {
+    if (isMingxiVenue(venue.id)) {
       const ordered = MINGXI_BOARD_ORDER.filter(name => counts.has(name))
         .map(name => ({ name, count: counts.get(name) }))
       for (const [name, count] of counts) {
@@ -330,7 +330,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     photoFirst && clubStyle && !attendanceOnly ? 'mingxi-album-grid' : '',
   ].filter(Boolean).join(' ')
   const filterEmptyText = '当前筛选没有可展示人员。'
-  const groupLabel = Number(venue.id) === 2 ? '牌' : '类别'
+  const groupLabel = isMingxiVenue(venue.id) ? '牌' : '类别'
 
   return <section className={galleryClass} aria-label={`${venue.name}${photoFirst ? attendanceOnly ? '出勤照片' : '人员相册' : '人员档案'}`}>
     <div className="staff-heading">

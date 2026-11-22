@@ -18,13 +18,6 @@ RECENT_COLLECTION_SINCE = date(2026, 2, 21)
 # 本轮频道重发后仍存活帖的大致下限（重建索引起点）
 LIVE_ALBUM_MIN_MSG_ID = 10390
 
-# caption 常见：987 / 日本：06 / 工号：5555 / 名玺牌：3333 / 7026 特技
-_CAPTION_CODE = re.compile(
-    r"(?:工号|名玺牌|日本|韩国)\s*[:：]?\s*(\d{1,4})"
-    r"|(?<!\d)(\d{2,4})(?!\d)"
-)
-
-
 def ensure_tables():
     conn = get_conn()
     try:
@@ -199,82 +192,3 @@ def sync_album_from_matched_photos(
             conn.close()
 
 
-def list_recent_collection_entries(
-    channel_id=MINGXI_CHANNEL_ID,
-    *,
-    since=RECENT_COLLECTION_SINCE,
-):
-    """2月21日起收集过、且当前相册索引可点的工号。
-
-    以相册现帖为准；收集记录来自 technician_photos。
-    返回 [(code, msg_id), ...]。
-    """
-    ensure_tables()
-    since_dt = _as_since_datetime(since)
-    conn = None
-    try:
-        conn = get_conn()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT a.code, a.msg_id
-                FROM mingxi_channel_album a
-                INNER JOIN (
-                    SELECT DISTINCT technician_code AS code
-                    FROM technician_photos
-                    WHERE venue_id = %s
-                      AND status = 'matched'
-                      AND technician_code IS NOT NULL
-                      AND technician_code != ''
-                      AND created_at >= %s
-                ) p ON p.code = a.code
-                WHERE a.channel_id = %s
-                ORDER BY
-                    LENGTH(a.code),
-                    CAST(a.code AS UNSIGNED),
-                    a.code
-                """,
-                (PLATE_VENUE_ID, since_dt, str(channel_id)),
-            )
-            return [(row["code"], int(row["msg_id"])) for row in cur.fetchall()]
-    except pymysql.MySQLError:
-        logger.exception("Mingxi recent collection list failed")
-        return []
-    finally:
-        if conn is not None:
-            conn.close()
-
-
-def rebuild_index_from_channel(bot, *, start_msg=10390, end_msg=10488, dig_chat_id=None):
-    """转发探测频道现帖，按 caption 重建索引（不依赖旧库 msg_id）。"""
-    from visit_stats import admin_ids
-
-    ensure_tables()
-    target = dig_chat_id or next(iter(admin_ids() or []), None)
-    if not target:
-        raise RuntimeError("无可用私聊用于探测频道消息")
-    channel_id = MINGXI_CHANNEL_ID
-    indexed = 0
-    for msg_id in range(int(start_msg), int(end_msg) + 1):
-        try:
-            sent = bot.forward_message(
-                target, channel_id, msg_id, disable_notification=True
-            )
-        except Exception:
-            continue
-        try:
-            if not (sent.photo or sent.video):
-                continue
-            caption = sent.caption or ""
-            code = extract_code_from_caption(caption)
-            if not code:
-                continue
-            if upsert_album_message(code, msg_id, channel_id):
-                indexed += 1
-                logger.info("Mingxi album index %s -> %s", code, msg_id)
-        finally:
-            try:
-                bot.delete_message(target, sent.message_id)
-            except Exception:
-                pass
-    return indexed

@@ -213,3 +213,8 @@ export const CHANNEL_PHOTO_VENUE_IDS = ['4', '5', '6']
 export const ROSTER_DUTY_VENUE_IDS = [1, 2]
 /** 会所统一名玺样式（不含按摩、KTV、外送） */
 export const CLUB_STYLE_VENUE_IDS = [2, 4, 5, 6]
+/** 名玺水汇会所（牌价 / 频道枢纽专用逻辑） */
+export const MINGXI_VENUE_ID = 2
+export function isMingxiVenue(id) {
+  return Number(id) === MINGXI_VENUE_ID
+}
