@@ -920,6 +920,10 @@ def handle_photo_message(message):
         logger.exception("Failed to process technician photo %s", message.message_id)
         raise
 
+    if venue_config["venue_id"] in (4, 5, 6):
+        from venue_duty_cleanup import record_media
+        record_media(message, venue_config["venue_id"])
+
     if venue_config["venue_id"] == 1:
         from staff_archive import archive_channel_media
         archive_code = result.get("technician_code") or labeled_code
@@ -1109,6 +1113,9 @@ def handle_other_channel_post(message):
     save_ktv_video(message)
     save_delivery_media(message)
     venue_config = get_venue_config(message.chat.id)
+    if venue_config and venue_config["venue_id"] in (4, 5, 6) and message.video:
+        from venue_duty_cleanup import record_media
+        record_media(message, venue_config["venue_id"])
     if (
         venue_config
         and venue_config["venue_id"] == 1
@@ -1382,6 +1389,8 @@ if __name__ == "__main__":
     start_operations_review(bot)
     from review_notifications import start_worker as start_review_notifications
     start_review_notifications(bot)
+    from venue_duty_cleanup import start_worker as start_duty_cleanup_worker
+    start_duty_cleanup_worker(bot)
     start_cleanup_thread()
     logger.warning("Venue content monitors READY: risk deletion; uncertain media alerts")
     bot.infinity_polling(allowed_updates=[])
