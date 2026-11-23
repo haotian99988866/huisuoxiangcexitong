@@ -76,8 +76,8 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
   const move = direction => setMediaIndex(index => (index + direction + selected.media.length) % selected.media.length)
   const emptyMessage = attendanceOnly
     ? data?.shift === '白班'
-      ? `西港外送仅展示晚班出勤。白班请联系${contactName()}，或先浏览人员相册。`
-      : '当前没有可展示的晚班出勤档案，可先浏览人员相册。'
+      ? `西港外送仅展示晚班出勤。白班请联系${contactName()}，或先浏览技师档案。`
+      : '当前没有可展示的晚班出勤档案，可先浏览技师档案。'
     : '暂无可展示的人员档案。'
   return <section className={`staff-gallery${photoFirst ? ' mingxi-photo-gallery' : ''}`} aria-label={photoFirst ? attendanceOnly ? '外送出勤照片' : '外送人员相册' : '外送人员档案'}>
     <div className="staff-heading">
@@ -100,7 +100,7 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
       {!people.length && (attendanceOnly && onBrowseAlbum ? (
         <div className="staff-empty-cta" role="status">
           <p>{emptyMessage}</p>
-          <button type="button" onClick={onBrowseAlbum}>查看人员相册</button>
+          <button type="button" onClick={onBrowseAlbum}>查看技师档案</button>
         </div>
       ) : <p className="staff-meta">{emptyMessage}</p>)}
       <div className="staff-grid">

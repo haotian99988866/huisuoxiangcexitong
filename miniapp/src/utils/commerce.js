@@ -14,10 +14,7 @@ export function orderMatches(order, filter) {
 }
 
 export function navigationSection(pathname) {
-  if (/^\/(?:media|movies)(?:\/|$)/.test(pathname)) return 'movies'
-  if (/^\/music(?:\/|$)/.test(pathname)) return 'music'
-  if (/^\/announcements(?:\/|$)/.test(pathname)) return 'news'
-  if (/^\/(?:services|membership|phone-topup|hotels|short-dramas)(?:\/|$)/.test(pathname)) return 'services'
+  if (/^\/(?:media|movies|music|announcements|services|membership|phone-topup|hotels|short-dramas|subscriptions)(?:\/|$)/.test(pathname)) return 'personal'
   if (/^\/(?:personal|recharge|orders|wallet-history|consumption|admin)(?:\/|$)/.test(pathname)) return 'personal'
   return 'home'
 }

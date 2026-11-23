@@ -46,6 +46,25 @@ export default function Personal() {
     </header>
     </AccountHeader>
     {error && <p className="membership-error" role="alert">{errorText(error)}</p>}
+    <section className="membership-panel personal-services" aria-labelledby="personal-services">
+      <div className="membership-row"><h2 id="personal-services">服务</h2><span>常用入口</span></div>
+      <div className="personal-service-grid">
+        {[
+          ['movies', '观影', '/movies'],
+          ['movies', '短剧', '/short-dramas'],
+          ['music', '音乐', '/music'],
+          ['location', '酒店', '/hotels'],
+          ['announcements', '资讯', '/announcements'],
+          ['announcements', '订阅', '/subscriptions'],
+          ['membership', '会员', '/membership'],
+          ['phone', '话费', '/phone-topup'],
+        ].map(([icon, label, path]) => (
+          <Link key={path} to={path}>
+            <ModuleIcon name={icon} /><span>{label}</span>
+          </Link>
+        ))}
+      </div>
+    </section>
     {!account ? <section className="membership-panel" role="status">
       {telegramEntry ? <>
         <h2>{loading ? '正在识别 Telegram 账户' : '账户信息暂不可用'}</h2>

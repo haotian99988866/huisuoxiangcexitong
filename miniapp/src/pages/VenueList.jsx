@@ -171,9 +171,9 @@ export default function VenueList() {
   const hasStaffArchive = STAFF_ARCHIVE_VENUE_IDS.includes(selectedVenue?.id) || isDelivery
   const attendanceViewLabel = isDelivery ? '晚班出勤' : currentShift === '晚班' ? '今晚出勤' : '今日出勤'
   useEffect(() => {
-    setShowStaffArchive(false)
+    setShowStaffArchive(Boolean(deepAlbum))
     setSelectedTechnicianCode('')
-  }, [selectedVenue?.id, selectedVenue?.categoryKey])
+  }, [selectedVenue?.id, selectedVenue?.categoryKey, deepAlbum])
   const isDeliveryDayShift = deliveryCategories.length > 0 && currentShift === '白班'
   // 会所统一样式不展示推荐轮播，先露出名单
   const showRecommendations = isPhotoFirst && !isClubStyle

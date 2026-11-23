@@ -1,19 +1,33 @@
+import { useEffect, useRef, useState } from 'react'
 import { AnnouncementCard, FullscreenAnnouncementBar } from '../Announcement'
 import ModuleTabs from '../ModuleTabs'
 import { tenantPath } from '../../utils/tenant'
-import { sendData } from '../../utils/twa'
 import { deliveryCategoryKey, deliveryCategoryLabel } from '../../utils/venueHome'
+
+function moveMenuFocus(event, setOpen, menuSelector) {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  setOpen(true)
+  requestAnimationFrame(() => {
+    const options = [...document.querySelectorAll(`${menuSelector} [role="option"]`)]
+    if (!options.length) return
+    const current = options.indexOf(document.activeElement)
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? options.length - 1
+        : current < 0 ? event.key === 'ArrowUp' ? options.length - 1 : 0
+          : (current + (event.key === 'ArrowUp' ? -1 : 1) + options.length) % options.length
+    options[next]?.focus()
+  })
+}
 
 export default function VenueChrome({
   isFullscreen,
   loading,
   error,
-  list,
   selectedId,
   setSelectedId,
   navigate,
   deliveryCategories,
-  deliveryCategoryId,
   setDeliveryCategoryId,
   selectedVenue,
   isPhotoFirst,
@@ -26,6 +40,30 @@ export default function VenueChrome({
   dutyLabel,
   onDutyCount,
 }) {
+  const [servicePicker, setServicePicker] = useState(false)
+  const servicePickerRef = useRef(null)
+  const selectedVenueId = String(selectedVenue?.id || selectedId)
+  const mingxiGroup = ['1', '2', '3'].includes(selectedVenueId)
+  const selectMingxi = id => {
+    setSelectedId(String(id))
+    setSelectedTechnicianCode('')
+    navigate(tenantPath(`/?module=venue&venue=${id}`), { replace: true })
+  }
+  useEffect(() => {
+    if (!servicePicker) return undefined
+    const close = event => {
+      if (!servicePickerRef.current?.contains(event.target)) setServicePicker(false)
+    }
+    const onKey = event => {
+      if (event.key === 'Escape') setServicePicker(false)
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [servicePicker])
   return <>
     <div style={{
       position: 'sticky',
@@ -46,71 +84,50 @@ export default function VenueChrome({
         <div style={{
           padding: '0 2px'
         }}>
-          <div className={isPhotoFirst ? 'mingxi-personnel-toolbar' : undefined} style={{
+          <div className={`venue-personnel-toolbar${mingxiGroup ? ' mingxi-personnel-toolbar' : ' venue-other-toolbar'}`} style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
             flexWrap: 'nowrap'
           }}>
-            <select
-              value={selectedId}
-              onChange={e => {
-                const id = e.target.value
-                setSelectedId(id)
-                sendData({ action: 'get_venues' })
-                const venue = list.find(item => String(item.id) === id)
-                navigate(tenantPath(venue?.delivery_categories ? '/?module=delivery' : '/?module=venue'), { replace: true })
-              }}
-              aria-label="选择会所"
-              style={{
-                flex: '1 1 0',
-                minWidth: '0',
-                height: '44px',
-                padding: '0 30px 0 12px',
-                border: '1px solid var(--ink-line)',
-                borderRadius: '12px',
-                color: 'var(--ink-accent)',
-                fontSize: '14px',
-                fontWeight: 600,
-                outline: 'none',
-                appearance: 'none',
-                WebkitAppearance: 'none',
-                background: "var(--ink-reading) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23746b5d' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") no-repeat right 12px center",
-                boxShadow: '0 1px 3px rgba(120, 90, 50, 0.06)'
-              }}
-            >
-              {loading ? (
-                <option value="">正在读取…</option>
-              ) : error ? (
-                <option value="">{error}</option>
-              ) : (
-                list.map(v => (
-                  <option key={v.id} value={String(v.id)}>
-                    {v.name}
-                  </option>
-                ))
-              )}
-            </select>
-            {isPhotoFirst && <nav className="mingxi-personnel-tabs" aria-label="人员浏览">
-              {[[false, attendanceViewLabel], [true, '人员相册']].map(([archive, label]) =>
+            {mingxiGroup && <div className="mingxi-destination-dropdown" ref={servicePickerRef}>
+              <button
+                type="button"
+                className="mingxi-destination-picker"
+                aria-haspopup="listbox"
+                aria-expanded={servicePicker}
+                onClick={() => setServicePicker(value => !value)}
+                onKeyDown={event => moveMenuFocus(event, setServicePicker, '.mingxi-service-menu')}
+              >
+                {selectedVenueId === '1' ? '按摩' : selectedVenueId === '3' ? 'KTV' : '选妃'} <span aria-hidden="true">⌄</span>
+              </button>
+              {servicePicker && <div className="venue-picker-menu mingxi-service-menu" role="listbox" aria-label="名玺服务"
+                onKeyDown={event => moveMenuFocus(event, setServicePicker, '.mingxi-service-menu')}>
+                {[
+                  ['1', '按摩', '正规按摩'],
+                  ['2', '选妃', '出勤与档案'],
+                  ['3', 'KTV', '包房与视频'],
+                ].map(([id, label, description]) => (
+                  <button key={id} type="button" role="option" aria-selected={selectedVenueId === id}
+                    onClick={() => { selectMingxi(id); setServicePicker(false) }}>
+                    <span><strong>{label}</strong><small>{description}</small></span>
+                    <span aria-hidden="true">{selectedVenueId === id ? '✓' : ''}</span>
+                  </button>
+                ))}
+              </div>}
+            </div>}
+            <div id="venue-board-filter-slot" className={`venue-board-filter-slot${isPhotoFirst ? '' : ' is-empty'}`} />
+            {!mingxiGroup && <div className="venue-destination-title">
+              <strong>{loading ? '正在读取…' : error || selectedVenue?.name || '会所服务'}</strong>
+            </div>}
+            {hasStaffArchive && <nav className="mingxi-personnel-tabs" aria-label="人员浏览">
+              {[[false, attendanceViewLabel], [true, '技师档案']].map(([archive, label]) =>
                 <button key={label} type="button" aria-pressed={showStaffArchive === archive}
                   aria-controls="venue-personnel-content"
                   onClick={() => { setShowStaffArchive(archive); setSelectedTechnicianCode('') }}>{label}</button>)}
             </nav>}
-            {!isPhotoFirst && <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto' }}>
-              {hasStaffArchive && <button
-                type="button"
-                onClick={() => {
-                  setShowStaffArchive(value => !value)
-                  setSelectedTechnicianCode('')
-                }}
-                aria-controls="venue-personnel-content"
-                style={{
-                  minHeight: '44px', padding: '0 10px', borderRadius: '12px',
-                  border: '1px solid var(--ink-line)', background: 'var(--ink-reading)',
-                  color: 'var(--ink-accent)', fontSize: '12px', fontWeight: 600, cursor: 'pointer'
-                }}
-              >{showStaffArchive ? attendanceViewLabel : '人员档案'}</button>}
+            <div id="venue-subscriptions-slot" className={`venue-subscriptions-slot${showStaffArchive ? '' : ' is-hidden'}`} />
+            {!hasStaffArchive && <div className="venue-compact-status" aria-label="当前服务状态">
             {!hasStaffArchive && <div style={{
               display: 'flex',
               alignItems: 'center',

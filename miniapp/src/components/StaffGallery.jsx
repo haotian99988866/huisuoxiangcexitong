@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import MusicDialog from './MusicDialog'
 import { API_BASE_URL } from '../utils/twa'
 import { contactName, mediaUrl, tenantHeaders } from '../utils/tenant'
@@ -37,17 +38,17 @@ function attendanceEmptyCopy({
   if (!attendanceOnly) return '暂无人员。档案随每日出勤与可识别照片自动积累。'
   if (!rosterAvailable && !hasDutyCodes) {
     if (rosterDutyOnly) {
-      return '本班出勤初稿尚未同步。请稍后刷新，或先查看人员相册。'
+      return '本班出勤初稿尚未同步。请稍后再看，或切换到技师档案。'
     }
     return pendingPhotos > 0
-      ? '本班名单尚未从频道同步，已有照片待核对。请稍后刷新，或先查看人员相册。'
-      : '本班名单尚未从频道同步。请稍后刷新，或先查看人员相册。'
+      ? '本班名单尚未从频道同步，已有照片待核对。请稍后再看，或切换到技师档案。'
+      : '本班名单尚未从频道同步。请稍后再看，或切换到技师档案。'
   }
   if (!rosterDutyOnly && pendingPhotos > 0) {
-    return '本班名单已有，照片仍在核对中。可先查看人员相册，或稍后刷新。'
+    return '本班名单已有，照片仍在核对中。可先查看技师档案，稍后再看。'
   }
   if (unarchivedCount > 0) {
-    return `本班名单已同步（${unarchivedCount}人尚无公开档案照片）。可先查看人员相册。`
+    return `本班名单已同步（${unarchivedCount}人尚无公开档案照片）。可先查看技师档案。`
   }
   return '当前没有可展示的本班出勤档案。'
 }
@@ -91,6 +92,22 @@ function cardPriceLabel(member) {
   return '价待确认'
 }
 
+function moveMenuFocus(event, setOpen, menuSelector) {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  setOpen(true)
+  requestAnimationFrame(() => {
+    const options = [...document.querySelectorAll(`${menuSelector} [role="option"]`)]
+    if (!options.length) return
+    const current = options.indexOf(document.activeElement)
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? options.length - 1
+        : current < 0 ? event.key === 'ArrowUp' ? options.length - 1 : 0
+          : (current + (event.key === 'ArrowUp' ? -1 : 1) + options.length) % options.length
+    options[next]?.focus()
+  })
+}
+
 export default function StaffGallery({ venue, admin = false, onSelect, search = '', selectedId = null, allowSkip = false, photoFirst = false, attendanceOnly = false, onBrowseAlbum, openStaffId = null }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
@@ -105,6 +122,9 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   const [notice, setNotice] = useState('')
   const [description, setDescription] = useState('')
   const [boardFilter, setBoardFilter] = useState('全部')
+  const [boardPicker, setBoardPicker] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(24)
+  const boardPickerRef = useRef(null)
   const [subscriptionDuration, setSubscriptionDuration] = useState('30d')
   const touchStart = useRef(null)
   // 订阅只改本地状态，勿触发整表重拉，避免屏幕一闪
@@ -128,7 +148,23 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   }, [venue.id])
   useEffect(() => {
     setBoardFilter('全部')
+    setVisibleCount(24)
   }, [attendanceOnly])
+  useEffect(() => {
+    if (!boardPicker) return undefined
+    const close = event => {
+      if (!boardPickerRef.current?.contains(event.target)) setBoardPicker(false)
+    }
+    const onKey = event => {
+      if (event.key === 'Escape') setBoardPicker(false)
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [boardPicker])
   useEffect(() => {
     let active = true
     const controller = new AbortController()
@@ -206,6 +242,9 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   const ordinaryMassage = venue.id === 1
   const changed = admin && detail && description !== detail.description
   const searchTerm = search.trim().toLocaleLowerCase()
+  useEffect(() => {
+    setVisibleCount(24)
+  }, [venue.id, boardFilter, searchTerm])
   const rosterDutyOnly = ROSTER_DUTY_VENUE_IDS.includes(Number(venue.id))
   const technicianList = venue.technician_list || []
   const attendanceCodes = useMemo(
@@ -336,29 +375,47 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   const filterEmptyText = '当前筛选没有可展示人员。'
   const groupLabel = isMingxiVenue(venue.id) ? '牌' : '类别'
 
-  return <section className={galleryClass} aria-label={`${venue.name}${photoFirst ? attendanceOnly ? '出勤照片' : '人员相册' : '人员档案'}`}>
-    <div className="staff-heading">
-      <h2>{photoFirst ? <>{attendanceOnly ? shiftName : '相册'}
-        {data && <span className="mingxi-personnel-count"> · {attendanceOnly ? visibleMembers.length : data.total}位</span>}</> : '人员档案'}</h2>
-      {photoFirst && !clubStyle && <span className="staff-heading-note">{attendanceOnly ? '发布不代表实时在岗' : '点击照片查看相册'}</span>}
-      {!admin && photoFirst && clubStyle && !attendanceOnly && (
+  return <section className={galleryClass} aria-label={`${venue.name}${photoFirst ? attendanceOnly ? '出勤照片' : '技师档案' : '人员档案'}`}>
+    {!photoFirst && <div className="staff-heading">
+      <h2>人员档案</h2>
+      <button type="button" disabled={busy} onClick={() => setAttempt(value => value + 1)}>刷新</button>
+    </div>}
+    {!admin && photoFirst && clubStyle && !attendanceOnly && document.getElementById('venue-subscriptions-slot') && (
+      createPortal(
         <SubscribedManager
           members={data?.members}
           subscription={subscription}
           onOpen={setSelected}
-        />
-      )}
-      <button type="button" disabled={busy} onClick={() => setAttempt(value => value + 1)}>刷新</button>
-    </div>
-    {data && clubStyle && photoFirst && boardChips.length > 0 && (
-      <div className="mingxi-board-chips" role="toolbar" aria-label={`按${groupLabel}筛选`}>
-        <button type="button" aria-pressed={boardFilter === '全部'}
-          onClick={() => setBoardFilter('全部')}>全部 · {baseMembers.length}</button>
-        {boardChips.map(chip => (
-          <button key={chip.name} type="button" aria-pressed={boardFilter === chip.name}
-            onClick={() => setBoardFilter(chip.name)}>{chip.name} · {chip.count}</button>
-        ))}
-      </div>
+        />,
+        document.getElementById('venue-subscriptions-slot'),
+      )
+    )}
+    {data && clubStyle && photoFirst && boardChips.length > 0 && document.getElementById('venue-board-filter-slot') && (
+      createPortal(<div className="mingxi-board-filter-dropdown" ref={boardPickerRef}>
+        <button
+          type="button"
+          className="mingxi-board-filter-picker"
+          aria-haspopup="listbox"
+          aria-expanded={boardPicker}
+          onClick={() => setBoardPicker(value => !value)}
+          onKeyDown={event => moveMenuFocus(event, setBoardPicker, '.mingxi-board-menu')}
+        >
+          <span>{boardFilter === '全部' ? '全部' : boardFilter}</span>
+          <small>{boardFilter === '全部' ? baseMembers.length
+            : boardChips.find(chip => chip.name === boardFilter)?.count || 0}位</small>
+          <span aria-hidden="true">⌄</span>
+        </button>
+        {boardPicker && <div className="venue-picker-menu mingxi-board-menu" role="listbox" aria-label={`选择${groupLabel}位`}
+          onKeyDown={event => moveMenuFocus(event, setBoardPicker, '.mingxi-board-menu')}>
+          {[{ name: '全部', count: baseMembers.length }, ...boardChips].map(chip => (
+            <button key={chip.name} type="button" role="option" aria-selected={boardFilter === chip.name}
+              onClick={() => { setBoardFilter(chip.name); setBoardPicker(false) }}>
+              <span><strong>{chip.name === '全部' ? '全部' : chip.name}</strong><small>{chip.count} 位</small></span>
+              <span aria-hidden="true">{boardFilter === chip.name ? '✓' : ''}</span>
+            </button>
+          ))}
+        </div>}
+      </div>, document.getElementById('venue-board-filter-slot'))
     )}
     {error && <p className="membership-error" role="alert">{error}</p>}
     {notice && <p className="membership-notice" role="status">{notice}</p>}
@@ -376,7 +433,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       {!admin && ((clubStyle && photoFirst && !attendanceOnly) || !photoFirst) && <>
         {!selected && <SubscriptionFeedback subscription={subscription} />}
       </>}
-      {!data.roster_available && !attendanceCodes.size && <p className="staff-meta">{attendanceOnly
+      {!data.roster_available && !attendanceCodes.size && visibleMembers.length > 0 && <p className="staff-meta">{attendanceOnly
         ? (rosterDutyOnly
           ? '本班出勤初稿尚未同步。'
           : ((data.pending_photo_count || 0) > 0
@@ -400,12 +457,12 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
             <p>{boardFilter !== '全部' ? filterEmptyText : emptyText}</p>
             {boardFilter !== '全部'
               ? <button type="button" onClick={() => setBoardFilter('全部')}>查看全部</button>
-              : <button type="button" onClick={onBrowseAlbum}>查看人员相册</button>}
+              : <button type="button" onClick={onBrowseAlbum}>查看技师档案</button>}
           </div>
         ) : <p className="staff-meta">{boardFilter !== '全部' ? filterEmptyText : emptyText}</p>
       })()}
       <div className="staff-grid">
-        {visibleMembers.map(member => {
+        {visibleMembers.slice(0, visibleCount).map(member => {
           const cover = memberCover(member, venue, rosterDutyOnly, attendanceOnly)
           const board = clubStyle && photoFirst ? memberGroup(member) : null
           const overlay = cardOverlayLabel({
@@ -463,6 +520,13 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
             onClick={() => setReplacement(member)}>此工号已换人</button>}
         </article>})}
       </div>
+      {visibleMembers.length > visibleCount && <button
+        type="button"
+        className="staff-load-more"
+        onClick={() => setVisibleCount(count => count + 24)}
+      >
+        继续显示更多（已显示 {visibleCount}/{visibleMembers.length}）
+      </button>}
       {unarchivedCodes.length > 0 && <p className="staff-meta">工号 {unarchivedCodes.join('、')} 尚未建立可展示档案。</p>}
     </>}
     {selected && <MusicDialog className={`${admin ? 'account-sheet staff-sheet staff-admin-detail' : ordinaryMassage ? 'staff-sheet' : 'account-sheet staff-sheet'}${photoFirst ? ' mingxi-photo-sheet' : ''}`}
