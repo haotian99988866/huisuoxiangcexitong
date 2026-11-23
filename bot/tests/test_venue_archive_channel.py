@@ -5,7 +5,8 @@ from unittest.mock import Mock, patch
 
 from telebot import apihelper
 
-import dalang_archive_channel as channel
+import venue_archive_channel as channel
+from config.channels import STAFF_ARCHIVE_VENUES
 
 
 def member(ident, *, group="1牌", price="199", cover=None):
@@ -56,8 +57,10 @@ class DalangChannelTests(unittest.TestCase):
         pages = channel.navigation_pages(members, {1: 201, 2: 202})
         self.assertEqual(len(pages), 2)
         self.assertTrue(all(len(re.findall(r'href=', page)) == 1 for page in pages))
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "大浪"):
             channel.navigation_pages([member(1, group="🌀" * 1600)], {1: 201})
+        with self.assertRaisesRegex(ValueError, STAFF_ARCHIVE_VENUES[6]["venue_name"]):
+            channel.navigation_pages([member(1, group="🌀" * 1600)], {1: 201}, venue_id=6)
 
     def test_navigation_shows_unknown_price_and_page_buttons(self):
         pages = channel.navigation_pages([member(1, group="类别待确认", price=None)], {1: 201})
@@ -71,6 +74,31 @@ class DalangChannelTests(unittest.TestCase):
         keyboard = channel.photo_keyboard(member(88), "example_bot").to_dict()
         self.assertEqual([len(row) for row in keyboard["inline_keyboard"]], [2, 2])
         self.assertTrue(keyboard["inline_keyboard"][0][0]["url"].endswith("staff_4_88"))
+
+    def test_each_venue_uses_its_own_channel_and_archive_context(self):
+        for venue_id, config in STAFF_ARCHIVE_VENUES.items():
+            with self.subTest(venue_id=venue_id):
+                entry = member(88, group="类别")
+                keyboard = channel.photo_keyboard(entry, "example_bot", venue_id).to_dict()
+                self.assertIn(f"staff_{venue_id}_88", keyboard["inline_keyboard"][0][0]["url"])
+                self.assertIn(config["channel_name"], keyboard["inline_keyboard"][0][1]["url"])
+                pages = channel.navigation_pages([entry], {88: 201}, venue_id)
+                self.assertIn(config["archive_title"], pages[0])
+                self.assertIn(f"https://t.me/{config['channel_name']}/201", pages[0])
+                self.assertTrue(pages[0].startswith(channel.FULL_ROSTER_MARKER))
+                self.assertTrue(channel.caption(entry, venue_id).startswith(config["repost_prefix"]))
+
+    @patch.object(channel, "get_conn")
+    def test_archive_tables_are_separate_for_each_venue(self, get_conn):
+        for venue_id, config in STAFF_ARCHIVE_VENUES.items():
+            channel.ensure_tables(venue_id)
+        statements = [
+            call.args[0]
+            for call in get_conn.return_value.cursor.return_value.__enter__.return_value.execute.call_args_list
+        ]
+        for config in STAFF_ARCHIVE_VENUES.values():
+            self.assertTrue(any(f"CREATE TABLE IF NOT EXISTS {config['table_prefix']}_policy" in sql
+                                for sql in statements))
 
     def test_429_wait_is_persisted_and_item_remains_pending(self):
         cur, conn = Mock(), Mock()
@@ -112,6 +140,25 @@ class DalangChannelTests(unittest.TestCase):
         bot.send_photo.assert_called_once()
         self.assertEqual(cur.execute.call_args_list[-1].args[1], (20055, 8))
         self.assertEqual(conn.commit.call_count, 2)
+
+    @patch.object(channel, "photo")
+    @patch.object(channel, "detail")
+    def test_new_venue_post_uses_that_venues_existing_public_profile(self, detail, photo):
+        entry = member(8, group="贵妃")
+        detail.return_value = {"venue_id": 6, "photos": [{"id": 8}]}
+        photo.return_value = {"venue_id": 6, "media_type": "photo", "file_id": "file"}
+        markup = channel.photo_keyboard(entry, "example_bot", 6)
+        bot = Mock()
+        bot.send_photo.return_value = SimpleNamespace(
+            chat=SimpleNamespace(id=STAFF_ARCHIVE_VENUES[6]["channel_id"]), message_id=20055,
+            photo=[object()], caption=channel.caption(entry, 6), reply_markup=markup,
+        )
+        cur, conn = Mock(), Mock()
+        self.assertTrue(channel._send_post(bot, "example_bot", cur, conn, entry, venue_id=6))
+        bot.send_photo.assert_called_once()
+        self.assertEqual(bot.send_photo.call_args.args[0], STAFF_ARCHIVE_VENUES[6]["channel_id"])
+        self.assertIn("staff_6_8", bot.send_photo.call_args.kwargs["reply_markup"]
+                      .to_dict()["inline_keyboard"][0][0]["url"])
 
     def test_wrong_edit_response_does_not_replace_navigation_id(self):
         cur, conn = Mock(), Mock()
@@ -155,6 +202,24 @@ class DalangChannelTests(unittest.TestCase):
         self.assertTrue(any("dalang_archive_pages SET status='uncertain'" in sql for sql in queries))
         self.assertTrue(any("status='deleting'" in sql for sql in queries))
         self.assertTrue(any("RELEASE_LOCK" in sql for sql in queries))
+
+    @patch.object(channel, "get_conn")
+    def test_each_venue_uses_separate_archive_state_and_lock(self, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        for venue_id, config in STAFF_ARCHIVE_VENUES.items():
+            cur.execute.reset_mock()
+            cur.fetchone.side_effect = [
+                {"acquired": 1},
+                {"enabled": 0, "ready": 1},
+            ]
+            channel.run_once(Mock(), "example_bot", venue_id)
+            sql = [call.args[0] for call in cur.execute.call_args_list]
+            self.assertEqual(cur.execute.call_args_list[0].args[1],
+                             (f"{config['table_prefix']}_channel",))
+            self.assertTrue(any(f"FROM {config['table_prefix']}_policy" in query for query in sql))
+            self.assertTrue(any(f"UPDATE {config['table_prefix']}_posts" in query for query in sql))
+            self.assertTrue(any(f"UPDATE {config['table_prefix']}_pages" in query for query in sql))
 
 
 if __name__ == "__main__":

@@ -34,6 +34,23 @@ class StaffArchiveTests(unittest.TestCase):
         activity.assert_not_called()
         save.assert_not_called()
 
+    def test_fivexiang_and_dihao_archive_reposts_do_not_create_attendance(self):
+        from config.channels import STAFF_ARCHIVE_VENUES
+        import main
+        for venue_id in (5, 6):
+            config = STAFF_ARCHIVE_VENUES[venue_id]
+            message = SimpleNamespace(
+                chat=SimpleNamespace(id=config["channel_id"]),
+                message_id=123,
+                caption=config["repost_prefix"] + "工号：530",
+            )
+            with self.subTest(venue_id=venue_id), \
+                    patch.object(main, "record_channel_activity") as activity, \
+                    patch.object(main, "save_technician_photo") as save:
+                main.handle_photo_message(message)
+            activity.assert_not_called()
+            save.assert_not_called()
+
     def test_ordinary_or_other_venue_photo_still_reaches_attendance_processing(self):
         import main
         for channel_id, caption in (

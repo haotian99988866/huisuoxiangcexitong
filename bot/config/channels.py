@@ -1,8 +1,35 @@
 # config/channels.py
 
 # 监听频道列表：频道ID → 会所配置
-DALANG_ARCHIVE_REPOST_PREFIX = "【大浪人员档案】\n"
-DALANG_DUTY_SUMMARY_PREFIX = "【大浪出勤整理】\n"
+STAFF_ARCHIVE_VENUES = {
+    4: {
+        "channel_id": -1002219327758,
+        "channel_name": "dlts02",
+        "venue_name": "凯迪/大浪淘沙会所",
+        "archive_title": "大浪淘沙会所",
+        "table_prefix": "dalang_archive",
+        "repost_prefix": "【大浪人员档案】\n",
+        "duty_summary_prefix": "【大浪出勤整理】\n",
+    },
+    5: {
+        "channel_id": -1002242032486,
+        "channel_name": "haotianydl99988866",
+        "venue_name": "大西洋/五象会所",
+        "archive_title": "大西洋/五象会所",
+        "table_prefix": "wuxiang_archive",
+        "repost_prefix": "【五象人员档案】\n",
+        "duty_summary_prefix": "【五象出勤整理】\n",
+    },
+    6: {
+        "channel_id": -1002242001555,
+        "channel_name": "dihao02",
+        "venue_name": "帝豪会所",
+        "archive_title": "帝豪会所",
+        "table_prefix": "dihao_archive",
+        "repost_prefix": "【帝豪人员档案】\n",
+        "duty_summary_prefix": "【帝豪出勤整理】\n",
+    },
+}
 
 LISTEN_CHANNELS = {
     "-1002324026180": {
