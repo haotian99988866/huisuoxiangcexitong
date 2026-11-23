@@ -79,7 +79,8 @@ def eligible(member, *, delivery=False):
     from staff_archive import VENUE_IDS
     return (member["venue_id"] in VENUE_IDS and not member["ended_at"]
             and not member.get("deleted_at") and not member["blocked"]
-            and (member["venue_id"] != 6 or member["adult_confirmed"]))
+            and (member["venue_id"] not in {4, 5, 6}
+                 or member["adult_confirmed"]))
 
 
 def member_row(cur, staff_id, lock=False, *, delivery=False):
@@ -129,7 +130,9 @@ def catalog_status(venue_id, user_id):
                         " ORDER BY p.last_seen DESC,p.id DESC LIMIT 1) AS cover FROM staff_members m "
                         "LEFT JOIN staff_customer_subscriptions s ON s.staff_id=m.id AND s.user_id=%s "
                         "WHERE m.venue_id=%s AND m.ended_at IS NULL AND m.deleted_at IS NULL "
-                        "AND m.blocked=0 AND (m.venue_id<>6 OR m.adult_confirmed=1)", (user_id, venue_id))
+                        "AND m.blocked=0 "
+                        "AND (m.venue_id NOT IN (4,5,6) OR m.adult_confirmed=1)",
+                        (user_id, venue_id))
             states = {str(row["id"]): {**state_result(
                 row if row["revision"] is not None else None, True,
                 publications.get(row["id"]), shift, end), "cover": row.get("cover")}
@@ -160,7 +163,8 @@ def status(data, user_id=None, *, delivery=False):
             member = member_row(cur, staff_id, delivery=delivery)
             if (delivery and not eligible(member, delivery=True)) or (not delivery and (
                     member["ended_at"] or member.get("deleted_at") or member["blocked"]
-                    or (member["venue_id"] == 6 and not member["adult_confirmed"]))):
+                    or (member["venue_id"] in {4, 5, 6}
+                        and not member["adult_confirmed"]))):
                 raise ValueError("人员档案已停用或暂不展示")
             return state(cur, member, user_id, delivery=delivery)
     finally:

@@ -341,7 +341,8 @@ def detail(data, owner_id=None):
             if len(delivery_people) > 1000:
                 raise ValueError("外送人员档案超过1000位，暂时无法登记")
             cur.execute("""SELECT id,venue_id,code,ended_at FROM staff_members
-                WHERE blocked=0 AND (venue_id<>6 OR adult_confirmed=1) ORDER BY venue_id,code,id LIMIT 1001""")
+                WHERE blocked=0 AND (venue_id NOT IN (4,5,6) OR adult_confirmed=1)
+                ORDER BY venue_id,code,id LIMIT 1001""")
             staff = cur.fetchall()
             if len(staff) > 1000:
                 raise ValueError("人员档案超过1000位，需升级人员选择分页后使用")
@@ -487,7 +488,8 @@ def save(data, actor_id):
                         cur.execute("SELECT * FROM staff_members WHERE id=%s", (staff_id,))
                         staff = cur.fetchone()
                         if not staff or staff["venue_id"] != venue_id or staff["blocked"] or (
-                                venue_id == 6 and not staff["adult_confirmed"]):
+                                venue_id in {4, 5, 6}
+                                and not staff["adult_confirmed"]):
                             raise ValueError("请选择该会所允许展示的人员档案")
                         local_occurred = occurred + timedelta(hours=7)
                         if local_occurred < staff["active_from"] or (staff["ended_at"] and local_occurred >= staff["ended_at"]):

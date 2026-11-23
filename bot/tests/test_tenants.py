@@ -6,6 +6,16 @@ import api_server
 from tenants import TenantUnavailable, load_tenant, public_config, save_tenant, validate_config
 
 
+def delivery_row(venue_id, file_id="test-file", media_type="photo"):
+    return {
+        "id": 1, "person_id": None, "venue_id": venue_id, "channel_id": "-1007",
+        "message_id": 1, "media_group_id": None, "media_type": media_type,
+        "file_id": file_id, "caption": "", "age": 23, "ocr_text": "",
+        "image_hash": None, "created_at": "now", "deleted_at": None,
+        "merged_into_id": None, "consent_status": None,
+    }
+
+
 def config():
     return {
         "slug": "test-shop", "brand_name": "测试品牌", "contact_name": "测试客服",
@@ -52,7 +62,7 @@ class TenantTests(unittest.TestCase):
             cur = conn.cursor.return_value.__enter__.return_value
             cur.fetchone.side_effect = [
                 {"venue_id": venue_id} if venue_id else None,
-                {"file_id": "test-file", "media_type": "photo"},
+                delivery_row(venue_id),
             ]
             with self.subTest(venue_id=venue_id), \
                     patch.object(api_server, "load_tenant", return_value={**config(), "venue_ids": [3, 7]}), \
@@ -65,10 +75,36 @@ class TenantTests(unittest.TestCase):
                 else:
                     image.assert_not_called()
 
+    def test_delivery_media_direct_url_rechecks_public_profile_and_age(self):
+        client = api_server.app.test_client()
+        for changes in (
+            {"consent_status": "revoked"},
+            {"deleted_at": "deleted"},
+            {"merged_into_id": 99},
+            {"age": 17},
+            {"age": None},
+        ):
+            conn = MagicMock()
+            cur = conn.cursor.return_value.__enter__.return_value
+            target = {
+                **delivery_row(7),
+                "person_id": 12,
+                "consent_status": "granted",
+                **changes,
+            }
+            cur.fetchone.return_value = target
+            cur.fetchall.return_value = [target]
+            with self.subTest(changes=changes), \
+                    patch.object(api_server, "get_db_connection", return_value=conn), \
+                    patch.object(api_server, "_telegram_image") as image:
+                response = client.get("/delivery-media/1")
+                self.assertEqual(response.status_code, 404)
+                image.assert_not_called()
+
     def test_authorized_delivery_video_and_revoked_access(self):
         conn = MagicMock()
         conn.cursor.return_value.__enter__.return_value.fetchone.side_effect = [
-            {"venue_id": 10}, {"file_id": "video-file", "media_type": "video"},
+            {"venue_id": 10}, delivery_row(10, "video-file", "video"),
         ]
         client = api_server.app.test_client()
         with patch.object(api_server, "load_tenant", return_value={**config(), "venue_ids": [10]}), \

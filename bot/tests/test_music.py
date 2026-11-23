@@ -7,6 +7,7 @@ import wave
 
 import api_server
 import music
+from api import media_routes
 from tests.test_tenants import config
 
 
@@ -71,7 +72,7 @@ class MusicTests(unittest.TestCase):
             db.assert_not_called()
 
     def test_stream_range_head_and_seek(self):
-        with patch.object(api_server, "music_audio_file", return_value=(self.source, "audio/wav")):
+        with patch.object(media_routes, "music_audio_file", return_value=(self.source, "audio/wav")):
             response = self.client.get("/music-audio/42", headers={"Range": "bytes=0-99"})
             self.assertEqual(response.status_code, 206)
             self.assertEqual(response.data, self.source.read_bytes()[:100])
@@ -90,7 +91,7 @@ class MusicTests(unittest.TestCase):
     def test_tenant_catalog_and_audio_denied_before_lookup(self):
         with patch.object(api_server, "load_tenant", return_value=config()), \
                 patch.object(api_server, "music_catalog") as catalog, \
-                patch.object(api_server, "music_audio_file") as lookup:
+                patch.object(media_routes, "music_audio_file") as lookup:
             self.assertEqual(self.client.post("/webhook?tenant=test-shop",
                                              json={"action": "get_music"}).status_code, 403)
             self.assertEqual(self.client.get("/music-audio/42?tenant=test-shop").status_code, 403)
@@ -121,9 +122,9 @@ class MusicTests(unittest.TestCase):
             self.assertIn("enabled=TRUE", cur.execute.call_args.args[0])
 
     def test_missing_and_failed_audio_return_errors(self):
-        with patch.object(api_server, "music_audio_file", return_value=None):
+        with patch.object(media_routes, "music_audio_file", return_value=None):
             self.assertEqual(self.client.get("/music-audio/42").status_code, 404)
-        with patch.object(api_server, "music_audio_file", side_effect=FileNotFoundError):
+        with patch.object(media_routes, "music_audio_file", side_effect=FileNotFoundError):
             self.assertEqual(self.client.get("/music-audio/42").status_code, 503)
 
     def test_empty_catalog_and_database_failure(self):

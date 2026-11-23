@@ -11,6 +11,7 @@ from PIL import Image, UnidentifiedImageError
 
 from image_cache import ImageCache
 import api_server
+from api import media_routes
 
 
 def sample_image():
@@ -74,7 +75,7 @@ class ImageCacheTest(unittest.TestCase):
     def test_http_etag_and_thumbnail_selection(self):
         client = api_server.app.test_client()
         with patch.object(api_server, "image_cache", self.cache), \
-                patch.object(api_server, "movie_thumb_file_id", return_value="file"), \
+                patch.object(media_routes, "movie_thumb_file_id", return_value="file"), \
                 patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "test"}):
             self.cache.get("file", self.loader)
             response = client.get("/movie-thumb/1?thumb=1")
@@ -85,7 +86,7 @@ class ImageCacheTest(unittest.TestCase):
             })
             self.assertEqual(cached.status_code, 304)
             self.assertEqual(client.get("/movie-thumb/1").data, self.original)
-            with patch.object(api_server, "movie_thumb_file_id", return_value=None):
+            with patch.object(media_routes, "movie_thumb_file_id", return_value=None):
                 self.assertEqual(client.get("/movie-thumb/1").status_code, 404)
 
     def test_photo_gate_precedes_image_cache(self):
@@ -100,7 +101,13 @@ class ImageCacheTest(unittest.TestCase):
     def test_delivery_video_keeps_streaming_path(self):
         connection = Mock()
         connection.cursor.return_value.__enter__ = Mock(return_value=Mock(
-            fetchone=Mock(return_value={"file_id": "video", "media_type": "video"})
+            fetchone=Mock(return_value={
+                "id": 1, "person_id": None, "venue_id": 7, "channel_id": "-1007",
+                "message_id": 1, "media_group_id": None, "media_type": "video",
+                "file_id": "video", "caption": "", "age": 23, "ocr_text": "",
+                "image_hash": None, "created_at": "now", "deleted_at": None,
+                "merged_into_id": None, "consent_status": None,
+            })
         ))
         connection.cursor.return_value.__exit__ = Mock(return_value=False)
         with patch.object(api_server, "get_db_connection", return_value=connection), \

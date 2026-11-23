@@ -9,6 +9,7 @@ import wave
 import requests
 import music
 import api_server
+from api import media_routes
 
 
 class MusicChannelTests(unittest.TestCase):
@@ -146,7 +147,7 @@ class MusicChannelTests(unittest.TestCase):
             download.side_effect = lambda *_: (target.write_bytes(self.data), target)[1]
             path, mime = music.audio_file(1)
             download.assert_called_once_with("id", self.name, len(self.data))
-        with patch.object(api_server, "music_audio_file", return_value=(path, mime)):
+        with patch.object(media_routes, "music_audio_file", return_value=(path, mime)):
             response = api_server.app.test_client().get("/music-audio/1", headers={"Range": "bytes=100-199"})
             self.assertEqual(response.status_code, 206)
             self.assertEqual(response.data, self.data[100:200])

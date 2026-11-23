@@ -21,7 +21,8 @@ class StaffCustomerDutyTests(unittest.TestCase):
         for venue in (1, 2, 4, 5, 6):
             with self.subTest(venue=venue):
                 self.assertTrue(service.eligible(member(venue)))
-        for value in (member(3), member(7), member(6, adult_confirmed=False),
+        for value in (member(3), member(7), member(4, adult_confirmed=False),
+                      member(5, adult_confirmed=False), member(6, adult_confirmed=False),
                       member(ended_at=START), member(deleted_at=START), member(blocked=True)):
             self.assertFalse(service.eligible(value))
 

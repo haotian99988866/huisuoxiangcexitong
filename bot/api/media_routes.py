@@ -12,6 +12,7 @@ from movies import (
 )
 from music import audio_file as music_audio_file
 from music_stream import RemoteAudio, audio_response as music_stream_response
+from delivery_posts import public_person_media
 
 media_blueprint = Blueprint("media", __name__)
 
@@ -211,21 +212,71 @@ def delivery_media(media_id):
         conn = api_server.get_db_connection()
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT file_id, media_type FROM delivery_media WHERE id = %s",
+                """
+                SELECT m.id,m.person_id,m.venue_id,m.channel_id,m.message_id,
+                       m.media_group_id,m.media_type,m.file_id,m.caption,m.age,
+                       m.ocr_text,m.image_hash,m.created_at,
+                       p.deleted_at,p.merged_into_id,p.consent_status
+                FROM delivery_media m
+                LEFT JOIN delivery_people p ON p.id=m.person_id
+                WHERE m.id=%s
+                """,
                 (media_id,),
             )
-            row = cur.fetchone()
+            target = cur.fetchone()
+            if target is None:
+                return jsonify({"error": "找不到该媒体"}), 404
+            if target["person_id"] is not None and (
+                target["deleted_at"] is not None
+                or target["merged_into_id"] is not None
+                or target["consent_status"] != "granted"
+            ):
+                return jsonify({"error": "找不到该媒体"}), 404
+            if target["person_id"] is not None:
+                cur.execute(
+                    """
+                    SELECT id,person_id,message_id,channel_id,media_group_id,
+                           media_type,caption,age,ocr_text,image_hash,created_at
+                    FROM delivery_media
+                    WHERE person_id=%s AND media_type IN ('photo','video')
+                    ORDER BY created_at DESC,id DESC
+                    """,
+                    (target["person_id"],),
+                )
+            elif target["media_group_id"]:
+                cur.execute(
+                    """
+                    SELECT id,person_id,message_id,channel_id,media_group_id,
+                           media_type,caption,age,ocr_text,image_hash,created_at
+                    FROM delivery_media
+                    WHERE venue_id=%s AND channel_id=%s AND media_group_id=%s
+                      AND media_type IN ('photo','video')
+                    ORDER BY id
+                    """,
+                    (
+                        target["venue_id"],
+                        target["channel_id"],
+                        target["media_group_id"],
+                    ),
+                )
+            else:
+                rows = [target]
+            if target["person_id"] is not None or target["media_group_id"]:
+                rows = cur.fetchall()
     except pymysql.MySQLError:
         api_server.logger.exception("Failed to look up delivery media %s", media_id)
         return jsonify({"error": "数据库请求失败，请稍后重试"}), 500
     finally:
         if conn is not None:
             conn.close()
-    if row is None:
+    visible_ids = {item["id"] for item in public_person_media(rows)}
+    if media_id not in visible_ids:
         return jsonify({"error": "找不到该媒体"}), 404
-    if row["media_type"] == "photo":
-        return api_server._telegram_image(row["file_id"])
-    return api_server.cached_video_response(row["file_id"], api_server.delivery_video_cache)
+    if target["media_type"] == "photo":
+        return api_server._telegram_image(target["file_id"])
+    return api_server.cached_video_response(
+        target["file_id"], api_server.delivery_video_cache
+    )
 
 
 @media_blueprint.get(

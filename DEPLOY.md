@@ -195,7 +195,7 @@ API与主机器人启动时补齐订单字段及 `member_sales_config.phone_enab
 - 隧道配置及凭据保存在当前用户的 `.cloudflared` 目录，不要提交凭据。
 - 手动启动：在项目根目录执行 `powershell -NoProfile -ExecutionPolicy Bypass -File deploy\start-local.ps1`。脚本会先探测本机 `8000`/`4173`；端点不健康时清掉对应端口监听再拉起，并在就绪后确认 `main.py` 进程存在。`channel_sync` 永远独立，由 `deploy\start-channel-sync.ps1` 或 watchdog 单独启动，不随 `start-local` 拉起。
 - 冒烟（本机 API 已启动时）：`powershell -NoProfile -ExecutionPolicy Bypass -File deploy\smoke.ps1`，检查本机与公网 `get_venues`（及可选酒店列表）。
-- 脚本启动 API、机器人、已构建的前端预览和固定隧道；跳过已运行的实例，并检查本地及公网页面、数据接口。前端更新后需先在 `miniapp` 目录执行 `npm run build`，再重启 API（静态资源由后端托管）。
+- 脚本启动 API、机器人、已构建的前端 Vite Preview 和固定隧道；跳过已运行的实例，并检查本地及公网页面、数据接口。本机前端更新后需先在 `miniapp` 目录执行 `npm run build`，再重启 Preview；Linux 部署由 Caddy 直接读取 `miniapp/dist`，构建完成即可生效。仅修改 API 或后端代码时才需要重启 API。
 - 重构禁止改动清单见 [`docs/重构护栏.md`](docs/重构护栏.md)；API 按域拆分后入口仍为 `bot/api_server.py`，蓝图在 `bot/api/`。
 - 当前电脑的用户启动目录已配置 `huisuo-services.cmd`，登录 Windows 后调用上述脚本。这不是系统服务，未登录时不会启动，也不负责进程崩溃后的自动重启。
 - 启动和服务日志位于 `%LOCALAPPDATA%\Huisuo\logs`。MySQL84 已配置为自动启动的 Windows 服务。

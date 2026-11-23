@@ -126,8 +126,8 @@ class LocalBackupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             old = root / "20200101T000000Z"
-            staging = root / "20261108T030000Z.partial"
-            final = root / "20261108T030000Z"
+            staging = root / "20991108T030000Z.partial"
+            final = root / "20991108T030000Z"
             old.mkdir()
             staging.mkdir()
 
@@ -147,8 +147,8 @@ class LocalBackupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             old = root / "20200101T000000Z"
-            staging = root / "20261108T030000Z.partial"
-            final = root / "20261108T030000Z"
+            staging = root / "20991108T030000Z.partial"
+            final = root / "20991108T030000Z"
             old.mkdir()
             staging.mkdir()
 

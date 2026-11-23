@@ -10,6 +10,7 @@ from flask import Flask
 import music
 import music_mtproto
 import music_stream
+from api import media_routes
 from music_stream import RemoteAudio, audio_response
 
 
@@ -104,7 +105,7 @@ class MusicStreamTests(unittest.TestCase):
     def test_api_routes_uncached_audio_to_stream_and_reports_initial_failure(self):
         import api_server
         client = api_server.app.test_client()
-        with patch.object(api_server, "music_audio_file", return_value=self.source), patch.object(
+        with patch.object(media_routes, "music_audio_file", return_value=self.source), patch.object(
             music_stream, "stream_owned_audio", side_effect=self.upstream
         ):
             response = client.get("/music-audio/372", headers={"Range": "bytes=0-1023"})
@@ -114,7 +115,7 @@ class MusicStreamTests(unittest.TestCase):
         def unavailable(*args):
             raise ValueError("unavailable")
             yield
-        with patch.object(api_server, "music_audio_file", return_value=self.source), patch.object(
+        with patch.object(media_routes, "music_audio_file", return_value=self.source), patch.object(
             music_stream, "stream_owned_audio", side_effect=unavailable
         ):
             self.assertEqual(client.get("/music-audio/372").status_code, 503)

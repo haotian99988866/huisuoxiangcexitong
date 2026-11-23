@@ -180,7 +180,9 @@ def synchronize(cur):
             continue
         cur.execute("SELECT blocked,adult_confirmed FROM staff_members WHERE id=%s", (staff_id,))
         eligibility = cur.fetchone()
-        if eligibility["blocked"] or (row["venue_id"] == 6 and not eligibility["adult_confirmed"]):
+        if eligibility["blocked"] or (
+            row["venue_id"] in {4, 5, 6} and not eligibility["adult_confirmed"]
+        ):
             continue
         cur.execute("SELECT id,file_id,image_hash FROM staff_photos WHERE staff_id=%s ORDER BY id", (staff_id,))
         photo_id = None
@@ -259,7 +261,10 @@ def listing(data, admin=False):
             where = "m.venue_id=%s AND m.ended_at IS NULL AND m.deleted_at IS NULL"
             args = [venue_id]
             if not admin:
-                where += " AND m.blocked=0 AND (m.venue_id<>6 OR m.adult_confirmed=1)"
+                where += (
+                    " AND m.blocked=0 "
+                    "AND (m.venue_id NOT IN (4,5,6) OR m.adult_confirmed=1)"
+                )
             if mode == "duty":
                 where += " AND m.id IN (" + ",".join(["%s"] * max(len(duty_ids), 1)) + ")"
                 args.extend(duty_ids or [0])
@@ -338,7 +343,8 @@ def detail(data, admin=False):
                         " FROM staff_members WHERE id=%s AND deleted_at IS NULL", (staff_id,))
             row = cur.fetchone()
             if not row or (not admin and (row["ended_at"] or row["blocked"]
-                    or (row["venue_id"] == 6 and not row["adult_confirmed"]))):
+                    or (row["venue_id"] in {4, 5, 6}
+                        and not row["adult_confirmed"]))):
                 return None
             cur.execute("SELECT id,first_seen FROM staff_photos WHERE staff_id=%s ORDER BY last_seen DESC,id DESC", (staff_id,))
             row["photos"] = [{**p, "first_seen": str(p["first_seen"])} for p in cur.fetchall()]
@@ -357,7 +363,8 @@ def photo(photo_id):
             cur.execute(
                 "SELECT p.file_id,m.venue_id FROM staff_photos p JOIN staff_members m ON m.id=p.staff_id "
                 "WHERE p.id=%s AND m.ended_at IS NULL AND m.deleted_at IS NULL AND m.blocked=0 "
-                "AND (m.venue_id<>6 OR m.adult_confirmed=1)", (photo_id,))
+                "AND (m.venue_id NOT IN (4,5,6) OR m.adult_confirmed=1)",
+                (photo_id,))
             return cur.fetchone()
     finally:
         conn.close()

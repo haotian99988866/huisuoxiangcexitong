@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from telethon import types
 
 import api_server
+from api import media_routes
 import movies
 from movie_ingest import (DRAMA_SOURCE, SOURCES, MovieStore, clean_movie_caption,
                           process_job, resolve_album_caption, resolve_album_messages, scan_owned,
@@ -138,7 +139,7 @@ class ShortDramaApiTests(unittest.TestCase):
     def test_tenant_entry_does_not_gain_access_to_new_module(self):
         with patch.object(api_server, "load_tenant", return_value={"venue_ids": [1]}), \
                 patch.object(api_server, "short_drama_catalog") as catalog, \
-                patch.object(api_server, "movie_thumb_file_id") as thumb:
+                patch.object(media_routes, "movie_thumb_file_id") as thumb:
             self.assertEqual(self.client.post("/webhook", headers={"X-Tenant": "shop"},
                                              json={"action": "get_short_dramas"}).status_code, 403)
             self.assertEqual(self.client.get("/short-drama-thumb/10?tenant=shop").status_code, 403)
@@ -146,7 +147,7 @@ class ShortDramaApiTests(unittest.TestCase):
             thumb.assert_not_called()
 
     def test_thumb_route_passes_only_owned_drama_channel(self):
-        with patch.object(api_server, "movie_thumb_file_id", return_value=None) as thumb:
+        with patch.object(media_routes, "movie_thumb_file_id", return_value=None) as thumb:
             self.assertEqual(self.client.get("/short-drama-thumb/10").status_code, 404)
             thumb.assert_called_once_with(10, movies.DRAMA_CHANNEL_ID)
 

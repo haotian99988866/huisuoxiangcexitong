@@ -11,6 +11,16 @@ from video_cache import VideoCache
 VIDEO = b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 8
 
 
+def delivery_row(file_id="file", media_type="video", **changes):
+    return {
+        "id": 1, "person_id": None, "venue_id": 7, "channel_id": "-1007",
+        "message_id": 1, "media_group_id": None, "media_type": media_type,
+        "file_id": file_id, "caption": "", "age": 23, "ocr_text": "",
+        "image_hash": None, "created_at": "now", "deleted_at": None,
+        "merged_into_id": None, "consent_status": None, **changes,
+    }
+
+
 class VideoCacheTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -158,7 +168,7 @@ class VideoCacheTest(unittest.TestCase):
         self.store()
         with patch.object(api_server, "delivery_video_cache", self.cache), \
                 patch.object(api_server, "get_db_connection", return_value=self.connection([
-                    {"file_id": "file", "media_type": "video"}])), \
+                    delivery_row()])), \
                 patch.object(api_server, "_proxy_telegram_media") as proxy:
             client = api_server.app.test_client()
             with client.get("/delivery-media/1", headers={"Range": "bytes=10-99"}) as response:
@@ -179,14 +189,14 @@ class VideoCacheTest(unittest.TestCase):
     def test_delivery_cache_miss_keeps_stream_and_photos_keep_image_path(self):
         with patch.object(api_server, "delivery_video_cache", self.cache), \
                 patch.object(api_server, "get_db_connection", return_value=self.connection([
-                    {"file_id": "new", "media_type": "video"}])), \
+                    delivery_row("new")])), \
                 patch.object(api_server, "_proxy_telegram_media", return_value="stream") as proxy:
             with api_server.app.test_client().get("/delivery-media/1") as response:
                 self.assertEqual(response.data, b"stream")
                 self.assertEqual(response.headers["X-Media-Cache"], "MISS")
             proxy.assert_called_once_with("new")
         with patch.object(api_server, "get_db_connection", return_value=self.connection([
-                    {"file_id": "photo", "media_type": "photo"}])), \
+                    delivery_row("photo", "photo")])), \
                 patch.object(api_server, "delivery_video_cache") as cache, \
                 patch.object(api_server, "_telegram_image", return_value="image"):
             with api_server.app.test_client().get("/delivery-media/1") as response:

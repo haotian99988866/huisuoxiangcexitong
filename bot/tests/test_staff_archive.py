@@ -11,7 +11,7 @@ class StaffArchiveTests(unittest.TestCase):
         for admin in (False, True):
             connection = MagicMock()
             cursor = connection.cursor.return_value.__enter__.return_value
-            cursor.fetchone.side_effect = [None, {"total": 61}]
+            cursor.fetchone.side_effect = [None, {"total": 61}, {"pending": 0}]
             now = datetime.now()
             cursor.fetchall.side_effect = [[{
                 "id": ident, "code": str(ident), "first_seen": now, "last_seen": now,
@@ -29,6 +29,7 @@ class StaffArchiveTests(unittest.TestCase):
             if not admin:
                 self.assertIn("m.blocked=0", sql)
                 self.assertIn("m.adult_confirmed=1", sql)
+                self.assertIn("m.venue_id NOT IN (4,5,6)", sql)
 
     def test_delivery_and_invalid_inputs_are_not_staff_venues(self):
         for value in (3, 7, 8, 9, 10, True, "1", None):
