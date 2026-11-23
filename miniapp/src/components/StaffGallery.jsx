@@ -8,7 +8,9 @@ import { bookingUrl } from '../utils/booking'
 import { useAnalyticsScreen } from '../utils/analytics'
 import { money } from '../utils/commerce'
 import useCustomerSubscriptions from '../utils/useCustomerSubscriptions'
-import { SubscriptionControl, SubscriptionFeedback, SubscribedList } from './CustomerDutyControls'
+import {
+  SubscriptionControl, SubscriptionDetails, SubscriptionFeedback, SubscribedManager,
+} from './CustomerDutyControls'
 import LazyMedia from './media/LazyMedia'
 import PhotoSkeleton from './media/PhotoSkeleton'
 import { CLUB_STYLE_VENUE_IDS, ROSTER_DUTY_VENUE_IDS, isMingxiVenue } from '../utils/venueHome'
@@ -103,6 +105,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   const [notice, setNotice] = useState('')
   const [description, setDescription] = useState('')
   const [boardFilter, setBoardFilter] = useState('全部')
+  const [subscriptionDuration, setSubscriptionDuration] = useState('30d')
   const touchStart = useRef(null)
   // 订阅只改本地状态，勿触发整表重拉，避免屏幕一闪
   const subscription = useCustomerSubscriptions(venue.id, null, { enabled: !admin })
@@ -121,6 +124,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     setReplacement(null)
     setNotice('')
     setBoardFilter('全部')
+    setSubscriptionDuration('30d')
   }, [venue.id])
   useEffect(() => {
     setBoardFilter('全部')
@@ -337,9 +341,25 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       <h2>{photoFirst ? <>{attendanceOnly ? shiftName : '相册'}
         {data && <span className="mingxi-personnel-count"> · {attendanceOnly ? visibleMembers.length : data.total}位</span>}</> : '人员档案'}</h2>
       {photoFirst && !clubStyle && <span className="staff-heading-note">{attendanceOnly ? '发布不代表实时在岗' : '点击照片查看相册'}</span>}
-      {photoFirst && clubStyle && !attendanceOnly && <span className="staff-heading-note">订阅出勤提醒</span>}
+      {!admin && photoFirst && clubStyle && !attendanceOnly && (
+        <SubscribedManager
+          members={data?.members}
+          subscription={subscription}
+          onOpen={setSelected}
+        />
+      )}
       <button type="button" disabled={busy} onClick={() => setAttempt(value => value + 1)}>刷新</button>
     </div>
+    {data && clubStyle && photoFirst && boardChips.length > 0 && (
+      <div className="mingxi-board-chips" role="toolbar" aria-label={`按${groupLabel}筛选`}>
+        <button type="button" aria-pressed={boardFilter === '全部'}
+          onClick={() => setBoardFilter('全部')}>全部 · {baseMembers.length}</button>
+        {boardChips.map(chip => (
+          <button key={chip.name} type="button" aria-pressed={boardFilter === chip.name}
+            onClick={() => setBoardFilter(chip.name)}>{chip.name} · {chip.count}</button>
+        ))}
+      </div>
+    )}
     {error && <p className="membership-error" role="alert">{error}</p>}
     {notice && <p className="membership-notice" role="status">{notice}</p>}
     {!data && !error && (
@@ -354,13 +374,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     {data && <>
       {!photoFirst && <p className="staff-meta">{`全部人员 · ${data.total}位 · ${data.shift}`}</p>}
       {!admin && ((clubStyle && photoFirst && !attendanceOnly) || !photoFirst) && <>
-        <p className="staff-meta">{subscription.authenticated
-          ? '未出勤技师可点「订阅出勤」；已订阅的人卡片会标「已订阅」，也可在上方清单取消。'
-          : '请从 Telegram 主入口打开，才能订阅出勤提醒。'}</p>
-        <SubscriptionFeedback subscription={subscription} />
-        {clubStyle && photoFirst && !attendanceOnly && (
-          <SubscribedList members={data.members} subscription={subscription} />
-        )}
+        {!selected && <SubscriptionFeedback subscription={subscription} />}
       </>}
       {!data.roster_available && !attendanceCodes.size && <p className="staff-meta">{attendanceOnly
         ? (rosterDutyOnly
@@ -369,16 +383,6 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
             ? '本班名单尚未同步，频道已有照片待核对。'
             : '本班名单尚未从频道同步。'))
         : '当前班次尚未发布出勤，照片仍可查看；未出勤天数依据最近发布记录。'}</p>}
-      {clubStyle && photoFirst && boardChips.length > 0 && (
-        <div className="mingxi-board-chips" role="toolbar" aria-label={`按${groupLabel}筛选`}>
-          <button type="button" aria-pressed={boardFilter === '全部'}
-            onClick={() => setBoardFilter('全部')}>全部 · {baseMembers.length}</button>
-          {boardChips.map(chip => (
-            <button key={chip.name} type="button" aria-pressed={boardFilter === chip.name}
-              onClick={() => setBoardFilter(chip.name)}>{chip.name} · {chip.count}</button>
-          ))}
-        </div>
-      )}
       {onSelect && allowSkip && <button type="button" className="staff-skip"
         onClick={() => onSelect(null)}>暂不关联技师，后续可补录</button>}
       {!visibleMembers.length && (() => {
@@ -448,6 +452,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
               code={member.code}
               onDuty={Boolean(member.duty_label)}
               subscription={subscription}
+              duration={subscriptionDuration}
             />
           )}
           {onSelect && <button type="button" className="staff-replace" disabled={busy || member.blocked}
@@ -498,6 +503,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
               code={selected.code}
               onDuty={Boolean(selected.duty_label)}
               subscription={subscription}
+              duration={subscriptionDuration}
             />
           )}
           {(!ordinaryMassage || customerDuty?.published_at || (!customerDuty && selected.duty_label)) &&
@@ -577,6 +583,13 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
         {!photoFirst && <p className="staff-meta">首次收录：{photo.first_seen}</p>}
       </>}
       </div>
+      {!admin && !(clubStyle && photoFirst && attendanceOnly) && (
+        <SubscriptionDetails
+          state={customerDuty}
+          duration={subscriptionDuration}
+          setDuration={setSubscriptionDuration}
+        />
+      )}
       <div className="staff-detail-summary">
       {ordinaryMassage && !admin ? <><p className="staff-detail-duty">{dutyLabel(selected)}</p>
       {customerDuty?.published_at && <p className="staff-meta">发布时间：{customerDuty.published_at}</p>}

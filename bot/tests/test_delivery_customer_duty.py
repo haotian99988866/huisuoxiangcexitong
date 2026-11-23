@@ -254,7 +254,7 @@ class DeliveryCustomerDutyTests(unittest.TestCase):
         cur = conn.cursor.return_value.__enter__.return_value
         with patch.object(service, "get_conn", return_value=conn):
             service.ensure_tables(delivery=True)
-        self.assertEqual(cur.execute.call_count, 3)
+        self.assertEqual(cur.execute.call_count, 4)
         ddl = "\n".join(call.args[0] for call in cur.execute.call_args_list)
         self.assertIn("PRIMARY KEY(person_id,user_id,duty_date,shift)", ddl)
         self.assertIn("REFERENCES delivery_people(id)", ddl)
@@ -265,7 +265,7 @@ class DeliveryCustomerDutyTests(unittest.TestCase):
         cur = conn.cursor.return_value.__enter__.return_value
         with patch.object(service, "get_conn", return_value=conn):
             service.ensure_tables()
-        self.assertEqual(cur.execute.call_count, 4)
+        self.assertEqual(cur.execute.call_count, 5)
         ddl = "\n".join(call.args[0] for call in cur.execute.call_args_list)
         self.assertIn("staff_customer_permissions", ddl)
         self.assertIn("PRIMARY KEY(staff_id,user_id,duty_date,shift)", ddl)

@@ -88,7 +88,8 @@ export default function useCustomerSubscriptions(venueId, onRefresh, { delivery 
     setError('')
     setNotice('')
     const payload = pending[personId] || {
-      [identity]: personId, enabled: !state.subscribed, revision: state.revision, request_id: newMemberOrderId(),
+      [identity]: personId, enabled: !state.subscribed, revision: state.revision,
+      duration: meta.duration || '30d', request_id: newMemberOrderId(),
     }
     const next = { ...pending, [personId]: payload }
     const who = meta.code ? `工号 ${meta.code}` : (meta.label || `档案 #${personId}`)
@@ -104,8 +105,8 @@ export default function useCustomerSubscriptions(venueId, onRefresh, { delivery 
         setPending(remaining)
         setStates(current => ({ ...current, states: { ...current.states, [personId]: result } }))
         setNotice(result.subscribed
-          ? `${who} 已订阅：${frequency}有新出勤时提醒。再点一次即可取消。`
-          : `${who} 已取消订阅。`)
+          ? `${who} 已订阅，${frequency}有新出勤时提醒`
+          : `${who} 已取消订阅`)
       }
     } catch (failure) {
       console.error('[Customer subscription save]', failure)

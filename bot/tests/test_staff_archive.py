@@ -55,7 +55,20 @@ class StaffArchiveTests(unittest.TestCase):
         cur.lastrowid = 12
         seen = datetime(2026, 11, 1, 10)
         self.assertEqual(staff_archive._person(cur, 2, "012", seen), 12)
+        self.assertIn("ON DUPLICATE KEY UPDATE", cur.execute.call_args_list[-1].args[0])
         self.assertEqual(cur.execute.call_args_list[-1].args[1], (2, "012", 12))
+
+    def test_ended_person_replaces_stale_slot_when_photo_is_archived(self):
+        cur = Mock()
+        cur.fetchone.return_value = None
+        cur.lastrowid = 334
+        seen = datetime(2026, 11, 23, 4, 35, 53)
+
+        self.assertEqual(staff_archive._person(cur, 2, "820", seen), 334)
+
+        slot_sql, slot_args = cur.execute.call_args_list[-1].args
+        self.assertIn("ON DUPLICATE KEY UPDATE staff_id=VALUES(staff_id)", slot_sql)
+        self.assertEqual(slot_args, (2, "820", 334))
 
     @patch("staff_archive.get_conn")
     @patch("staff_archive.synchronize")

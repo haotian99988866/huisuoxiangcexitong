@@ -97,8 +97,11 @@ def _person(cur, venue_id, code, seen_at):
         "INSERT INTO staff_members(venue_id,code,active_from,first_seen,last_seen) "
         "VALUES(%s,%s,'1970-01-01',%s,%s)", (venue_id, code, seen_at, seen_at))
     staff_id = cur.lastrowid
-    cur.execute("INSERT INTO staff_slots(venue_id,code,staff_id) VALUES(%s,%s,%s)",
-                (venue_id, code, staff_id))
+    cur.execute(
+        "INSERT INTO staff_slots(venue_id,code,staff_id) VALUES(%s,%s,%s) "
+        "ON DUPLICATE KEY UPDATE staff_id=VALUES(staff_id)",
+        (venue_id, code, staff_id),
+    )
     return staff_id
 
 

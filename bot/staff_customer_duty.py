@@ -1,5 +1,5 @@
 """Opt-in customer duty subscriptions with separate staff and delivery identities."""
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import json
 import logging
@@ -11,6 +11,7 @@ from db import get_conn
 from duty_shift import current_shift_window
 
 logger = logging.getLogger(__name__)
+SUBSCRIPTION_DURATIONS = {"shift", "7d", "30d", "forever"}
 
 
 def _storage(delivery):
@@ -49,6 +50,14 @@ def ensure_tables(*, delivery=False):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
             ):
                 cur.execute(query)
+            cur.execute(
+                f"SHOW COLUMNS FROM {prefix}_subscriptions LIKE 'expires_at'"
+            )
+            if not cur.fetchone():
+                cur.execute(
+                    f"ALTER TABLE {prefix}_subscriptions "
+                    "ADD COLUMN expires_at DATETIME NULL"
+                )
         conn.commit()
     finally:
         conn.close()
@@ -100,8 +109,15 @@ def member_row(cur, staff_id, lock=False, *, delivery=False):
 
 
 def state_result(sub, available, published, shift, end):
-    return {"subscribed": bool(sub and sub["enabled"]), "revision": sub["revision"] if sub else 0,
+    expires_at = sub.get("expires_at") if sub else None
+    subscribed = bool(
+        sub
+        and sub["enabled"]
+        and (expires_at is None or expires_at > datetime.now())
+    )
+    return {"subscribed": subscribed, "revision": sub["revision"] if sub else 0,
             "available": available, "published_at": str(published) if published else None,
+            "expires_at": str(expires_at) if expires_at else None,
             "shift": shift, "shift_ends_at": int(end.timestamp() * 1000)}
 
 
@@ -125,7 +141,7 @@ def catalog_status(venue_id, user_id):
                     previous = publications.get(row["staff_id"])
                     if previous is None or row["published"] > previous:
                         publications[row["staff_id"]] = row["published"]
-            cur.execute("SELECT m.id,s.enabled,s.revision,"
+            cur.execute("SELECT m.id,s.enabled,s.revision,s.expires_at,"
                         "(SELECT p.id FROM staff_photos p WHERE p.staff_id=m.id"
                         " ORDER BY p.last_seen DESC,p.id DESC LIMIT 1) AS cover FROM staff_members m "
                         "LEFT JOIN staff_customer_subscriptions s ON s.staff_id=m.id AND s.user_id=%s "
@@ -146,7 +162,7 @@ def state(cur, member, user_id, *, delivery=False):
     prefix, identity, _ = _storage(delivery)
     start, end, shift = current_shift_window()
     published = published_at(cur, member, start, end, delivery=delivery)
-    cur.execute(f"SELECT enabled,revision FROM {prefix}_subscriptions WHERE {identity}=%s AND user_id=%s",
+    cur.execute(f"SELECT enabled,revision,expires_at FROM {prefix}_subscriptions WHERE {identity}=%s AND user_id=%s",
                 (member["id"], user_id))
     sub = cur.fetchone()
     return state_result(sub, eligible(member, delivery=delivery), published, shift, end)
@@ -179,7 +195,15 @@ def save(data, user_id, *, delivery=False):
         raise ValueError("人员编号或订阅状态无效")
     if type(revision) is not int or revision < 0 or not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):
         raise ValueError("订阅操作编号或版本无效")
-    digest = hashlib.sha256(json.dumps([staff_id, enabled, revision]).encode()).hexdigest()
+    duration = data.get("duration", "forever")
+    if duration not in SUBSCRIPTION_DURATIONS:
+        raise ValueError("订阅期限无效")
+    request_values = [staff_id, enabled, revision, duration]
+    digest = hashlib.sha256(json.dumps(request_values).encode()).hexdigest()
+    legacy_digest = (
+        hashlib.sha256(json.dumps([staff_id, enabled, revision]).encode()).hexdigest()
+        if "duration" not in data else None
+    )
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -187,7 +211,9 @@ def save(data, user_id, *, delivery=False):
             cur.execute(f"SELECT * FROM {prefix}_requests WHERE request_id=%s", (request_id,))
             previous = cur.fetchone()
             if previous:
-                if previous["user_id"] != user_id or previous["request_hash"] != digest:
+                if previous["user_id"] != user_id or previous["request_hash"] not in {
+                    digest, legacy_digest
+                }:
                     raise RecordConflict("操作编号冲突，请刷新核对")
                 return state(cur, member, user_id, delivery=delivery)
             current = state(cur, member, user_id, delivery=delivery)
@@ -196,10 +222,21 @@ def save(data, user_id, *, delivery=False):
             if enabled and (not current["available"] or current["published_at"]):
                 raise RecordConflict("人员档案已停用、暂不公开或本班次已发布出勤，请刷新")
             now = datetime.now()
-            cur.execute(f"""INSERT INTO {prefix}_subscriptions({identity},user_id,enabled,subscribed_at)
-                VALUES(%s,%s,%s,%s) ON DUPLICATE KEY UPDATE
+            _, shift_end, _ = current_shift_window(now)
+            expires_at = None
+            if enabled:
+                expires_at = {
+                    "shift": shift_end,
+                    "7d": now + timedelta(days=7),
+                    "30d": now + timedelta(days=30),
+                    "forever": None,
+                }[duration]
+            cur.execute(f"""INSERT INTO {prefix}_subscriptions({identity},user_id,enabled,subscribed_at,expires_at)
+                VALUES(%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE
                 subscribed_at=IF(enabled=0 AND VALUES(enabled)=1,VALUES(subscribed_at),subscribed_at),
-                enabled=VALUES(enabled),revision=revision+1""", (staff_id, user_id, enabled, now))
+                expires_at=VALUES(expires_at),
+                enabled=VALUES(enabled),revision=revision+1""",
+                (staff_id, user_id, enabled, now, expires_at))
             if not enabled:
                 cur.execute(f"""UPDATE {prefix}_notifications SET status='cancelled'
                     WHERE {identity}=%s AND user_id=%s AND status='pending'""", (staff_id, user_id))
@@ -236,7 +273,11 @@ def deliver(bot, *, delivery=False):
             start, end, shift = current_shift_window()
             cur.execute(f"""UPDATE {prefix}_notifications SET status='cancelled'
                 WHERE status='pending' AND (duty_date<>%s OR shift<>%s)""", (start.date(), shift))
-            cur.execute(f"SELECT * FROM {prefix}_subscriptions WHERE enabled=1")
+            cur.execute(
+                f"SELECT * FROM {prefix}_subscriptions "
+                "WHERE enabled=1 AND (expires_at IS NULL OR expires_at>%s)",
+                (datetime.now(),),
+            )
             for sub in cur.fetchall():
                 member = member_row(cur, sub[identity], lock=True, delivery=delivery)
                 if not eligible(member, delivery=delivery):
@@ -244,10 +285,17 @@ def deliver(bot, *, delivery=False):
                                 (sub[identity], sub["user_id"]))
                     conn.commit()
                     continue
-                cur.execute(f"SELECT enabled,subscribed_at FROM {prefix}_subscriptions WHERE {identity}=%s AND user_id=%s FOR UPDATE",
+                cur.execute(f"SELECT enabled,subscribed_at,expires_at FROM {prefix}_subscriptions WHERE {identity}=%s AND user_id=%s FOR UPDATE",
                             (sub[identity], sub["user_id"]))
                 latest = cur.fetchone()
-                published = published_at(cur, member, start, end, latest["subscribed_at"], delivery=delivery) if latest["enabled"] else None
+                active_subscription = (
+                    latest["enabled"]
+                    and (
+                        latest.get("expires_at") is None
+                        or latest["expires_at"] > datetime.now()
+                    )
+                )
+                published = published_at(cur, member, start, end, latest["subscribed_at"], delivery=delivery) if active_subscription else None
                 if published:
                     cur.execute(f"""INSERT INTO {prefix}_notifications
                         ({identity},user_id,duty_date,shift,published_at,created_at) VALUES(%s,%s,%s,%s,%s,%s)
@@ -257,11 +305,13 @@ def deliver(bot, *, delivery=False):
             cur.execute(f"SELECT * FROM {prefix}_notifications WHERE status='pending' ORDER BY created_at LIMIT 20")
             for job in cur.fetchall():
                 member = member_row(cur, job[identity], lock=True, delivery=delivery)
-                cur.execute(f"SELECT enabled,subscribed_at FROM {prefix}_subscriptions WHERE {identity}=%s AND user_id=%s FOR UPDATE",
+                cur.execute(f"SELECT enabled,subscribed_at,expires_at FROM {prefix}_subscriptions WHERE {identity}=%s AND user_id=%s FOR UPDATE",
                             (job[identity], job["user_id"]))
                 sub = cur.fetchone()
                 fresh_start, fresh_end, fresh_shift = current_shift_window()
-                valid = (eligible(member, delivery=delivery) and sub and sub["enabled"] and job["published_at"] > sub["subscribed_at"]
+                valid = (eligible(member, delivery=delivery) and sub and sub["enabled"]
+                         and (sub.get("expires_at") is None or sub["expires_at"] > datetime.now())
+                         and job["published_at"] > sub["subscribed_at"]
                          and job["duty_date"] == fresh_start.date() and job["shift"] == fresh_shift
                          and fresh_start <= job["published_at"] < fresh_end)
                 valid = valid and (not delivery or fresh_shift == "晚班") and published_at(

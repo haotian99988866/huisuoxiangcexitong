@@ -41,8 +41,10 @@ class SubscriptionCenterTests(unittest.TestCase):
                     "CREATE TABLE news_deliveries(user_id BIGINT,status VARCHAR(20),error VARCHAR(80))",
                     "CREATE TABLE staff_members(id INT PRIMARY KEY,venue_id INT,code VARCHAR(20))",
                     "CREATE TABLE delivery_people(id INT PRIMARY KEY,venue_id INT,display_name VARCHAR(80))",
-                    "CREATE TABLE staff_customer_subscriptions(staff_id INT,user_id BIGINT,enabled INT,revision INT)",
-                    "CREATE TABLE delivery_customer_subscriptions(person_id INT,user_id BIGINT,enabled INT,revision INT)",
+                    "CREATE TABLE staff_customer_subscriptions("
+                    "staff_id INT,user_id BIGINT,enabled INT,revision INT,expires_at DATETIME NULL)",
+                    "CREATE TABLE delivery_customer_subscriptions("
+                    "person_id INT,user_id BIGINT,enabled INT,revision INT,expires_at DATETIME NULL)",
                 ):
                     cur.execute(statement)
                 cur.execute("INSERT INTO venues VALUES(1,'会所'),(7,'外送')")
@@ -81,8 +83,9 @@ class SubscriptionCenterTests(unittest.TestCase):
             center.save(payload, 123)
         self.sql("INSERT INTO staff_members VALUES(12,1,'012'),(13,1,'013')")
         self.sql("INSERT INTO delivery_people VALUES(14,7,'档案')")
-        self.sql("INSERT INTO staff_customer_subscriptions VALUES(12,123,1,2),(13,456,1,1)")
-        self.sql("INSERT INTO delivery_customer_subscriptions VALUES(14,123,1,1)")
+        self.sql("INSERT INTO staff_customer_subscriptions VALUES"
+                 "(12,123,1,2,NULL),(13,456,1,1,NULL)")
+        self.sql("INSERT INTO delivery_customer_subscriptions VALUES(14,123,1,1,NULL)")
         result = center.catalog(123)
         self.assertEqual(sum(item["subscribed"] for item in result["scopes"]), 3)
         self.assertEqual({(item["kind"], item["id"]) for item in result["subscribed_people"]},

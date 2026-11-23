@@ -26,6 +26,18 @@ class StaffCustomerDutyTests(unittest.TestCase):
                       member(ended_at=START), member(deleted_at=START), member(blocked=True)):
             self.assertFalse(service.eligible(value))
 
+    def test_subscription_state_hides_expired_rows_and_returns_expiry(self):
+        now = datetime.now()
+        active = service.state_result({
+            "enabled": True, "revision": 3, "expires_at": now + timedelta(days=7),
+        }, True, None, "白班", now + timedelta(hours=6))
+        expired = service.state_result({
+            "enabled": True, "revision": 3, "expires_at": now - timedelta(seconds=1),
+        }, True, None, "白班", now + timedelta(hours=6))
+        self.assertTrue(active["subscribed"])
+        self.assertFalse(expired["subscribed"])
+        self.assertEqual(active["expires_at"], str(now + timedelta(days=7)))
+
     def test_member_lookup_supports_all_staff_venues_without_permission_dependency(self):
         cur = MagicMock()
         for venue in (1, 2, 4, 5, 6):
@@ -119,6 +131,30 @@ class StaffCustomerDutyTests(unittest.TestCase):
             cur.fetchone.side_effect = [None, roster, *photo_reads, None]
             with self.assertRaises(RecordConflict):
                 service.save({"staff_id": 12, "enabled": True, "revision": 0, "request_id": "b" * 32}, 99)
+
+    @patch.object(service, "get_conn")
+    @patch.object(service, "member_row")
+    @patch.object(service, "current_shift_window", return_value=WINDOW)
+    def test_subscription_duration_is_persisted_on_new_request(self, window, lookup, get_conn):
+        cur = get_conn.return_value.cursor.return_value.__enter__.return_value
+        lookup.return_value = member(2)
+        cur.fetchone.side_effect = [
+            None, None, None, None, {"enabled": True, "revision": 1},
+        ]
+        result = service.save({
+            "staff_id": 12, "enabled": True, "revision": 0,
+            "duration": "7d", "request_id": "a" * 32,
+        }, 99)
+        insert = next(call for call in cur.execute.call_args_list
+                      if "INSERT INTO staff_customer_subscriptions" in call.args[0])
+        self.assertIn("expires_at", insert.args[0])
+        self.assertTrue(result["subscribed"])
+
+        with self.assertRaises(ValueError):
+            service.save({
+                "staff_id": 12, "enabled": True, "revision": 0,
+                "duration": "1d", "request_id": "b" * 32,
+            }, 99)
 
     def worker(self, *, venue=2, active=True, publication=True, shift="白班", send_error=None):
         conn = MagicMock()

@@ -57,16 +57,22 @@ def catalog(user_id, venue_id=None):
                         "id": row["id"], "label": row["name"],
                         "subscribed": row["id"] in (venue_subs if row["id"] in SUBSCRIBE_VENUES else delivery_subs)}
                        for row in venues]
-            cur.execute("""SELECT s.staff_id AS id,s.revision,m.venue_id,m.code
+            cur.execute("""SELECT s.staff_id AS id,s.revision,s.expires_at,m.venue_id,m.code
                 FROM staff_customer_subscriptions s JOIN staff_members m ON m.id=s.staff_id
-                WHERE s.user_id=%s AND s.enabled=1 ORDER BY m.venue_id,m.code""", (user_id,))
+                WHERE s.user_id=%s AND s.enabled=1
+                  AND (s.expires_at IS NULL OR s.expires_at>NOW())
+                ORDER BY m.venue_id,m.code""", (user_id,))
             subscribed = [{"kind": "staff", "id": row["id"], "venue_id": row["venue_id"],
-                           "label": f"技师 {row['code']}", "revision": row["revision"]} for row in cur.fetchall()]
-            cur.execute("""SELECT s.person_id AS id,s.revision,p.venue_id FROM delivery_customer_subscriptions s
-                JOIN delivery_people p ON p.id=s.person_id WHERE s.user_id=%s AND s.enabled=1
+                           "label": f"技师 {row['code']}", "revision": row["revision"],
+                           "expires_at": str(row["expires_at"]) if row["expires_at"] else None} for row in cur.fetchall()]
+            cur.execute("""SELECT s.person_id AS id,s.revision,s.expires_at,p.venue_id FROM delivery_customer_subscriptions s
+                JOIN delivery_people p ON p.id=s.person_id
+                WHERE s.user_id=%s AND s.enabled=1
+                  AND (s.expires_at IS NULL OR s.expires_at>NOW())
                 ORDER BY p.venue_id,p.id""", (user_id,))
             subscribed += [{"kind": "person", "id": row["id"], "venue_id": row["venue_id"],
-                            "label": f"外送档案 #{row['id']}", "revision": row["revision"]} for row in cur.fetchall()]
+                            "label": f"外送档案 #{row['id']}", "revision": row["revision"],
+                            "expires_at": str(row["expires_at"]) if row["expires_at"] else None} for row in cur.fetchall()]
             people = []
             if venue_id is not None:
                 if type(venue_id) is not int or venue_id not in {row["id"] for row in venues}:
@@ -95,7 +101,9 @@ def save(data, user_id):
         raise ValueError("订阅参数无效")
     if kind in {"staff", "person"}:
         return save_person({("person_id" if kind == "person" else "staff_id"): ident,
-                            "enabled": enabled, "revision": data.get("revision"), "request_id": request_id},
+                            "enabled": enabled, "revision": data.get("revision"),
+                            "duration": data.get("duration", "forever"),
+                            "request_id": request_id},
                            user_id, delivery=kind == "person")
     if ((kind == "venue" and ident not in SUBSCRIBE_VENUES)
             or (kind == "delivery" and ident not in DELIVERY_VENUE_IDS) or (kind == "news" and ident != 0)):

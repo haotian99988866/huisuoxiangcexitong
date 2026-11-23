@@ -26,7 +26,7 @@ export default function VenueChrome({
   dutyLabel,
   onDutyCount,
 }) {
-  return (
+  return <>
     <div style={{
       position: 'sticky',
       top: 0,
@@ -145,7 +145,6 @@ export default function VenueChrome({
             </div>}
           </div>
         </div>
-        {!isFullscreen && <AnnouncementCard />}
         {deliveryCategories.length > 0 && !isDeliveryDayShift && (
           <div style={{
             display: 'flex',
@@ -178,5 +177,6 @@ export default function VenueChrome({
         )}
       </div>
     </div>
-  )
+    {!isFullscreen && <AnnouncementCard />}
+  </>
 }

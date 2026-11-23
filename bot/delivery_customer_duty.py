@@ -47,7 +47,7 @@ def catalog_status(venue_id, user_id):
             groups = {}
             for row in cur.fetchall():
                 groups.setdefault(row["person_id"], []).append(row)
-            cur.execute("SELECT s.person_id,s.enabled,s.revision FROM delivery_customer_subscriptions s "
+            cur.execute("SELECT s.person_id,s.enabled,s.revision,s.expires_at FROM delivery_customer_subscriptions s "
                         "JOIN delivery_people p ON p.id=s.person_id WHERE p.venue_id=%s AND s.user_id=%s",
                         (venue_id, user_id))
             subscriptions = {row["person_id"]: row for row in cur.fetchall()}
