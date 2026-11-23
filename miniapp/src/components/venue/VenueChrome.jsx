@@ -45,7 +45,8 @@ export default function VenueChrome({
   const servicePickerRef = useRef(null)
   const selectedVenueId = String(selectedVenue?.id || selectedId)
   const mingxiGroup = ['1', '2', '3'].includes(selectedVenueId)
-  const selectMingxi = id => {
+  const clubGroup = ['4', '5', '6'].includes(selectedVenueId)
+  const selectVenue = id => {
     setSelectedId(String(id))
     setSelectedTechnicianCode('')
     navigate(tenantPath(`/?module=venue&venue=${id}`), { replace: true })
@@ -89,7 +90,7 @@ export default function VenueChrome({
           padding: '0 2px',
           boxSizing: 'border-box'
         }}>
-          <div className={`venue-personnel-toolbar${mingxiGroup ? ' mingxi-personnel-toolbar' : ' venue-other-toolbar'}`} style={{
+          <div className={`venue-personnel-toolbar${mingxiGroup ? ' mingxi-personnel-toolbar' : ' venue-other-toolbar'}${clubGroup ? ' club-personnel-toolbar' : ''}`} style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -102,10 +103,18 @@ export default function VenueChrome({
                 ['3', 'KTV'],
               ].map(([id, label]) => (
                 <button key={id} type="button" aria-pressed={selectedVenueId === id}
-                  onClick={() => selectMingxi(id)}>{label}</button>
+                  onClick={() => selectVenue(id)}>{label}</button>
               ))}
             </nav>}
-            {!mingxiGroup && <div className="mingxi-destination-dropdown" ref={servicePickerRef}>
+            {clubGroup && <nav className="mingxi-service-buttons club-service-buttons" aria-label="选择会所">
+              {[['4', '大浪'], ['5', '五象'], ['6', '帝豪']]
+                .filter(([id]) => list.some(venue => String(venue.id) === id))
+                .map(([id, label]) => (
+                  <button key={id} type="button" aria-pressed={selectedVenueId === id}
+                    onClick={() => selectVenue(id)}>{label}</button>
+                ))}
+            </nav>}
+            {!mingxiGroup && !clubGroup && <div className="mingxi-destination-dropdown" ref={servicePickerRef}>
               <button
                 type="button"
                 className="mingxi-destination-picker venue-destination-picker"

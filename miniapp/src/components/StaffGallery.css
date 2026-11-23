@@ -39,8 +39,10 @@
 .staff-admin-footer button { flex: 1; min-height: 44px; }
 .staff-admin-detail button:disabled { opacity: .5; cursor: default; }
 @media (max-width: 380px) { .staff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.mingxi-personnel-toolbar {
+.venue-personnel-toolbar {
   --mingxi-control-font-size: 12px;
+}
+.mingxi-personnel-toolbar {
   display: grid !important;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto;
   gap: 6px !important;
@@ -141,6 +143,15 @@
 }
 .venue-other-toolbar .venue-subscriptions-slot:not(.is-hidden) {
   flex: 0 0 70px;
+}
+.club-personnel-toolbar {
+  flex-wrap: wrap !important;
+}
+.club-personnel-toolbar .club-service-buttons {
+  flex: 1 1 150px;
+}
+.club-personnel-toolbar .mingxi-personnel-tabs {
+  flex: 1 1 124px;
 }
 .mingxi-personnel-toolbar .mingxi-destination-dropdown {
   width: 100%;
