@@ -144,6 +144,17 @@
 .venue-other-toolbar .venue-subscriptions-slot:not(.is-hidden) {
   flex: 0 0 70px;
 }
+.delivery-personnel-toolbar {
+  flex-wrap: wrap !important;
+}
+.venue-other-toolbar .delivery-category-buttons {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.delivery-category-buttons button {
+  padding-inline: 4px;
+  white-space: nowrap;
+}
 .club-personnel-toolbar {
   flex-wrap: wrap !important;
 }

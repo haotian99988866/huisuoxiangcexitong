@@ -30,7 +30,7 @@ BUTTON_ROWS = (
     (("大浪会所", "https://t.me/dlts02"), ("五象会所", "https://t.me/haotianydl99988866"),
      ("帝豪会所", "https://t.me/dihao02")),
     (("170", "https://t.me/haotianws99988866"), ("180", "https://t.me/haotiantk99988866"),
-     ("160", "https://t.me/jinb201"), ("苹果", "https://t.me/haotianxp")),
+     ("160", "https://t.me/jinb201")),
     (("西港订房", "https://t.me/wnshs01"), ("香烟保真", "https://t.me/haotianxp999888666")),
     (("成人影音", "https://t.me/cryymk"), ("服务反馈", "https://t.me/+zuAAQWyth-xmN2Q1"),
      ("昊天大事件", "https://t.me/haotiancm99988866")),

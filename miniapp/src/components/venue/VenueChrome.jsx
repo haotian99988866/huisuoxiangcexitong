@@ -44,6 +44,8 @@ export default function VenueChrome({
   const [servicePicker, setServicePicker] = useState(false)
   const servicePickerRef = useRef(null)
   const selectedVenueId = String(selectedVenue?.id || selectedId)
+  const orderedDeliveryCategories = [...deliveryCategories].sort((left, right) =>
+    deliveryCategoryLabel(left).localeCompare(deliveryCategoryLabel(right), undefined, { numeric: true }))
   const mingxiGroup = ['1', '2', '3'].includes(selectedVenueId)
   const clubGroup = ['4', '5', '6'].includes(selectedVenueId)
   const selectVenue = id => {
@@ -90,7 +92,12 @@ export default function VenueChrome({
           padding: '0 2px',
           boxSizing: 'border-box'
         }}>
-          <div className={`venue-personnel-toolbar${mingxiGroup ? ' mingxi-personnel-toolbar' : ' venue-other-toolbar'}${clubGroup ? ' club-personnel-toolbar' : ''}`} style={{
+          <div className={[
+            'venue-personnel-toolbar',
+            mingxiGroup ? 'mingxi-personnel-toolbar' : 'venue-other-toolbar',
+            clubGroup && 'club-personnel-toolbar',
+            deliveryCategories.length > 0 && 'delivery-personnel-toolbar',
+          ].filter(Boolean).join(' ')} style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -114,7 +121,22 @@ export default function VenueChrome({
                     onClick={() => selectVenue(id)}>{label}</button>
                 ))}
             </nav>}
-            {!mingxiGroup && !clubGroup && <div className="mingxi-destination-dropdown" ref={servicePickerRef}>
+            {deliveryCategories.length > 0 && <nav className="mingxi-service-buttons delivery-category-buttons" aria-label="选择外送价格分类">
+              {orderedDeliveryCategories.map(venue => {
+                const active = deliveryCategoryKey(venue) === deliveryCategoryKey(selectedVenue)
+                return (
+                  <button
+                    key={deliveryCategoryKey(venue)}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setDeliveryCategoryId(deliveryCategoryKey(venue))}
+                  >
+                    {deliveryCategoryLabel(venue)}
+                  </button>
+                )
+              })}
+            </nav>}
+            {!deliveryCategories.length && !mingxiGroup && !clubGroup && <div className="mingxi-destination-dropdown" ref={servicePickerRef}>
               <button
                 type="button"
                 className="mingxi-destination-picker venue-destination-picker"
@@ -191,36 +213,6 @@ export default function VenueChrome({
           </div>
           <div id="venue-board-filter-slot" className={`venue-board-filter-slot${isPhotoFirst ? '' : ' is-empty'}`} />
         </div>
-        {deliveryCategories.length > 0 && !isDeliveryDayShift && (
-          <div style={{
-            display: 'flex',
-            gap: '8px',
-            overflowX: 'auto',
-            marginTop: '8px',
-            scrollbarWidth: 'none',
-          }}>
-            {deliveryCategories.map(venue => {
-              const active = deliveryCategoryKey(venue) === deliveryCategoryKey(selectedVenue)
-              return (
-                <button
-                  key={deliveryCategoryKey(venue)}
-                  type="button"
-                  onClick={() => setDeliveryCategoryId(deliveryCategoryKey(venue))}
-                  style={{
-                    flex: '1 1 0', minWidth: 0, whiteSpace: 'nowrap', padding: '7px 2px', borderRadius: '18px', cursor: 'pointer',
-                    minHeight: '44px',
-                    border: '1px solid var(--ink-line)',
-                    background: active ? 'var(--ink-accent)' : 'var(--home-surface)',
-                    color: active ? '#fffef5' : 'var(--ink-accent)',
-                    fontSize: '14px', fontWeight: 600
-                  }}
-                >
-                  {deliveryCategoryLabel(venue)}
-                </button>
-              )
-            })}
-          </div>
-        )}
       </div>
     </div>
     {!isFullscreen && <AnnouncementCard />}

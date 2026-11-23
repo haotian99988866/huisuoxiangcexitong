@@ -11,9 +11,10 @@ from telebot import apihelper, types
 
 from config.channels import STAFF_ARCHIVE_VENUES
 from db import get_conn
+from footer import schedule_footer
 from mingxi_complete_attendance import FULL_ROSTER_MARKER
 from staff_archive import detail, listing, photo
-from welcome import BOT_URL, CHANNEL_URL, CONTACT_URL
+from welcome import BOT_URL, CHANNEL_URL as NAVIGATION_CHANNEL_URL, CONTACT_URL
 
 
 logger = logging.getLogger(__name__)
@@ -35,10 +36,6 @@ def _venue(venue_id):
 
 def _table(venue_id, suffix):
     return f"{_venue(venue_id)['table_prefix']}_{suffix}"
-
-
-def _channel_url(venue_id):
-    return f"https://t.me/{_venue(venue_id)['channel_name']}"
 
 
 def _archive_url(venue_id):
@@ -104,7 +101,7 @@ def photo_keyboard(member, username, venue_id=4):
             f"查看{member['code']}详细档案",
             url=f"https://t.me/{username}?startapp=staff_{venue_id}_{member['id']}",
         ),
-        types.InlineKeyboardButton("西港会所导航", url=_channel_url(venue_id)),
+        types.InlineKeyboardButton("西港会所导航", url=NAVIGATION_CHANNEL_URL),
     )
     markup.row(
         types.InlineKeyboardButton("联系昊天", url=CONTACT_URL),
@@ -127,7 +124,7 @@ def navigation_keyboard(page_number, page_count, page_ids, venue_id=4):
         markup.row(*paging)
     markup.row(
         types.InlineKeyboardButton("查看全部人员档案", url=_archive_url(venue_id)),
-        types.InlineKeyboardButton("西港会所导航", url=_channel_url(venue_id)),
+        types.InlineKeyboardButton("西港会所导航", url=NAVIGATION_CHANNEL_URL),
     )
     markup.row(
         types.InlineKeyboardButton("联系昊天", url=CONTACT_URL),
@@ -435,6 +432,11 @@ def verify_destination(bot, venue_id=4):
     return me.username
 
 
+def _schedule_footer_after_update(bot, venue_id, requested):
+    if requested and venue_id in {4, 5, 6}:
+        schedule_footer(bot, _venue(venue_id)["channel_id"])
+
+
 def start_worker(bot, venue_id=4):
     config = _venue(venue_id)
 
@@ -448,6 +450,7 @@ def start_worker(bot, venue_id=4):
                     logger.info("%s archive channel worker ready", config["venue_name"])
                 if username:
                     requested = run_once(bot, username, venue_id)
+                    _schedule_footer_after_update(bot, venue_id, requested)
             except (requests.RequestException, apihelper.ApiException) as exc:
                 logger.error("%s archive channel worker failed: %s",
                              config["venue_name"], type(exc).__name__)

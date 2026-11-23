@@ -18,6 +18,21 @@ def member(ident, *, group="1牌", price="199", cover=None):
 
 
 class DalangChannelTests(unittest.TestCase):
+    @patch.object(channel, "schedule_footer")
+    def test_dalang_wuxiang_and_dihao_archive_updates_schedule_footer_refresh(
+        self, schedule_footer
+    ):
+        bot = Mock()
+        for venue_id in (4, 5, 6):
+            channel._schedule_footer_after_update(bot, venue_id, True)
+            self.assertEqual(
+                schedule_footer.call_args.args,
+                (bot, STAFF_ARCHIVE_VENUES[venue_id]["channel_id"]),
+            )
+        channel._schedule_footer_after_update(bot, 3, True)
+        channel._schedule_footer_after_update(bot, 6, False)
+        self.assertEqual(schedule_footer.call_count, 3)
+
     def test_navigation_paginates_and_links_only_published_current_staff(self):
         members = [member(ident) for ident in range(1, 126)]
         published = {ident: 20000 + ident for ident in range(1, 125)}
@@ -81,12 +96,21 @@ class DalangChannelTests(unittest.TestCase):
                 entry = member(88, group="类别")
                 keyboard = channel.photo_keyboard(entry, "example_bot", venue_id).to_dict()
                 self.assertIn(f"staff_{venue_id}_88", keyboard["inline_keyboard"][0][0]["url"])
-                self.assertIn(config["channel_name"], keyboard["inline_keyboard"][0][1]["url"])
+                self.assertEqual(
+                    keyboard["inline_keyboard"][0][1]["url"],
+                    "https://t.me/haotianyl99988866",
+                )
                 pages = channel.navigation_pages([entry], {88: 201}, venue_id)
                 self.assertIn(config["archive_title"], pages[0])
                 self.assertIn(f"https://t.me/{config['channel_name']}/201", pages[0])
                 self.assertTrue(pages[0].startswith(channel.FULL_ROSTER_MARKER))
                 self.assertTrue(channel.caption(entry, venue_id).startswith(config["repost_prefix"]))
+                nav_buttons = channel.navigation_keyboard(1, 1, {1: 201}, venue_id).to_dict()
+                nav_url = next(
+                    button["url"] for row in nav_buttons["inline_keyboard"] for button in row
+                    if button["text"] == "西港会所导航"
+                )
+                self.assertEqual(nav_url, "https://t.me/haotianyl99988866")
 
     @patch.object(channel, "get_conn")
     def test_archive_tables_are_separate_for_each_venue(self, get_conn):

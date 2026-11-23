@@ -19,9 +19,11 @@ def message(ident=1, chat=navigation.CHANNEL_ID, user=None, album=None):
 class NavigationTests(unittest.TestCase):
     def test_keyboard_preserves_all_links_and_limits_row_width(self):
         rows = navigation.keyboard().to_dict()["inline_keyboard"]
-        self.assertEqual(sum(len(row) for row in rows), 18)
-        self.assertEqual([len(row) for row in rows], [1, 3, 3, 4, 2, 3, 2])
+        self.assertEqual(sum(len(row) for row in rows), 17)
+        self.assertEqual([len(row) for row in rows], [1, 3, 3, 3, 2, 3, 2])
         self.assertEqual(rows[0], [{"text": "活动与折扣专区", "url": "https://t.me/haotianhd99988866"}])
+        self.assertEqual([button["text"] for button in rows[3]], ["170", "180", "160"])
+        self.assertNotIn("苹果", [button["text"] for row in rows for button in row])
         self.assertEqual([button["text"] for button in rows[-2]], ["成人影音", "服务反馈", "昊天大事件"])
         self.assertEqual(rows[-2][-1]["url"], "https://t.me/haotiancm99988866")
         self.assertEqual(rows[-1], [
@@ -29,7 +31,8 @@ class NavigationTests(unittest.TestCase):
             {"text": "西港娱乐信息", "url": "https://app.haotianzhushou.com/?module=venue"},
         ])
         urls = {button["url"] for row in rows for button in row}
-        self.assertEqual(len(urls), 18)
+        self.assertEqual(len(urls), 17)
+        self.assertNotIn("https://t.me/haotianxp", urls)
         self.assertNotIn("https://t.me/htwssp", urls)
         self.assertNotIn("https://t.me/haotianzhaopian_bot", urls)
 
