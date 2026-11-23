@@ -181,7 +181,9 @@ export default function VenueList() {
   const dutyShiftToday = currentShift || selectedVenue?.duty_shift_today
   const dutyLabel = currentShift ? `${currentShift}出勤` : '今日出勤'
   const serviceItems = selectedVenue?.service_items || []
-  const technicianPhotos = selectedVenue?.technician_photos?.[selectedTechnicianCode] || []
+  const technicianPhotos = Number(selectedVenue?.id) === 1
+    ? []
+    : selectedVenue?.technician_photos?.[selectedTechnicianCode] || []
   const technicianProfile = selectedVenue?.technician_profiles?.[selectedTechnicianCode] || {}
   const attendanceGroups = selectedVenue?.attendance_groups || []
   const rosterGroups = attendanceGroups.filter(group => group.group_type === 'roster')
@@ -278,7 +280,9 @@ export default function VenueList() {
 
   const contactManagerUrl = selectedTechnicianCode && selectedVenue
     ? (() => {
-        const originalLinks = selectedVenue.technician_photo_links?.[selectedTechnicianCode] || []
+        const originalLinks = Number(selectedVenue.id) === 1
+          ? []
+          : selectedVenue.technician_photo_links?.[selectedTechnicianCode] || []
         const photoLinks = originalLinks.length ? originalLinks : technicianPhotos.map(id => (
           new URL(mediaUrl(`${API_BASE_URL}/photos/${id}/image`), window.location.origin).href
         ))
@@ -299,7 +303,7 @@ export default function VenueList() {
           ...(technicianServiceCategories.length > 0
             ? [`可服务类别：${technicianServiceCategories.join('、')}`]
             : []),
-          ...(photoLinks.length ? [] : ['该技师暂无可用照片链接']),
+          ...(photoLinks.length || Number(selectedVenue.id) === 1 ? [] : ['该技师暂无可用照片链接']),
           ],
         })
       })()
@@ -326,7 +330,9 @@ export default function VenueList() {
         selectedVenue={selectedVenue}
         isPhotoFirst={isPhotoFirst}
         showStaffArchive={showStaffArchive}
-        setShowStaffArchive={setShowStaffArchive}
+        setShowStaffArchive={value => {
+          setShowStaffArchive(value)
+        }}
         setSelectedTechnicianCode={setSelectedTechnicianCode}
         hasStaffArchive={hasStaffArchive}
         attendanceViewLabel={attendanceViewLabel}
@@ -373,7 +379,7 @@ export default function VenueList() {
             : hasStaffArchive && showStaffArchive
             ? isDelivery
               ? <DeliveryArchive key={deliveryCategoryKey(selectedVenue)} venue={selectedVenue} />
-              : <StaffGallery key={selectedVenue.id} venue={selectedVenue} />
+              : <StaffGallery key={selectedVenue.id} venue={selectedVenue} openStaffId={deepStaffId} />
             : <>
           {isDeliveryDayShift || Array.isArray(selectedVenue.delivery_posts) ? (
             <DeliveryBoard

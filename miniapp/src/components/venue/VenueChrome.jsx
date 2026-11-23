@@ -24,6 +24,7 @@ export default function VenueChrome({
   isFullscreen,
   loading,
   error,
+  list,
   selectedId,
   setSelectedId,
   navigate,
@@ -82,7 +83,11 @@ export default function VenueChrome({
         gap: '7px'
       }}>
         <div style={{
-          padding: '0 2px'
+          width: '100%',
+          minWidth: 0,
+          maxWidth: '100%',
+          padding: '0 2px',
+          boxSizing: 'border-box'
         }}>
           <div className={`venue-personnel-toolbar${mingxiGroup ? ' mingxi-personnel-toolbar' : ' venue-other-toolbar'}`} style={{
             display: 'flex',
@@ -90,35 +95,49 @@ export default function VenueChrome({
             gap: '8px',
             flexWrap: 'nowrap'
           }}>
-            {mingxiGroup && <div className="mingxi-destination-dropdown" ref={servicePickerRef}>
+            {mingxiGroup && <nav className="mingxi-service-buttons" aria-label="名玺服务">
+              {[
+                ['1', '按摩'],
+                ['2', '选妃'],
+                ['3', 'KTV'],
+              ].map(([id, label]) => (
+                <button key={id} type="button" aria-pressed={selectedVenueId === id}
+                  onClick={() => selectMingxi(id)}>{label}</button>
+              ))}
+            </nav>}
+            {!mingxiGroup && <div className="mingxi-destination-dropdown" ref={servicePickerRef}>
               <button
                 type="button"
-                className="mingxi-destination-picker"
+                className="mingxi-destination-picker venue-destination-picker"
                 aria-haspopup="listbox"
                 aria-expanded={servicePicker}
                 onClick={() => setServicePicker(value => !value)}
-                onKeyDown={event => moveMenuFocus(event, setServicePicker, '.mingxi-service-menu')}
+                onKeyDown={event => moveMenuFocus(event, setServicePicker, '.venue-service-menu')}
               >
-                {selectedVenueId === '1' ? '按摩' : selectedVenueId === '3' ? 'KTV' : '选妃'} <span aria-hidden="true">⌄</span>
+                {loading ? '读取中…' : error || selectedVenue?.name?.replace(/凯迪\/|大西洋\//g, '') || '会所服务'}
+                <span aria-hidden="true">⌄</span>
               </button>
-              {servicePicker && <div className="venue-picker-menu mingxi-service-menu" role="listbox" aria-label="名玺服务"
-                onKeyDown={event => moveMenuFocus(event, setServicePicker, '.mingxi-service-menu')}>
-                {[
-                  ['1', '按摩', '正规按摩'],
-                  ['2', '选妃', '出勤与档案'],
-                  ['3', 'KTV', '包房与视频'],
-                ].map(([id, label, description]) => (
-                  <button key={id} type="button" role="option" aria-selected={selectedVenueId === id}
-                    onClick={() => { selectMingxi(id); setServicePicker(false) }}>
-                    <span><strong>{label}</strong><small>{description}</small></span>
-                    <span aria-hidden="true">{selectedVenueId === id ? '✓' : ''}</span>
+              {servicePicker && <div
+                className="venue-picker-menu mingxi-service-menu venue-service-menu"
+                role="listbox"
+                aria-label="选择会所"
+                onKeyDown={event => moveMenuFocus(event, setServicePicker, '.venue-service-menu')}
+              >
+                {list.filter(venue => [4, 5, 6].includes(Number(venue.id))).map(venue => (
+                  <button key={venue.id} type="button" role="option"
+                    aria-selected={selectedVenueId === String(venue.id)}
+                    onClick={() => {
+                      setSelectedId(String(venue.id))
+                      setSelectedTechnicianCode('')
+                      navigate(tenantPath(`/?module=venue&venue=${venue.id}`), { replace: true })
+                      setServicePicker(false)
+                    }}>
+                    <span><strong>{venue.name.replace(/凯迪\/|大西洋\//g, '')}</strong>
+                      <small>出勤与技师档案</small></span>
+                    <span aria-hidden="true">{selectedVenueId === String(venue.id) ? '✓' : ''}</span>
                   </button>
                 ))}
               </div>}
-            </div>}
-            <div id="venue-board-filter-slot" className={`venue-board-filter-slot${isPhotoFirst ? '' : ' is-empty'}`} />
-            {!mingxiGroup && <div className="venue-destination-title">
-              <strong>{loading ? '正在读取…' : error || selectedVenue?.name || '会所服务'}</strong>
             </div>}
             {hasStaffArchive && <nav className="mingxi-personnel-tabs" aria-label="人员浏览">
               {[[false, attendanceViewLabel], [true, '技师档案']].map(([archive, label]) =>
@@ -161,6 +180,7 @@ export default function VenueChrome({
             </div>}
             </div>}
           </div>
+          <div id="venue-board-filter-slot" className={`venue-board-filter-slot${isPhotoFirst ? '' : ' is-empty'}`} />
         </div>
         {deliveryCategories.length > 0 && !isDeliveryDayShift && (
           <div style={{

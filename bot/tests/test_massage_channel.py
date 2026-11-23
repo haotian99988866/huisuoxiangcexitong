@@ -68,8 +68,11 @@ class MassageChannelTests(unittest.TestCase):
     @patch.object(massage_channel, "_edit_text")
     @patch.object(massage_channel, "_state_message_id", return_value=5000)
     @patch.object(massage_channel, "get_conn")
+    @patch.object(massage_channel, "_post_message_ids", return_value={
+        "029": 4908,
+    })
     def test_attendance_edits_complete_post_then_deletes_draft(
-        self, get_conn, state, edit, markup, set_state, schedule
+        self, post_message_ids, get_conn, state, edit, markup, set_state, schedule
     ):
         cur = get_conn.return_value.cursor.return_value.__enter__.return_value
         cur.fetchall.return_value = [{
@@ -91,11 +94,25 @@ class MassageChannelTests(unittest.TestCase):
 
         self.assertEqual(sent, 5000)
         self.assertIn("129", edit.call_args.args[2])
+        self.assertIn(
+            '<a href="https://t.me/c/2324026180/4908?single">029</a>',
+            edit.call_args.args[2],
+        )
+        post_message_ids.assert_called_once_with(["029"])
         bot.delete_message.assert_called_once_with(
             draft.chat.id, draft.message_id, timeout=20
         )
         bot.send_message.assert_not_called()
         schedule.assert_called_once_with(bot)
+
+    def test_attendance_code_links_leave_unarchived_codes_as_text(self):
+        text = massage_channel._attendance_code_links(
+            ["002", "unknown"], {"002": 4909}
+        )
+
+        self.assertIn("https://t.me/c/2324026180/4909?single", text)
+        self.assertIn(">002</a>", text)
+        self.assertTrue(text.endswith("unknown"))
 
     @patch.object(massage_channel, "get_conn")
     def test_seed_existing_posts_does_not_send(self, get_conn):

@@ -1,10 +1,12 @@
+import { useEffect, useMemo, useState } from 'react'
 import ModuleIcon from '../ModuleIcon'
 import CopyBooking from '../CopyBooking'
 import LazyMedia from '../media/LazyMedia'
 import NoticeCard from '../media/NoticeCard'
 import { contactName } from '../../utils/tenant'
-import { mediaUrl } from '../../utils/tenant'
+import { mediaUrl, tenantHeaders } from '../../utils/tenant'
 import { API_BASE_URL } from '../../utils/twa'
+import { massageRosterMembers, massageRosterPhoto, massageRosterServices } from '../../utils/massageRoster'
 import {
   atlanticTechnicianCategories,
   attendanceHeadingRowStyle,
@@ -52,14 +54,59 @@ export default function TechnicianBoard({
   widePhotos,
   setWidePhotos,
 }) {
+  const [archiveMembers, setArchiveMembers] = useState([])
+  const [archiveError, setArchiveError] = useState('')
+  const [archiveAttempt, setArchiveAttempt] = useState(0)
+  const isMassage = Number(selectedVenue.id) === 1
+  useEffect(() => {
+    if (!isMassage) return undefined
+    const controller = new AbortController()
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, 15000)
+    setArchiveError('')
+    fetch(`${API_BASE_URL}/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
+      body: JSON.stringify({ action: 'get_staff', venue_id: 1, mode: 'all' }),
+      cache: 'no-store',
+      signal: controller.signal,
+    }).then(async response => {
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || '人员档案读取失败')
+      if (!Array.isArray(result.members)) throw new Error('人员档案数据格式无效')
+      setArchiveMembers(result.members)
+    }).catch(error => {
+      if (error.name === 'AbortError' && !timedOut) return
+      console.error('[Massage roster archives]', error)
+      setArchiveError('档案照片暂时无法读取，请重试。')
+    }).finally(() => clearTimeout(timeout))
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [isMassage, archiveAttempt])
+  const membersByCode = useMemo(() => massageRosterMembers(archiveMembers), [archiveMembers])
+  const photoFor = code => isMassage
+    ? massageRosterPhoto(code, membersByCode)
+    : (selectedVenue.technician_photos?.[code]?.length
+      ? { id: selectedVenue.technician_photos[code][0], kind: 'photos', count: selectedVenue.technician_photos[code].length }
+      : null)
+  const openTechnician = code => setSelectedTechnicianCode(code)
+  const selectedMassagePhoto = isMassage && selectedTechnicianCode ? photoFor(selectedTechnicianCode) : null
+  const selectedMassageServices = isMassage && selectedTechnicianCode
+    ? massageRosterServices(selectedTechnicianCode, selectedVenue.service_items || [])
+    : []
   const renderTechnicianTile = code => {
-    const photoIds = selectedVenue?.technician_photos?.[code] || []
+    const photo = photoFor(code)
     return (
       <button
         key={code}
         type="button"
-        onClick={() => setSelectedTechnicianCode(code)}
-        aria-label={`查看技师 ${code} 的详情${photoIds.length > 0 ? `，${photoIds.length}张照片` : '，暂无照片'}`}
+        onClick={() => openTechnician(code)}
+        aria-label={`查看技师 ${code} 的详情${photo ? `，${photo.count}张照片` : '，暂无照片'}`}
         style={{
           position: 'relative',
           display: 'flex',
@@ -70,28 +117,28 @@ export default function TechnicianBoard({
           aspectRatio: '0.82',
           padding: '8px 4px',
           overflow: 'hidden',
-          border: photoIds.length > 0
+          border: photo
             ? '1px solid rgba(60, 45, 35, 0.12)'
             : '1px solid var(--ink-line)',
           borderRadius: '12px',
-          backgroundColor: photoIds.length > 0 ? '#e9e2d9' : 'var(--ink-surface)',
-          backgroundImage: photoIds.length > 0
+          backgroundColor: photo ? '#e9e2d9' : 'var(--ink-surface)',
+          backgroundImage: photo
             ? 'none'
             : 'linear-gradient(145deg, #f6eee1, #e8edf5)',
-          color: photoIds.length > 0 ? '#fff' : 'var(--ink-accent)',
+          color: photo ? '#fff' : 'var(--ink-accent)',
           fontSize: '14px',
           fontWeight: 700,
-          textShadow: photoIds.length > 0 ? '0 1px 3px rgba(0, 0, 0, 0.5)' : 'none',
+          textShadow: photo ? '0 1px 3px rgba(0, 0, 0, 0.5)' : 'none',
           cursor: 'pointer',
           boxShadow: '0 2px 5px rgba(40, 65, 48, 0.08)'
         }}
       >
-        {photoIds.length > 0 && (
+        {photo && (
           <>
             <LazyMedia
               alt=""
               decoding="async"
-              src={mediaUrl(`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`)}
+              src={mediaUrl(`${API_BASE_URL}/${photo.kind}/${photo.id}/image?thumb=1`)}
               style={lazyFillStyle}
             />
             <span style={{
@@ -159,13 +206,13 @@ export default function TechnicianBoard({
             margin: '0 16px'
           }}>
             {technicianCodes.map(code => {
-            const photoIds = selectedVenue?.technician_photos?.[code] || []
+            const photo = photoFor(code)
             return (
               <button
                 key={code}
                 type="button"
-                onClick={() => setSelectedTechnicianCode(code)}
-                aria-label={`查看技师 ${code} 的详情${photoIds.length > 0 ? `，${photoIds.length}张照片` : '，暂无照片'}`}
+                onClick={() => openTechnician(code)}
+                aria-label={`查看技师 ${code} 的详情${photo ? `，${photo.count}张照片` : '，暂无照片'}`}
                 style={{
                   display: 'flex',
                   flex: '0 0 24px',
@@ -175,29 +222,29 @@ export default function TechnicianBoard({
                   justifyContent: 'center',
                   padding: 0,
                   overflow: 'hidden',
-                  border: photoIds.length > 0
+                  border: photo
                     ? '1px solid rgba(60, 45, 35, 0.12)'
                     : '1px solid var(--ink-line)',
                   borderRadius: '50%',
-                  backgroundColor: photoIds.length > 0 ? '#e9e2d9' : 'var(--ink-surface)',
+                  backgroundColor: photo ? '#e9e2d9' : 'var(--ink-surface)',
                   position: 'relative',
-                  backgroundImage: photoIds.length > 0
+                  backgroundImage: photo
                     ? 'none'
                     : 'linear-gradient(145deg, #f6eee1, #e8edf5)',
-                  color: photoIds.length > 0 ? '#fff' : 'var(--ink-accent)',
+                  color: photo ? '#fff' : 'var(--ink-accent)',
                   fontSize: '8px',
                   fontWeight: 700,
-                  textShadow: photoIds.length > 0 ? '0 1px 2px rgba(0, 0, 0, 0.7)' : 'none',
+                  textShadow: photo ? '0 1px 2px rgba(0, 0, 0, 0.7)' : 'none',
                   cursor: 'pointer',
                   boxShadow: '0 1px 3px rgba(40, 65, 48, 0.08)'
                 }}
               >
-                {photoIds.length > 0 && (
+                {photo && (
                   <>
                     <LazyMedia
                       alt=""
                       decoding="async"
-                      src={mediaUrl(`${API_BASE_URL}/photos/${photoIds[0]}/image?thumb=1`)}
+                      src={mediaUrl(`${API_BASE_URL}/${photo.kind}/${photo.id}/image?thumb=1`)}
                       style={lazyFillStyle}
                     />
                     <span style={{
@@ -232,6 +279,9 @@ export default function TechnicianBoard({
 
   return (
     <>
+      {isMassage && archiveError && <p role="alert">
+        {archiveError} <button type="button" onClick={() => setArchiveAttempt(value => value + 1)}>重新读取</button>
+      </p>}
       {CHANNEL_PHOTO_VENUE_IDS.includes(venueId) && onDutyCount > 0 ? (
         <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
           <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
@@ -437,7 +487,42 @@ export default function TechnicianBoard({
               </button>
             </div>
 
-            {(selectedVenue.technician_photos?.[selectedTechnicianCode] || []).length > 0 ? (
+            {isMassage ? (
+              <>
+                {selectedMassagePhoto && (
+                  <img
+                    src={mediaUrl(`${API_BASE_URL}/staff-photos/${selectedMassagePhoto.id}/image`)}
+                    alt={`工号 ${selectedTechnicianCode} 的照片`}
+                    style={{ display: 'block', maxWidth: '100%', maxHeight: '240px', margin: '0 auto 18px', borderRadius: '12px', objectFit: 'contain' }}
+                  />
+                )}
+                <h3 style={{ margin: '0 0 8px', fontSize: '15px', color: 'var(--ink-text)' }}>可服务项目</h3>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--ink-muted)' }}>
+                  根据出勤日期关联的项目展示，具体服务请联系确认。
+                </p>
+                {selectedMassageServices.length > 0 ? (
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {selectedMassageServices.map(item => (
+                      <div key={item.id} className="home-service-card">
+                        <div className="home-service-card-heading">
+                          <div className="home-service-card-name">{item.name}</div>
+                          <div className="home-service-card-price">
+                            {item.price != null && item.price !== '' ? `$${Number(item.price).toFixed(2)}` : '价格待确认'}
+                          </div>
+                        </div>
+                        {item.description && <div className="home-service-card-description">{item.description}</div>}
+                        <div className="home-service-card-duration">
+                          <ModuleIcon name="clock" /> {item.duration || '时长待确认'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p style={{ color: 'var(--ink-muted)', fontSize: '14px' }}>暂无已关联的服务项目，请联系确认。</p>}
+                <CopyBooking url={contactManagerUrl} />
+              </>
+            ) : (
+            <>
+            {technicianPhotos.length > 0 ? (
               <div style={{
                 display: 'flex',
                 gap: '10px',
@@ -636,6 +721,8 @@ export default function TechnicianBoard({
             )}
 
             <CopyBooking url={contactManagerUrl} />
+            </>
+            )}
           </section>
         </div>
       )}

@@ -389,6 +389,41 @@ def _directory_markup():
     return markup
 
 
+def _post_message_ids(codes):
+    normalized = [str(code) for code in codes]
+    if not normalized:
+        return {}
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT code,msg_id
+                FROM massage_channel_posts
+                WHERE channel_id=%s AND code IN ({",".join(["%s"] * len(normalized))})
+                """,
+                (CHANNEL_ID, *normalized),
+            )
+            return {
+                str(row["code"]): int(row["msg_id"])
+                for row in cur.fetchall()
+            }
+    finally:
+        conn.close()
+
+
+def _attendance_code_links(codes, post_message_ids):
+    return "  ".join(
+        (
+            f'<a href="https://t.me/c/2324026180/{post_message_ids[code]}?single">'
+            f"{html.escape(code)}</a>"
+            if code in post_message_ids
+            else html.escape(code)
+        )
+        for code in codes
+    )
+
+
 def refresh_directory(bot):
     msg_id = _state_message_id("directory")
     text = directory_text()
@@ -465,6 +500,14 @@ def publish_attendance(bot, attendance, source_message):
         categories.setdefault(
             (service["category"], service["category_name"]), []
         ).append(service)
+    attendance_codes = sorted({
+        code
+        for items in categories.values()
+        for item in items
+        for code in (item["codes"] or "").split(",")
+        if code
+    })
+    post_message_ids = _post_message_ids(attendance_codes)
     for (_, category_name), items in categories.items():
         codes = sorted({
             code
@@ -480,7 +523,10 @@ def publish_attendance(bot, attendance, source_message):
                 f"{html.escape(item['duration'])}"
             )
         lines.extend([
-            "工号：" + ("  ".join(html.escape(code) for code in codes) if codes else "—"),
+            "工号：" + (
+                _attendance_code_links(codes, post_message_ids)
+                if codes else "—"
+            ),
             "",
         ])
     lines += [

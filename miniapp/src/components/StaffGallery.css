@@ -40,12 +40,83 @@
 .staff-admin-detail button:disabled { opacity: .5; cursor: default; }
 @media (max-width: 380px) { .staff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .mingxi-personnel-toolbar {
+  --mingxi-control-font-size: 12px;
   display: grid !important;
-  grid-template-columns: 76px 92px minmax(0, 1fr) 70px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto;
   gap: 6px !important;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+}
+.mingxi-service-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  padding: 2px;
+  border-radius: 12px;
+  background: var(--ink-surface);
+}
+.mingxi-service-buttons button {
+  min-height: 44px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: var(--mingxi-control-font-size);
+  font-weight: 600;
+  line-height: 1;
+}
+.mingxi-service-buttons button[aria-pressed="true"] {
+  background: var(--ink-reading);
+  color: var(--ink-accent);
+  box-shadow: 0 1px 4px #1e293b12;
+}
+.mingxi-board-filter-buttons {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  padding: 0 0 2px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.mingxi-board-filter-buttons::-webkit-scrollbar {
+  display: none;
+}
+.mingxi-board-filter-buttons button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--ink-line);
+  border-radius: 999px;
+  background: var(--ink-reading);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  touch-action: pan-x;
+}
+.mingxi-board-filter-buttons button[aria-pressed="true"] {
+  border-color: var(--ink-accent);
+  background: color-mix(in srgb, var(--ink-accent) 10%, var(--ink-reading));
+  color: var(--ink-accent);
+  font-weight: 650;
+}
+.mingxi-board-filter-buttons small {
+  color: inherit;
+  font-size: 10px;
+  opacity: .8;
 }
 .venue-other-toolbar {
   display: flex !important;
@@ -77,7 +148,9 @@
 }
 .mingxi-personnel-toolbar .venue-board-filter-slot {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+  overflow: hidden;
 }
 .mingxi-personnel-toolbar .venue-board-filter-slot.is-empty {
   display: none;
@@ -106,7 +179,8 @@
   width: 100%;
   min-height: 48px !important;
   padding-inline: 8px;
-  font-size: 10px !important;
+  font-size: var(--mingxi-control-font-size) !important;
+  line-height: 1;
 }
 .venue-subscriptions-slot .mingxi-subscribed-open span {
   display: inline-grid;
@@ -133,7 +207,9 @@
 }
 .mingxi-personnel-toolbar .mingxi-personnel-tabs button {
   padding-inline: 5px;
-  font-size: 10px;
+  font-size: var(--mingxi-control-font-size);
+  font-weight: 500;
+  line-height: 1;
   white-space: nowrap;
 }
 .mingxi-destination-picker {
@@ -480,6 +556,7 @@
 }
 .venue-board-filter-slot {
   flex: 0 1 46%;
+  max-width: 100%;
   min-width: 0;
 }
 .mingxi-board-filter-picker {
@@ -565,7 +642,7 @@
 }
 @media (max-width: 360px) {
   .mingxi-personnel-toolbar {
-    grid-template-columns: 64px 82px minmax(0, 1fr) 58px;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) auto;
     gap: 4px !important;
   }
   .mingxi-personnel-toolbar .mingxi-destination-picker,
@@ -578,10 +655,6 @@
   }
   .venue-subscriptions-slot .mingxi-subscribed-open {
     padding-inline: 5px;
-    font-size: 9px !important;
-  }
-  .mingxi-personnel-toolbar .mingxi-personnel-tabs button {
-    font-size: 9px;
   }
   .venue-other-toolbar .mingxi-personnel-tabs {
     flex-basis: 124px;

@@ -122,9 +122,7 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   const [notice, setNotice] = useState('')
   const [description, setDescription] = useState('')
   const [boardFilter, setBoardFilter] = useState('全部')
-  const [boardPicker, setBoardPicker] = useState(false)
   const [visibleCount, setVisibleCount] = useState(24)
-  const boardPickerRef = useRef(null)
   const [subscriptionDuration, setSubscriptionDuration] = useState('30d')
   const touchStart = useRef(null)
   // 订阅只改本地状态，勿触发整表重拉，避免屏幕一闪
@@ -150,21 +148,6 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
     setBoardFilter('全部')
     setVisibleCount(24)
   }, [attendanceOnly])
-  useEffect(() => {
-    if (!boardPicker) return undefined
-    const close = event => {
-      if (!boardPickerRef.current?.contains(event.target)) setBoardPicker(false)
-    }
-    const onKey = event => {
-      if (event.key === 'Escape') setBoardPicker(false)
-    }
-    document.addEventListener('pointerdown', close)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [boardPicker])
   useEffect(() => {
     let active = true
     const controller = new AbortController()
@@ -391,30 +374,13 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
       )
     )}
     {data && clubStyle && photoFirst && boardChips.length > 0 && document.getElementById('venue-board-filter-slot') && (
-      createPortal(<div className="mingxi-board-filter-dropdown" ref={boardPickerRef}>
-        <button
-          type="button"
-          className="mingxi-board-filter-picker"
-          aria-haspopup="listbox"
-          aria-expanded={boardPicker}
-          onClick={() => setBoardPicker(value => !value)}
-          onKeyDown={event => moveMenuFocus(event, setBoardPicker, '.mingxi-board-menu')}
-        >
-          <span>{boardFilter === '全部' ? '全部' : boardFilter}</span>
-          <small>{boardFilter === '全部' ? baseMembers.length
-            : boardChips.find(chip => chip.name === boardFilter)?.count || 0}位</small>
-          <span aria-hidden="true">⌄</span>
-        </button>
-        {boardPicker && <div className="venue-picker-menu mingxi-board-menu" role="listbox" aria-label={`选择${groupLabel}位`}
-          onKeyDown={event => moveMenuFocus(event, setBoardPicker, '.mingxi-board-menu')}>
-          {[{ name: '全部', count: baseMembers.length }, ...boardChips].map(chip => (
-            <button key={chip.name} type="button" role="option" aria-selected={boardFilter === chip.name}
-              onClick={() => { setBoardFilter(chip.name); setBoardPicker(false) }}>
-              <span><strong>{chip.name === '全部' ? '全部' : chip.name}</strong><small>{chip.count} 位</small></span>
-              <span aria-hidden="true">{boardFilter === chip.name ? '✓' : ''}</span>
-            </button>
-          ))}
-        </div>}
+      createPortal(<div className="mingxi-board-filter-buttons" aria-label={`选择${groupLabel}位`}>
+        {[{ name: '全部', count: baseMembers.length }, ...boardChips].map(chip => (
+          <button key={chip.name} type="button" aria-pressed={boardFilter === chip.name}
+            onClick={() => setBoardFilter(chip.name)}>
+            <span>{chip.name}</span><small>{chip.count}</small>
+          </button>
+        ))}
       </div>, document.getElementById('venue-board-filter-slot'))
     )}
     {error && <p className="membership-error" role="alert">{error}</p>}
