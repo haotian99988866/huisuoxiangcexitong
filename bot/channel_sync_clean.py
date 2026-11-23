@@ -210,7 +210,7 @@ def is_news_advertisement(text):
     )
 
 
-def clean_text(text, entities=()):
+def clean_text(text, entities=(), *, additional_contacts=()):
     """Remove contact spans using Telegram's UTF-16 offsets before editing text."""
     encoded = (text or "").encode("utf-16-le")
     spans = []
@@ -228,6 +228,17 @@ def clean_text(text, entities=()):
             spans.append((start, end, replacement.encode("utf-16-le")))
         else:
             spans.append((start, end, b""))
+    for pattern in additional_contacts:
+        for match in pattern.finditer(text or ""):
+            start = len(text[:match.start()].encode("utf-16-le"))
+            end = len(text[:match.end()].encode("utf-16-le"))
+            remaining = []
+            for begin, stop, replacement in spans:
+                if start < stop and end > begin:
+                    start, end = min(start, begin), max(end, stop)
+                else:
+                    remaining.append((begin, stop, replacement))
+            spans = remaining + [(start, end, b"")]
     for start, end, replacement in sorted(spans, reverse=True):
         encoded = encoded[:start] + replacement + encoded[end:]
     text = encoded.decode("utf-16-le")

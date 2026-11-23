@@ -186,7 +186,7 @@ def reading_text(body, media):
             "excerpt": excerpt[:100] + ("…" if len(excerpt) > 100 else "")}
 
 
-def serialize(row, detail=False):
+def serialize(row, detail=False, *, media_base="/announcement-media"):
     media = json.loads(row["media"]) if isinstance(row["media"], str) else row["media"]
     reading = reading_text(row["body"], media)
     cover_index = next((index for index, item in enumerate(media)
@@ -195,7 +195,7 @@ def serialize(row, detail=False):
         "id": row["id"], "summary": summary(row["body"], media),
         "title": reading["title"], "category": reading["category"], "excerpt": reading["excerpt"],
         "cover": {"kind": media[cover_index]["kind"],
-                  "url": f"/announcement-media/{row['id']}/{cover_index}"} if cover_index is not None else None,
+                  "url": f"{media_base}/{row['id']}/{cover_index}"} if cover_index is not None else None,
         "has_video": any(item["kind"] == "video" for item in media),
         "maps": map_previews(row["body"]),
         "published_at": row["published_at"].isoformat(timespec="seconds") + "Z",
@@ -205,7 +205,7 @@ def serialize(row, detail=False):
         result["body"] = row["body"]
         result["content"] = reading["content"]
         result["media"] = [
-            {"kind": item["kind"], "url": f"/announcement-media/{row['id']}/{index}"}
+            {"kind": item["kind"], "url": f"{media_base}/{row['id']}/{index}"}
             for index, item in enumerate(media)
         ]
     return result

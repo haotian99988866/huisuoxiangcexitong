@@ -21,7 +21,7 @@ import ContactProfileNotice from './components/ContactProfileNotice'
 import AppNavigation from './components/AppNavigation'
 import MusicPlayer from './components/MusicPlayer'
 import { isTenantEntry } from './utils/tenant'
-import { modules } from './utils/modules'
+import { modules, serviceFeeds } from './utils/modules'
 import TenantGate from './components/TenantGate'
 import AnalyticsTracker from './components/AnalyticsTracker'
 import './App.css'
@@ -85,6 +85,10 @@ function Content() {
         <Route path="/personal" element={<Personal />} />
         <Route path="/personal-finance" element={<PersonalFinance />} />
         <Route path="/services" element={<Services />} />
+        {serviceFeeds.map(service => <Route key={service.key} path={service.path}
+          element={<Announcements key={service.key} service={service} />} />)}
+        {serviceFeeds.map(service => <Route key={`${service.key}-detail`} path={`${service.path}/:id`}
+          element={<Announcements key={service.key} service={service} />} />)}
         <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/hotels" element={<Hotels />} />
         <Route path="/orders" element={<Orders />} />

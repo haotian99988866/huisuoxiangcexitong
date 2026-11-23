@@ -15,6 +15,7 @@ export default function AppNavigation({ children }) {
   const location = useLocation()
   const player = useMusic()
   const section = navigationSection(location.pathname)
+  const servicesActive = /^\/services(?:\/|$)/.test(location.pathname)
   const [fullscreen, setFullscreen] = useState(false)
   const lastVenue = useRef(2)
   const lastClubVenue = useRef(4)
@@ -50,9 +51,9 @@ export default function AppNavigation({ children }) {
           section === 'home' && !deliveryActive && GROUP_DESTINATIONS.venue.ids.includes(String(currentVenue))],
         ['delivery', '外送', 'delivery', '/?module=delivery',
           section === 'home' && deliveryActive],
-        ['services', '服务', 'services', '/services', location.pathname === '/services'],
+        ['services', '服务', 'services', '/services', servicesActive],
         ['personal', '我的', 'personal', '/personal',
-          section !== 'home' && location.pathname !== '/services'],
+          section !== 'home' && !servicesActive],
       ].map(([key, label, icon, path, active]) => <Link key={key} to={path}
         aria-current={active ? 'page' : undefined}
         onClick={event => {

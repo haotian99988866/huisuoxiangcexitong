@@ -5,6 +5,7 @@ import AccountHeader from '../components/AccountHeader'
 import '../components/ui/ui.css'
 import { bindBackButton } from '../utils/twa'
 import { useModuleScroll } from '../utils/moduleState'
+import { serviceFeeds } from '../utils/modules'
 import './Membership.css'
 
 export default function Services() {
@@ -14,13 +15,14 @@ export default function Services() {
     <AccountHeader><header className="membership-header">
       <h1>服务中心</h1>
     </header></AccountHeader>
-    <p className="consumption-intro">娱乐、资讯、订阅与充值服务，一站直达</p>
+    <p className="consumption-intro">住宿、租车、娱乐、资讯与充值服务，一站直达</p>
     <section className="membership-panel service-quick-grid" aria-label="全部服务">
       {[
         ['movies', '观影', '/movies'],
         ['movies', '短剧', '/short-dramas'],
         ['music', '音乐', '/music'],
         ['location', '酒店', '/hotels'],
+        ...serviceFeeds.map(item => [item.icon, item.label, item.path]),
         ['announcements', '资讯', '/announcements'],
         ['announcements', '订阅', '/subscriptions'],
         ['membership', '会员', '/membership'],
@@ -28,7 +30,7 @@ export default function Services() {
       ].map(([icon, label, path]) => (
         <Link key={path} to={path}>
           <ModuleIcon name={icon} />
-          <span>{label}</span>
+          <span className={label.length > 2 ? 'service-long-label' : undefined}>{label}</span>
         </Link>
       ))}
     </section>

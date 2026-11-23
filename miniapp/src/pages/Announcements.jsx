@@ -10,6 +10,7 @@ import { API_BASE_URL, bindBackButton, errorText, hasTelegramBackButton, openTel
 import { getTenant, hasAnnouncementAccess, mediaUrl, tenantPath } from '../utils/tenant'
 import { rememberModuleScroll, useModuleScroll, useModuleState } from '../utils/moduleState'
 import { requestAnnouncements } from '../utils/announcements'
+import ServiceFeedView from './ServiceFeedView'
 import './Announcements.css'
 
 const dateText = value => new Date(value).toLocaleString('zh-CN', {
@@ -34,15 +35,21 @@ function NewsIcon({ name, ...props }) {
   return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>
 }
 
-export default function Announcements() {
+export default function Announcements({ service = null }) {
   const { id } = useParams()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const pageValue = Number(params.get('page'))
   const requestedPage = Number.isInteger(pageValue) && pageValue > 0 && pageValue <= 100000 ? pageValue : 1
-  const historyPath = `/announcements?page=${requestedPage}`
-  const requestKey = id ? `detail:${id}` : `list:${requestedPage}`
-  const scrollKey = `announcements:list:${requestedPage}`
+  const basePath = service?.path || '/announcements'
+  const sectionTitle = service?.label || '东南亚大事件'
+  const listLabel = service ? '服务列表' : '资讯列表'
+  const listAction = service ? 'get_service_posts' : 'get_announcements'
+  const detailAction = service ? 'get_service_post' : 'get_announcement'
+  const categoryFields = service ? { category: service.key } : {}
+  const historyPath = `${basePath}?page=${requestedPage}`
+  const requestKey = `${basePath}:${id ? `detail:${id}` : `list:${requestedPage}`}`
+  const scrollKey = `${basePath}:list:${requestedPage}`
   const [loaded, setLoaded] = useState({ key: '', data: null, error: '' })
   const [moreItems, setMoreItems] = useState([])
   const [moreState, setMoreState] = useState({ busy: false, error: '' })
@@ -55,10 +62,11 @@ export default function Announcements() {
   const [fullscreen, setFullscreen] = useState(() => Boolean(window.Telegram?.WebApp?.isFullscreen))
   const [fontSize, setFontSize] = useModuleState('announcements.fontSize', 18)
   const [viewer, setViewer] = useState(null)
-  const allowed = hasAnnouncementAccess()
-  const goBack = () => navigate(tenantPath(id ? historyPath : '/'))
+  const allowed = service ? !getTenant() : hasAnnouncementAccess()
+  const parentPath = service ? '/services' : '/'
+  const goBack = () => navigate(tenantPath(id ? historyPath : parentPath))
   useEffect(() => subscribeFullscreen(setFullscreen), [])
-  useEffect(() => bindBackButton(() => navigate(tenantPath(id ? historyPath : '/'))), [navigate, id, historyPath])
+  useEffect(() => bindBackButton(() => navigate(tenantPath(id ? historyPath : parentPath))), [navigate, id, historyPath, parentPath])
   useModuleScroll(scrollKey, Boolean(result) && !id)
   useLayoutEffect(() => {
     if (id) window.scrollTo(0, 0)
@@ -74,8 +82,8 @@ export default function Announcements() {
     setMoreState({ busy: false, error: '' })
     setLoaded({ key: requestKey, data: null, error: '' })
     const timer = setTimeout(() => controller.abort(), 15000)
-    requestAnnouncements(id ? 'get_announcement' : 'get_announcements',
-      id ? { id: Number(id) } : { page: requestedPage }, controller.signal)
+    requestAnnouncements(id ? detailAction : listAction,
+      { ...categoryFields, ...(id ? { id: Number(id) } : { page: requestedPage }) }, controller.signal)
       .then(value => { if (active) setLoaded({ key: requestKey, data: value, error: '' }) }).catch(failure => {
         if (!active) return
         console.error('[Announcements]', failure)
@@ -89,7 +97,7 @@ export default function Announcements() {
       moreRequest.current?.abort()
       moreRequest.current = null
     }
-  }, [id, requestedPage, requestKey, allowed, attempt])
+  }, [id, requestedPage, requestKey, allowed, attempt, service?.key, listAction, detailAction])
   const loadMore = async () => {
     if (!result || id || !hasMore || moreRequest.current) return
     const controller = new AbortController()
@@ -97,7 +105,7 @@ export default function Announcements() {
     setMoreState({ busy: true, error: '' })
     try {
       const page = result.page + 1
-      const next = await requestAnnouncements('get_announcements', { page }, controller.signal)
+      const next = await requestAnnouncements(listAction, { ...categoryFields, page }, controller.signal)
       if (controller.signal.aborted) return
       setMoreItems(items => [...items, ...next.items])
       setLoaded(current => current.key === requestKey && current.data
@@ -115,25 +123,32 @@ export default function Announcements() {
   }
   const photos = result?.media?.filter(item => item.kind === 'photo') || []
   const openPhoto = item => setViewer(photos.indexOf(item))
+  if (service) return <ServiceFeedView service={service} detailId={id} data={result} items={feedItems}
+    page={requestedPage} listPath={historyPath} scrollKey={scrollKey} allowed={allowed} error={error}
+    onBack={goBack} onRefresh={() => setAttempt(value => value + 1)} onOpenPhoto={openPhoto}
+    fontSize={fontSize} onFontSize={() => setFontSize(value => value === 20 ? 16 : value + 2)}
+    loadMore={{ hasMore, ...moreState, onLoad: loadMore }} Cover={NewsCover} Media={AnnouncementMedia}>
+    {viewer !== null && <PhotoViewer key={id} photos={photos} initialIndex={viewer} onClose={() => setViewer(null)} />}
+  </ServiceFeedView>
   return <main className={`announcements-page${id ? ' news-reading' : ''}${fullscreen ? ' news-fullscreen' : ''}`}>
     <div className="news-sticky">
       {fullscreen && (id ? <div className="news-telegram-clearance" /> : <FullscreenAnnouncementBar />)}
-      {!id && <ModuleTabs active="announcements" />}
+      {!id && <ModuleTabs active={service?.key || 'announcements'} />}
       <div className="news-toolbar">
-        {id && !hasTelegramBackButton && <button className="news-icon-button" aria-label="返回资讯列表" onClick={goBack}><NewsIcon name="back" /></button>}
-        {id ? <Link className="news-toolbar-title" to={tenantPath(historyPath)}>{getTenant()?.brand_name || '东南亚大事件'}</Link>
-          : <div className="news-list-heading"><h1>{fullscreen ? '最新资讯' : '东南亚大事件'}</h1><span>{result ? `${result.total} 条` : '按时间更新'}</span></div>}
+        {(id || service) && !hasTelegramBackButton && <button className="news-icon-button" aria-label={id ? `返回${listLabel}` : '返回服务中心'} onClick={goBack}><NewsIcon name="back" /></button>}
+        {id ? <Link className="news-toolbar-title" to={tenantPath(historyPath)}>{getTenant()?.brand_name || sectionTitle}</Link>
+          : <div className="news-list-heading"><h1>{service ? sectionTitle : fullscreen ? '最新资讯' : sectionTitle}</h1><span>{result ? `${result.total} 条` : '按时间更新'}</span></div>}
         {id ? <div className="news-reading-actions">
-          <Link className="news-all-link" to={tenantPath(historyPath)}>全部资讯</Link>
+          <Link className="news-all-link" to={tenantPath(historyPath)}>{service ? '全部信息' : '全部资讯'}</Link>
           <button className="news-font-button" onClick={() => setFontSize(value => value === 20 ? 16 : value + 2)}
             aria-label={`正文字号 ${fontSize}，点击切换`}><span>Aa</span><small>字号</small></button>
         </div>
-          : <button className="news-icon-button" aria-label="刷新资讯" disabled={!allowed || (!result && !error)}
+          : <button className="news-icon-button" aria-label={service ? '刷新服务信息' : '刷新资讯'} disabled={!allowed || (!result && !error)}
             onClick={() => setAttempt(value => value + 1)}><NewsIcon name="refresh" /></button>}
       </div>
       {id && <ReadingProgress articleId={id} ready={Boolean(result)} />}
     </div>
-    {allowed && <div className="news-subscription">
+    {allowed && !service && <div className="news-subscription">
       <span>新资讯，机器人及时提醒<span>主动订阅 · 随时取消</span></span>
       <button type="button" onClick={() => openTelegramLink(`https://t.me/haotianzhaopian_bot?start=news${getTenant()?.slug ? `_${getTenant().slug}` : ''}`)}>订阅 / 管理</button>
     </div>}
@@ -146,7 +161,7 @@ export default function Announcements() {
               <header className="news-article-heading">
                 <span className="news-category">{result.category}</span>
                 <h1>{result.title}</h1>
-                <div className="news-byline"><span className="news-source-mark" aria-hidden="true">讯</span><div><strong>频道资讯</strong><time dateTime={result.published_at}>{fullDateText(result.published_at)}</time></div></div>
+                <div className="news-byline"><span className="news-source-mark" aria-hidden="true">{service ? '介' : '讯'}</span><div><strong>{service ? sectionTitle : '频道资讯'}</strong><time dateTime={result.published_at}>{fullDateText(result.published_at)}</time></div></div>
               </header>
               {result.media.length > 0 && <section className="news-attachments news-media-at-top" aria-label="相关图片与视频">
                 <div className="news-section-label"><span>相关影像</span><small>{result.media.length} 项 · 点击图片查看大图</small></div>
@@ -161,13 +176,13 @@ export default function Announcements() {
               {result.content && <div className="news-article-body">{result.content.split(/\n\s*\n/).filter(Boolean).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>}
               <div className="news-article-end"><span />全文完<span /></div>
             </article>
-            <footer className="news-reading-footer"><div><span className="news-eyebrow">继续发现</span><h2>看看更多频道动态</h2><p>回到资讯列表，接着上次的位置浏览。</p></div>
+            <footer className="news-reading-footer"><div><span className="news-eyebrow">继续发现</span><h2>看看更多频道动态</h2><p>回到{listLabel}，接着上次的位置浏览。</p></div>
               <button className="news-text-button" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><NewsIcon name="up" />回到顶部</button>
             </footer>
           </> : <>
             {!feedItems.length ? <EmptyState>新的动态，敬请期待。频道消息收录后会出现在这里。</EmptyState>
               : <div className="news-feed">{feedItems.map((item, index) => <Link className={`news-feed-item${!item.cover ? ' news-text-only' : ''}`} key={item.id}
-                onClick={() => rememberModuleScroll(scrollKey)} to={tenantPath(`/announcements/${item.id}?page=${requestedPage}`)}>
+                onClick={() => rememberModuleScroll(scrollKey)} to={tenantPath(`${basePath}/${item.id}?page=${requestedPage}`)}>
                 <div className="news-feed-copy">
                   <div className="news-feed-kicker">{result.page === 1 && index === 0 && <span className="news-latest">最新</span>}<span>{item.category}</span></div>
                   <h3>{item.title}</h3>
@@ -248,14 +263,21 @@ function NewsSkeleton({ detail }) {
   </div>
 }
 
-function AnnouncementMedia({ item, index, onOpen, lead = false }) {
+function AnnouncementMedia({ item, index, onOpen, lead = false, active = true, label = '资讯' }) {
   const [failed, setFailed] = useState(false)
   const [retry, setRetry] = useState(0)
+  const video = useRef(null)
+  useEffect(() => {
+    if (!active && video.current) {
+      video.current.pause()
+      video.current.load()
+    }
+  }, [active])
   return <figure className={`news-media${lead ? ' news-media-lead' : ''}${item.kind === 'video' ? ' news-media-video' : ''}`}>
     {failed ? <figcaption role="alert"><NewsIcon name="image" /><span>媒体加载失败</span><button className="news-text-button" onClick={() => { setFailed(false); setRetry(value => value + 1) }}>点击重试</button></figcaption>
-      : item.kind === 'video' ? <video key={retry} controls playsInline preload="metadata" src={imageUrl(item)} aria-label={`资讯视频 ${index + 1}`} onError={() => setFailed(true)} />
-        : <button className="news-photo-button" onClick={() => onOpen(item)} aria-label={`查看图片 ${index + 1} 大图`}>
-          <img key={retry} src={imageUrl(item)} alt={`资讯图片 ${index + 1}`} loading={lead ? 'eager' : 'lazy'} onError={() => setFailed(true)} />
+      : item.kind === 'video' ? <video ref={video} key={retry} controls playsInline tabIndex={active ? 0 : -1} preload={active ? 'metadata' : 'none'} src={active ? imageUrl(item) : undefined} aria-label={`${label}视频 ${index + 1}`} onError={() => setFailed(true)} />
+        : <button className="news-photo-button" tabIndex={active ? 0 : -1} onClick={() => onOpen(item)} aria-label={`查看图片 ${index + 1} 大图`}>
+          <img key={retry} src={imageUrl(item)} alt={`${label}图片 ${index + 1}`} loading={lead && active ? 'eager' : 'lazy'} onError={() => setFailed(true)} />
           <span>{lead ? '点击查看大图' : String(index + 1).padStart(2, '0')}</span>
         </button>}
   </figure>

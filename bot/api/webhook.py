@@ -5,6 +5,7 @@ from flask import g, jsonify, request
 
 import announcements
 import hotels
+import service_posts
 import venue_recommendations
 from tenants import public_config
 
@@ -104,6 +105,31 @@ def _get_announcement(data):
         return jsonify({"error": "公告暂不可用，请稍后重试"}), 503
 
 
+def _get_service_posts(data):
+    return _service_read(data, detail=False)
+
+
+def _get_service_post(data):
+    return _service_read(data, detail=True)
+
+
+def _service_read(data, *, detail):
+    try:
+        result = (service_posts.detail(data.get("category"), data.get("id")) if detail
+                  else service_posts.catalog(data.get("category"), data.get("page", 1)))
+        if result is None:
+            return jsonify({"error": "服务消息不存在或已下架"}), 404
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except pymysql.MySQLError:
+        import api_server
+        api_server.logger.exception("Service feed unavailable")
+        return jsonify({"error": "服务消息暂不可用，请稍后重试"}), 503
+
+
 # Public read actions migrated out of api_server.webhook; other actions stay in webhook().
 PUBLIC_READ_HANDLERS = {
     "tenant_config": _tenant_config,
@@ -111,6 +137,8 @@ PUBLIC_READ_HANDLERS = {
     "get_venue_recommendations": _get_venue_recommendations,
     "get_announcements": _get_announcements,
     "get_announcement": _get_announcement,
+    "get_service_posts": _get_service_posts,
+    "get_service_post": _get_service_post,
 }
 
 

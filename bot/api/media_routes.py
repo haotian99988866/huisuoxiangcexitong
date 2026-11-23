@@ -5,6 +5,7 @@ from flask import Blueprint, Response, g, jsonify, request, send_file
 
 import announcements
 import hotels
+import service_posts
 import venue_recommendations
 from movies import (
     DRAMA_CHANNEL_ID,
@@ -287,15 +288,24 @@ def delivery_media(media_id):
     "/announcement-media/<int:ident>/<int:index>", endpoint="announcement_media"
 )
 def announcement_media(ident, index):
+    return _post_media(announcements, ident, index, "公告")
+
+
+@media_blueprint.get("/service-media/<int:ident>/<int:index>", endpoint="service_media")
+def service_media(ident, index):
+    return _post_media(service_posts, ident, index, "服务")
+
+
+def _post_media(storage, ident, index, label):
     import api_server
 
     try:
-        media = announcements.media_file(ident, index)
+        media = storage.media_file(ident, index)
         if media is None:
-            return jsonify({"error": "公告媒体不存在或已下架"}), 404
-        path = announcements.local_media_path(media["filename"])
+            return jsonify({"error": f"{label}媒体不存在或已下架"}), 404
+        path = storage.local_media_path(media["filename"])
         if not path.is_file():
-            return jsonify({"error": "公告媒体暂不可用，请稍后重试"}), 503
+            return jsonify({"error": f"{label}媒体暂不可用，请稍后重试"}), 503
         if media["kind"] == "video":
             from announcement_video import playback_path
 
@@ -313,8 +323,8 @@ def announcement_media(ident, index):
             )
         return response
     except pymysql.MySQLError:
-        api_server.logger.exception("Announcement media unavailable")
-        return jsonify({"error": "公告媒体暂不可用"}), 503
+        api_server.logger.exception("%s media unavailable", label)
+        return jsonify({"error": f"{label}媒体暂不可用"}), 503
 
 
 @media_blueprint.get("/hotel-images/<hotel_id>", endpoint="hotel_image")

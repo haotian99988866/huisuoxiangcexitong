@@ -151,6 +151,8 @@ def tenant_context():
     slug = header if header is not None else query
     if slug is not None and request.path in {"/admin-hotel-save", "/admin-delivery-upload", "/admin-venue-recommendation-save"}:
         return jsonify({"error": "租户入口不开放后台上传管理"}), 403
+    if slug is not None and _view_endpoint() == "service_media":
+        return jsonify({"error": "租户入口暂未开放住宿和租车服务"}), 403
     if slug is not None and _view_endpoint() == "hotel_image":
         return jsonify({"error": "租户入口暂未开放酒店推荐"}), 403
     if slug is not None and request.path == "/member-deposit":
@@ -1553,6 +1555,8 @@ if __name__ == "__main__":
     ensure_music_tables()
     announcements.ensure_tables()
     hotels.ensure_tables()
+    from service_posts import ensure_tables as ensure_service_post_tables
+    ensure_service_post_tables()
     venue_recommendations.ensure_tables()
     from music_social import ensure_tables as ensure_music_social_tables
     ensure_music_social_tables()

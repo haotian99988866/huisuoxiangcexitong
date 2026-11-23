@@ -487,6 +487,18 @@ async def index_announcement(bot, target, job, key):
         await asyncio.to_thread(save, key, ids, "", [], published_at, enabled=False)
         logger.info("Recorded expired announcement job %s without downloading media", job["job_key"])
         return
+    media = await download_post_media(bot, messages, target.id, local_media_path)
+    body = "\n\n".join(message.message for message in messages if message.message)
+    if not body and not media:
+        await asyncio.to_thread(save, key, ids, "", [], published_at, enabled=False)
+        logger.warning("Skipped unsupported announcement job %s without text or supported media",
+                       job["job_key"])
+        return
+    await asyncio.to_thread(save, key, ids, body, media, messages[0].date)
+    logger.info("Indexed announcement from published job %s", job["job_key"])
+
+
+async def download_post_media(reader, messages, channel_id, local_media_path, *, request=None):
     media = []
     for message in messages:
         if message.photo or message.video or message.gif:
@@ -494,7 +506,7 @@ async def index_announcement(bot, target, job, key):
             extension = "jpg" if message.photo else (
                 "webm" if message.file.mime_type == "video/webm" else "mp4"
             )
-            path = local_media_path(f"{target.id}-{message.id}.{extension}")
+            path = local_media_path(f"{channel_id}-{message.id}.{extension}")
             size = message.file.size
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists() or path.stat().st_size != size:
@@ -504,21 +516,17 @@ async def index_announcement(bot, target, job, key):
                     raise OSError("Announcement media storage requires 1 GB free disk reserve.")
                 temporary = path.with_suffix(".part")
                 try:
-                    await bot.download_media(message, file=str(temporary))
+                    if request is None:
+                        await reader.download_media(message, file=str(temporary))
+                    else:
+                        await request(lambda: reader.download_media(message, file=str(temporary)))
                     if temporary.stat().st_size != size:
                         raise ValueError("Announcement media download incomplete.")
                     temporary.replace(path)
                 finally:
                     temporary.unlink(missing_ok=True)
             media.append({"kind": kind, "filename": path.name})
-    body = "\n\n".join(message.message for message in messages if message.message)
-    if not body and not media:
-        await asyncio.to_thread(save, key, ids, "", [], published_at, enabled=False)
-        logger.warning("Skipped unsupported announcement job %s without text or supported media",
-                       job["job_key"])
-        return
-    await asyncio.to_thread(save, key, ids, body, media, messages[0].date)
-    logger.info("Indexed announcement from published job %s", job["job_key"])
+    return media
 
 
 async def announcement_worker(bot, target, store):
@@ -605,6 +613,13 @@ async def run(mode, directory, news_only=False):
                 record_worker_heartbeat(store.connection, "channel_listener")
                 await asyncio.sleep(30)
 
+        async def monitor_services():
+            from service_ingest import service_worker
+            try:
+                await service_worker(user, directory)
+            except RuntimeError:
+                logger.exception("Service collector unavailable; existing news workers remain active")
+
         logger.info("READY: news sources=%s -> @haotiancm99988866; news_only=%s",
                     ",".join(name for name, _ in NEWS_SOURCES), news_only)
         async with asyncio.TaskGroup() as tasks:
@@ -615,6 +630,7 @@ async def run(mode, directory, news_only=False):
                 tasks.create_task(music_worker(user, bot, directory))
                 tasks.create_task(movie_worker(user, bot, directory))
                 tasks.create_task(playback_worker())
+                tasks.create_task(monitor_services())
             tasks.create_task(worker(user, bot, sources, target, store, directory))
             tasks.create_task(announcement_worker(bot, target, store))
             for source in sources:

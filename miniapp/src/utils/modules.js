@@ -6,6 +6,12 @@ export const moduleGroups = [
   { key: 'personal', label: '个人与帮助' },
 ]
 
+export const serviceFeeds = [
+  { key: 'villas', label: '西港别墅', icon: 'venue', path: '/services/villas', startParam: 'villas' },
+  { key: 'apartments', label: '西港公寓', icon: 'venue', path: '/services/apartments', startParam: 'apartments' },
+  { key: 'rentals', label: '金边/西港租车', icon: 'delivery', path: '/services/rentals', startParam: 'rentals' },
+]
+
 export const modules = [
   { key: 'media', label: '影音', path: '/movies', startParam: 'media', group: 'content', description: '电影与音乐，一站浏览' },
   { key: 'venue', label: '会所', icon: '🏠', path: '/?module=venue', startParam: 'venue', group: 'content', common: true, description: '当班出勤与技师资料' },
@@ -20,6 +26,7 @@ export const modules = [
   { key: 'membership', label: 'Telegram会员', icon: '⭐', path: '/membership', startParam: 'membership', group: 'convenience', description: '选套餐 · 确认余额购买' },
   { key: 'phone', label: '柬埔寨话费充值', icon: '📱', path: '/phone-topup', startParam: 'phone', group: 'convenience', description: '填写手机号 · 人工代充' },
   { key: 'hotels', label: '酒店推荐', icon: '🏨', path: '/hotels', startParam: 'hotels', group: 'convenience', description: '门头照片 · 地图与前台联系方式' },
+  ...serviceFeeds.map(item => ({ ...item, group: 'convenience', description: '频道收录 · 图片、视频与介绍' })),
   { key: 'personal', label: '我的', icon: '👤', path: '/personal', startParam: 'personal', group: 'personal', description: '钱包、订单、个人内容与帮助' },
   { key: 'admin', label: '运营管理台', path: '/admin', startParam: 'admin', adminOnly: true },
   { key: 'contact', label: '联系昊天', icon: '💬', url: 'https://t.me/haotian99988866', group: 'personal', description: '咨询与人工帮助' },

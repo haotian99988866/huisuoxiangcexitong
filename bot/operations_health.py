@@ -270,6 +270,12 @@ def snapshot():
             jobs_path, f"news_source_{source_id}", f"新闻来源 @{username}",
             f"news_source_{source_id}", source=source_id,
         ))
+    from service_posts import SOURCES as SERVICE_SOURCES
+    for service, (label, _, source_id) in SERVICE_SOURCES.items():
+        components.append(_component(
+            directory / "service-ingest.sqlite3", f"service_{service}", f"{label}收录",
+            f"service_{service}", source=source_id,
+        ))
 
     music_connection = None
     music_enabled = False
