@@ -50,8 +50,6 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
       headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
       body: JSON.stringify({
         action: 'get_delivery_archive', venue_id: venue.id,
-        category: venue.categoryKey === '10-small' ? 'small' :
-          venue.categoryKey === '10-red' ? 'red' : null,
       }),
       cache: 'no-store', signal: controller.signal,
     }).then(async response => {

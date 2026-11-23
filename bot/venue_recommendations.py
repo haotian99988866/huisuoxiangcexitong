@@ -16,7 +16,7 @@ from hotels import MAX_IMAGE_BYTES, normalize_image
 from customer_records import RecordConflict
 
 VENUE_ID = 2
-SHARED_VENUE_IDS = frozenset({2, 4, 5, 6, 7, 8, 9, 10})
+SHARED_VENUE_IDS = frozenset({2, 4, 5, 6, 7, 8, 9})
 MAX_MEDIA_BYTES = 20 * 1024 * 1024
 FIELDS = "id,venue_id,kind,title,description,starts_at,ends_at,enabled,revision,updated_at,media_type,media_width,media_height"
 logger = logging.getLogger(__name__)

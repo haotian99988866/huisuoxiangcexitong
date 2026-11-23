@@ -16,7 +16,7 @@ from duty_shift import current_shift_window
 from image_hash import ImageDeduper, SAME_IMAGE_DISTANCE
 
 
-DELIVERY_VENUE_IDS = {7, 8, 9, 10}
+DELIVERY_VENUE_IDS = {7, 8, 9}
 MODEL_COMMIT = "48b10fa505aeb51fbd127fc60a5c660040e823b7"
 MODEL_FILES = {
     "yunet": (

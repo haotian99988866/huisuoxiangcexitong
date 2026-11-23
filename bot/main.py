@@ -11,7 +11,7 @@ from telebot.handler_backends import ContinueHandling
 from dotenv import load_dotenv
 from db import get_conn
 from image_hash import compute_hash, ensure_columns as ensure_image_hash_columns
-from config.channels import LISTEN_CHANNELS, TAG_ALIASES
+from config.channels import DALANG_ARCHIVE_REPOST_PREFIX, DALANG_DUTY_SUMMARY_PREFIX, LISTEN_CHANNELS, TAG_ALIASES
 from attendance_parser import (
     PLATE_CODE_VENUE_ID,
     parse_attendance_text,
@@ -86,6 +86,7 @@ from relay import (
     user_summary,
 )
 from delivery_age import extract_age, ocr_image_text
+import dalang_content_monitor
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -772,6 +773,24 @@ def handle_stats(message):
 
 
 # ===== 处理照片消息（更新封面） =====
+@bot.channel_post_handler(func=dalang_content_monitor.matches, content_types=[
+    "text", "photo", "video", "document", "audio", "voice", "video_note",
+    "animation", "sticker",
+])
+def monitor_dalang_post(message):
+    if not dalang_content_monitor.handle(bot, message):
+        return ContinueHandling()
+
+
+@bot.edited_channel_post_handler(func=dalang_content_monitor.matches, content_types=[
+    "text", "photo", "video", "document", "audio", "voice", "video_note",
+    "animation", "sticker",
+])
+def monitor_edited_dalang_post(message):
+    if not dalang_content_monitor.handle(bot, message):
+        return ContinueHandling()
+
+
 @bot.message_handler(func=post_navigation.accepts, content_types=["text", "photo", "video"],
                      chat_types=["group", "supergroup"])
 @bot.channel_post_handler(func=post_navigation.accepts, content_types=["text", "photo", "video"])
@@ -786,6 +805,11 @@ def handle_post_navigation(message):
 @bot.message_handler(content_types=['photo'])
 @bot.channel_post_handler(content_types=['photo'])
 def handle_photo_message(message):
+    venue_config = get_venue_config(message.chat.id)
+    if (venue_config and venue_config["venue_id"] == 4
+            and (message.caption or "").startswith(DALANG_ARCHIVE_REPOST_PREFIX)):
+        logger.info("忽略大浪档案重发照片 chat=%s msg=%s", message.chat.id, message.message_id)
+        return
     record_channel_activity(message)
     logger.info(
         "收到照片 chat=%s channel_post=%s caption=%s",
@@ -796,7 +820,6 @@ def handle_photo_message(message):
 
     chat_id = message.chat.id
     chat_id_str = str(chat_id)
-    venue_config = get_venue_config(chat_id)
     if not venue_config:
         logger.info("频道不在监听列表 chat=%s", message.chat.id)
         return
@@ -958,21 +981,22 @@ def handle_photo_message(message):
 @bot.message_handler(content_types=['text'])
 @bot.channel_post_handler(content_types=['text'])
 def handle_attendance_text(message):
+    venue_config = get_venue_config(message.chat.id)
+    text = message.text or message.caption or ""
+    if (venue_config and venue_config["venue_id"] == 4
+            and text.startswith(DALANG_DUTY_SUMMARY_PREFIX)):
+        return
     record_channel_activity(message)
     save_ktv_text(message)
     if save_delivery_text(message):
         if message.text and get_venue_config(message.chat.id):
             schedule_footer(bot, message.chat.id)
         return
-    text = message.text or message.caption or ""
-
     # 完整版 / 全部名单由机器人回复，不再当初稿解析，避免循环
     if is_complete_attendance_text(text) or is_massage_complete_message(text):
         return
 
     chat_id = message.chat.id
-    venue_config = get_venue_config(chat_id)
-
     # 名玺：全部名单与今日出勤分开；频道发「全部名单」触发
     if (
         venue_config
@@ -1112,7 +1136,7 @@ def handle_other_channel_post(message):
         schedule_footer(bot, message.chat.id)
 
 
-DELIVERY_VENUE_IDS = {7, 8, 9, 10}
+DELIVERY_VENUE_IDS = {7, 8, 9}
 
 
 @bot.edited_channel_post_handler(content_types=['video', 'document', 'audio'])
@@ -1329,6 +1353,9 @@ if __name__ == "__main__":
     ensure_massage_channel_tables()
     seed_massage_channel_posts()
     start_staff_worker()
+    from dalang_archive_channel import ensure_tables as ensure_dalang_channel_tables, start_worker as start_dalang_channel_worker
+    ensure_dalang_channel_tables()
+    start_dalang_channel_worker(bot)
     from staff_management import ensure_tables as ensure_staff_management_tables, start_worker as start_staff_management_worker
     ensure_staff_management_tables()
     from staff_customer_duty import ensure_tables as ensure_customer_duty_tables
@@ -1354,4 +1381,5 @@ if __name__ == "__main__":
     from review_notifications import start_worker as start_review_notifications
     start_review_notifications(bot)
     start_cleanup_thread()
+    logger.warning("Dalang content monitor READY: risk deletion; uncertain media alerts")
     bot.infinity_polling(allowed_updates=[])

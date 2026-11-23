@@ -288,7 +288,7 @@ def _commission_items(cur, owner_id):
     cur.execute("""SELECT i.venue_id,v.name AS venue_name,i.service_key,i.service_name,
         i.listed_price,i.commission_amount FROM finance_commission_items i
         JOIN venues v ON v.id=i.venue_id
-        WHERE i.owner_id=%s ORDER BY i.venue_id,i.service_key""", (owner_id,))
+        WHERE i.owner_id=%s AND i.venue_id<>10 ORDER BY i.venue_id,i.service_key""", (owner_id,))
     return cur.fetchall()
 
 

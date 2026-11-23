@@ -1,5 +1,6 @@
 from datetime import datetime
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 import staff_archive
@@ -7,6 +8,44 @@ from customer_records import RecordConflict
 
 
 class StaffArchiveTests(unittest.TestCase):
+    def test_dalang_duty_summary_does_not_create_attendance(self):
+        import main
+        message = SimpleNamespace(
+            chat=SimpleNamespace(id=-1002219327758),
+            text="【大浪出勤整理】\n已识别出勤",
+            caption=None,
+        )
+        with patch.object(main, "record_channel_activity") as activity, \
+                patch.object(main, "save_daily_attendance") as save:
+            main.handle_attendance_text(message)
+        activity.assert_not_called()
+        save.assert_not_called()
+
+    def test_dalang_archive_repost_does_not_create_attendance(self):
+        import main
+        message = SimpleNamespace(
+            chat=SimpleNamespace(id=-1002219327758),
+            message_id=123,
+            caption="【大浪人员档案】\n工号：530",
+        )
+        with patch.object(main, "record_channel_activity") as activity, \
+                patch.object(main, "save_technician_photo") as save:
+            main.handle_photo_message(message)
+        activity.assert_not_called()
+        save.assert_not_called()
+
+    def test_ordinary_or_other_venue_photo_still_reaches_attendance_processing(self):
+        import main
+        for channel_id, caption in (
+            (-1002219327758, "工号：530"),
+            (-1002242032486, "【大浪人员档案】\n工号：530"),
+        ):
+            message = SimpleNamespace(chat=SimpleNamespace(id=channel_id), caption=caption)
+            with self.subTest(channel_id=channel_id), \
+                    patch.object(main, "record_channel_activity", side_effect=RuntimeError("reached")):
+                with self.assertRaisesRegex(RuntimeError, "reached"):
+                    main.handle_photo_message(message)
+
     def test_full_staff_list_exceeds_old_page_size_and_retains_visibility_guards(self):
         for admin in (False, True):
             connection = MagicMock()
@@ -147,6 +186,59 @@ class StaffArchiveTests(unittest.TestCase):
         self.assertIn("adult_confirmed=1", sql)
         self.assertIn("deleted_at IS NULL", sql)
         self.assertEqual(args, (12,))
+
+    def test_dalang_four_digit_photo_requires_confident_label_for_auto_archive(self):
+        source = {
+            "id": 31, "venue_id": 4, "technician_code": None,
+            "ocr_text": "工号：2222\n年龄：24", "ocr_confidence": 0.6,
+            "file_id": "file", "status": "pending_review", "created_at": datetime.now(),
+        }
+        cur = Mock()
+        cur.fetchall.side_effect = [[], [source]]
+        with patch.object(staff_archive, "_person") as person:
+            staff_archive.synchronize(cur)
+        person.assert_not_called()
+        self.assertFalse(any("INSERT INTO staff_photos" in call.args[0]
+                             for call in cur.execute.call_args_list))
+
+    def test_dalang_repeat_photo_updates_duty_without_duplicating_album(self):
+        source = {
+            "id": 31, "venue_id": 4, "technician_code": None,
+            "ocr_text": "工号：2222\n年龄：24", "ocr_confidence": 0.95,
+            "file_id": "same-file", "status": "pending_review",
+            "created_at": datetime.now(), "image_hash": "1234567890abcdef",
+            "channel_id": "-1002219327758", "msg_id": 100,
+        }
+        cur = Mock()
+        cur.fetchall.side_effect = [[], [source], [{"id": 8, "file_id": "same-file", "image_hash": None}]]
+        cur.fetchone.side_effect = [None, {"blocked": False, "adult_confirmed": True}]
+        with patch.object(staff_archive, "_person", return_value=7):
+            staff_archive.synchronize(cur)
+        queries = [call.args[0] for call in cur.execute.call_args_list]
+        self.assertFalse(any("INSERT INTO staff_photos" in sql for sql in queries))
+        self.assertTrue(any("UPDATE staff_photos SET last_seen" in sql for sql in queries))
+        self.assertTrue(any("INSERT INTO staff_photo_sources" in sql for sql in queries))
+
+    def test_confident_new_dalang_person_gets_a_photo_archive(self):
+        source = {
+            "id": 31, "venue_id": 4, "technician_code": None,
+            "ocr_text": "工号：2222\n年龄：24", "ocr_confidence": 0.95,
+            "file_id": "new-file", "status": "pending_review",
+            "created_at": datetime.now(), "image_hash": None,
+            "channel_id": "-1002219327758", "msg_id": 100,
+        }
+        cur = Mock()
+        cur.lastrowid = 8
+        cur.fetchall.side_effect = [[], [source], []]
+        cur.fetchone.side_effect = [None, {"blocked": False, "adult_confirmed": True}]
+        with patch.object(staff_archive, "_person", return_value=7) as person:
+            staff_archive.synchronize(cur)
+        person.assert_called_once_with(cur, 4, "2222", source["created_at"])
+        queries = [call.args[0] for call in cur.execute.call_args_list]
+        self.assertTrue(any("INSERT INTO staff_photos" in sql for sql in queries))
+        insert = next(call for call in cur.execute.call_args_list
+                      if "INSERT INTO staff_photo_sources" in call.args[0])
+        self.assertEqual(insert.args[1], (31, 7, 8))
 
     @patch("staff_archive.get_conn")
     def test_description_is_read_only_through_admin_detail(self, get_conn):

@@ -104,10 +104,10 @@ class TenantTests(unittest.TestCase):
     def test_authorized_delivery_video_and_revoked_access(self):
         conn = MagicMock()
         conn.cursor.return_value.__enter__.return_value.fetchone.side_effect = [
-            {"venue_id": 10}, delivery_row(10, "video-file", "video"),
+            {"venue_id": 7}, delivery_row(7, "video-file", "video"),
         ]
         client = api_server.app.test_client()
-        with patch.object(api_server, "load_tenant", return_value={**config(), "venue_ids": [10]}), \
+        with patch.object(api_server, "load_tenant", return_value={**config(), "venue_ids": [7]}), \
                 patch.object(api_server, "get_db_connection", return_value=conn), \
                 patch.object(api_server, "_proxy_telegram_media", return_value=("video", 200)) as proxy:
             self.assertEqual(client.get("/delivery-media/1?tenant=test-shop").status_code, 200)
@@ -118,6 +118,14 @@ class TenantTests(unittest.TestCase):
             self.assertEqual(client.get("/delivery-media/1?tenant=test-shop").status_code, 403)
             db.assert_not_called()
             proxy.assert_not_called()
+
+    def test_removed_delivery_media_is_not_served(self):
+        client = api_server.app.test_client()
+        conn = self.connection(delivery_row(10))
+        with patch.object(api_server, "get_db_connection", return_value=conn), \
+                patch.object(api_server, "_telegram_image") as image:
+            self.assertEqual(client.get("/delivery-media/1").status_code, 404)
+            image.assert_not_called()
 
     def test_missing_suspended_draft_expired_cannot_load(self):
         for row in [None, {**config(), "status": "draft"},

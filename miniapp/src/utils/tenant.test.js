@@ -52,6 +52,11 @@ test('scoped routes, media, contacts and booking messages preserve tenant contex
     assert.equal(hasAnnouncementAccess(), true)
     assert.equal(displayModules().some(item => item.key === 'announcements'), true)
     assert.equal(hasVenueAccess(), false)
+    setTenant({
+      slug: 'shop-one', brand_name: '测试品牌', contact_name: '客服甲',
+      contact_username: 'contact_one', venue_ids: [10],
+    })
+    assert.equal(hasDeliveryAccess(), false)
     const delivery = new URL(mediaUrl('/api/delivery-media/1'))
     assert.equal(delivery.searchParams.get('tenant'), 'shop-one')
     window.location.search = ''

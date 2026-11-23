@@ -35,7 +35,7 @@ export function setTenant(config) {
 }
 
 export const getTenant = () => tenant
-export const hasDeliveryAccess = () => Boolean(tenant?.venue_ids.some(id => [7, 8, 9, 10].includes(id)))
+export const hasDeliveryAccess = () => Boolean(tenant?.venue_ids.some(id => [7, 8, 9].includes(id)))
 export const hasVenueAccess = () => Boolean(tenant?.venue_ids.some(id => [1, 2, 3, 4, 5, 6].includes(id)))
 export const isTenantEntry = () => slug !== null
 export const hasAnnouncementAccess = () => slug === null || tenant?.announcements_enabled === true

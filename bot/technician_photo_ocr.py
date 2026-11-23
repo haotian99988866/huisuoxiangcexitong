@@ -213,6 +213,25 @@ def classify_ocr_detections(detections, roster_codes, venue_id=None):
     if labeled_candidates:
         candidates = labeled_candidates
 
+    ambiguous_dalang_label = False
+    if venue_id == 4:
+        text = "\n".join(recognized_text)
+        labeled_code = extract_labeled_technician_code(text)
+        if labeled_code and len(labeled_code) == 4 and labeled_code.isdigit():
+            confidence = min(
+                float(detection[2]) for detection in detections
+                if str(detection[1]).strip()
+            )
+            candidates = {labeled_code: confidence}
+        elif not labeled_code:
+            four_digit_codes = [
+                code for code in _plate_code_pattern.findall(text) if len(code) == 4
+            ]
+            if four_digit_codes:
+                ambiguous_dalang_label = True
+                for code in four_digit_codes:
+                    candidates.setdefault(code, 0.0)
+
     roster_by_normalized = {}
     for code in roster_codes:
         code = str(code).strip()
@@ -234,7 +253,8 @@ def classify_ocr_detections(detections, roster_codes, venue_id=None):
         default=0.0,
     )
     if (
-        len(normalized_candidates) == 1
+        not ambiguous_dalang_label
+        and len(normalized_candidates) == 1
         and len(roster_matches) == 1
         and len(unique_roster_codes) == 1
         and matching_confidence >= MIN_OCR_CONFIDENCE

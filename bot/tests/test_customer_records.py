@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import sqlite3
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -159,6 +160,41 @@ class CustomerRecordTests(unittest.TestCase):
         self.assertIn("SUM(c.amount-c.refunded)", query)
         self.assertEqual(args, (42, 42, 20, 20))
 
+    def test_staff_history_retains_consumption_after_person_is_removed(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.create_function("CONCAT", 2, lambda a, b: str(a) + str(b))
+        conn.executescript("""
+            CREATE TABLE crm_consumptions (
+                user_id INTEGER, status TEXT, staff_id INTEGER, delivery_person_id INTEGER,
+                venue_id INTEGER, occurred_at TEXT, amount NUMERIC, refunded NUMERIC
+            );
+            CREATE TABLE staff_members (id INTEGER, code TEXT, ended_at TEXT);
+            CREATE TABLE venues (id INTEGER, name TEXT);
+            CREATE TABLE delivery_people (id INTEGER, display_name TEXT);
+            INSERT INTO crm_consumptions VALUES (42, 'valid', NULL, 77, 10, '2026-01-01', 100, 10);
+        """)
+
+        class Cursor:
+            def execute(self, query, args):
+                self.cursor = conn.execute(query.replace("%s", "?"), args)
+
+            def fetchone(self):
+                return dict(self.cursor.fetchone())
+
+            def fetchall(self):
+                return [dict(row) for row in self.cursor.fetchall()]
+
+        try:
+            rows, total = records._staff_history(Cursor(), 42)
+        finally:
+            conn.close()
+        self.assertEqual(total, 1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["delivery_person_id"], 77)
+        self.assertEqual(rows[0]["net"], 90)
+        self.assertEqual(rows[0]["person_name"], "外送档案 77")
+
     def test_consumption_source_keeps_venue_and_delivery_people_separate(self):
         cursor = MagicMock()
         cursor.fetchone.return_value = {"id": 5}
@@ -179,6 +215,17 @@ class CustomerRecordTests(unittest.TestCase):
             records._consumption_source(cursor, {
                 "service_kind": "delivery", "venue_id": 7, "staff_id": 5,
             })
+
+    def test_retired_source_can_only_be_kept_on_its_existing_consumption(self):
+        cursor = MagicMock()
+        data = {"service_kind": "delivery", "venue_id": 10, "delivery_person_id": 77}
+        before = {"service_kind": "delivery", "venue_id": 10, "delivery_person_id": 77}
+        self.assertEqual(records._consumption_source(cursor, data, before),
+                         ("delivery", 10, None, 77))
+        with self.assertRaises(ValueError):
+            records._consumption_source(cursor, data)
+        with self.assertRaises(ValueError):
+            records._consumption_source(cursor, {**data, "delivery_person_id": 78}, before)
 
     def test_delivery_source_list_is_independent_of_commission_catalog(self):
         cursor = MagicMock()

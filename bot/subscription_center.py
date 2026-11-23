@@ -44,7 +44,7 @@ def catalog(user_id, venue_id=None):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id,name FROM venues WHERE id IN (1,2,4,5,6,7,8,9,10) ORDER BY id")
+            cur.execute("SELECT id,name FROM venues WHERE id IN (1,2,4,5,6,7,8,9) ORDER BY id")
             venues = cur.fetchall()
             cur.execute("SELECT venue_id FROM bot_subscriptions WHERE tg_user_id=%s", (user_id,))
             venue_subs = {row["venue_id"] for row in cur.fetchall()}

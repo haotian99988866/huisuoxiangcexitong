@@ -47,10 +47,10 @@ class DeliveryArchiveTests(unittest.TestCase):
         self.assertEqual(len(result["people"]), 1)
         self.assertFalse(result["people"][0]["on_duty"])
 
-    def test_apple_categories_are_separated(self):
-        rows = [self.row(2, 2, caption="红苹果"), self.row(1, 1, caption="小苹果")]
-        self.assertEqual([p["id"] for p in self.catalog(rows, 10, "small")["people"]], [1])
-        self.assertEqual([p["id"] for p in self.catalog(rows, 10, "red")["people"]], [2])
+    def test_removed_apple_archive_is_not_accessible(self):
+        for category in (None, "small", "red"):
+            with self.subTest(category=category), self.assertRaises(ValueError):
+                api_server.delivery_archive(10, category)
 
     def test_invalid_category_or_venue_is_rejected(self):
         for venue, category in [(1, None), (True, None), (7, "small"), (10, "invalid")]:

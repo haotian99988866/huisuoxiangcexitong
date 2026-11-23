@@ -415,10 +415,14 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
             <label>外送来源<select required value={editor.venue_id ? `delivery:${editor.venue_id}` : ''}
               onChange={e => chooseConsumptionSource(e.target.value)}>
               <option value="">请选择外送来源</option>
+              {editor.revision > 0 && Number(editor.venue_id) === 10 &&
+                <option value="delivery:10">已下架的外送来源（历史记录）</option>}
               {data?.delivery_sources?.map(row =>
                 <option key={row.id} value={`delivery:${row.id}`}>{row.name}</option>)}
             </select></label>
-            {editor.venue_id
+            {Number(editor.venue_id) === 10 && editor.revision > 0
+              ? <p className="admin-hint">人员档案已删除，原消费关联保留。</p>
+              : editor.venue_id
               ? <DeliveryPersonPicker key={editor.venue_id} venueId={editor.venue_id}
                 selectedId={Number(editor.delivery_person_id) || null}
                 onSelect={person => field('delivery_person_id', person ? String(person.id) : '')} />

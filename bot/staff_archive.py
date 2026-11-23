@@ -10,7 +10,7 @@ import threading
 from db import get_conn
 from duty_shift import current_shift_window
 from image_hash import distance, SAME_IMAGE_DISTANCE
-from technician_photo_ocr import extract_labeled_technician_code, extract_technician_profile, extract_technician_category
+from technician_photo_ocr import MIN_OCR_CONFIDENCE, extract_labeled_technician_code, extract_technician_profile, extract_technician_category
 from venue_pricing import (
     staff_price,
     staff_group_name,
@@ -226,7 +226,13 @@ def synchronize(cur):
     for row in rows:
         code = row["technician_code"]
         if row["venue_id"] in {4, 5, 6}:
-            code = code or extract_labeled_technician_code(row["ocr_text"])
+            labeled_code = extract_labeled_technician_code(row["ocr_text"])
+            if (row["venue_id"] == 4 and not code and labeled_code
+                    and labeled_code.isdigit() and len(labeled_code) == 4
+                    and (row["ocr_confidence"] is None
+                         or row["ocr_confidence"] < MIN_OCR_CONFIDENCE)):
+                continue
+            code = code or labeled_code
         if not code or not row["file_id"] or row["status"] not in {"matched", "pending_review"}:
             continue
         if row["venue_id"] not in {4, 5, 6} and row["status"] != "matched":

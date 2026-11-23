@@ -228,7 +228,7 @@ def delivery_media(media_id):
                 (media_id,),
             )
             target = cur.fetchone()
-            if target is None:
+            if target is None or target["venue_id"] not in api_server.DELIVERY_VENUE_IDS:
                 return jsonify({"error": "找不到该媒体"}), 404
             if target["person_id"] is not None and (
                 target["deleted_at"] is not None

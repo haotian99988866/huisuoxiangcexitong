@@ -53,26 +53,16 @@ export const ktvBookingButtonStyle = {
   cursor: 'pointer'
 }
 
-export const DELIVERY_VENUE_IDS = new Set([7, 8, 9, 10])
+export const DELIVERY_VENUE_IDS = new Set([7, 8, 9])
 
 export const deliveryCategoryKey = venue => venue.categoryKey || String(venue.id)
 
 export const deliveryCategoryLabel = venue => venue.categoryLabel
   || venue.name.replace(/^西港/, '').replace(/外送$/, '')
 
-// 小苹果/红苹果共用同一个频道，按内容文字里的类别分到各自的按钮下；未判断出类别的两边都显示
-export const expandDeliveryCategories = delivery => delivery.flatMap(venue => {
-  if (Number(venue.id) !== 10) return [venue]
-  const posts = venue.delivery_posts || []
-  const pick = category => posts.filter(post => !post.category || post.category === category)
-  return [
-    { ...venue, categoryKey: '10-small', categoryLabel: '小苹果', delivery_posts: pick('small') },
-    { ...venue, categoryKey: '10-red', categoryLabel: '红苹果', delivery_posts: pick('red') }
-  ]
-})
-
-// 西港170/180/160 与小苹果/红苹果外送合并为“西港外送”，原会所作为其下的类别
+// 西港170/180/160合并为“西港外送”，原会所作为其下的类别
 export const mergeDeliveryVenues = venues => {
+  venues = venues.filter(venue => Number(venue.id) !== 10)
   const delivery = venues.filter(venue => DELIVERY_VENUE_IDS.has(Number(venue.id)))
   if (delivery.length === 0) return venues
   const latest = delivery
@@ -83,7 +73,7 @@ export const mergeDeliveryVenues = venues => {
   const mergedVenue = {
     ...delivery[0],
     name: '西港外送',
-    delivery_categories: expandDeliveryCategories(delivery),
+    delivery_categories: delivery,
     last_channel_message_at: latest
   }
   const result = []
@@ -206,7 +196,7 @@ export const getDihaoCategoryCodes = (selectedVenue, category) => (
     ?.technician_codes || []
 )
 
-export const PHOTO_FIRST_VENUE_IDS = [2, 4, 5, 6, 7, 8, 9, 10]
+export const PHOTO_FIRST_VENUE_IDS = [2, 4, 5, 6, 7, 8, 9]
 export const STAFF_ARCHIVE_VENUE_IDS = [1, 2, 4, 5, 6]
 export const CHANNEL_PHOTO_VENUE_IDS = ['4', '5', '6']
 /** 当班出勤只看出勤初稿/文字名单，不依赖当班频道发图 */

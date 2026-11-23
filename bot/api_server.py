@@ -1157,7 +1157,7 @@ def webhook():
                 FROM venues v
                 LEFT JOIN venue_channel_activity activity
                     ON activity.venue_id = v.id
-                WHERE v.status = 'active'
+                WHERE v.status = 'active' AND v.id <> 10
                 ORDER BY v.id
                 """
             )
@@ -1496,7 +1496,7 @@ def webhook():
                 SELECT id, name, address, phone, business_hours, map_url,
                        cover_image, search_tags, status
                 FROM venues
-                WHERE id = %s AND status = 'active'
+                WHERE id = %s AND status = 'active' AND id <> 10
                 """,
                 (venue_id,),
             )
@@ -1507,7 +1507,7 @@ def webhook():
             return jsonify(venue)
 
         cur.execute(
-            "SELECT id FROM venues WHERE id = %s AND status = 'active'",
+            "SELECT id FROM venues WHERE id = %s AND status = 'active' AND id <> 10",
             (venue_id,),
         )
         if cur.fetchone() is None:

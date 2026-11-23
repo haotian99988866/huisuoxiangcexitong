@@ -3,10 +3,10 @@ import StaffGallery from './StaffGallery'
 import DeliveryStaffAdmin from './DeliveryStaffAdmin'
 
 export default function StaffAdmin({ venues }) {
-  const available = venues.filter(venue => [1, 2, 4, 5, 6, 7, 8, 9, 10].includes(venue.id))
+  const available = venues.filter(venue => [1, 2, 4, 5, 6, 7, 8, 9].includes(venue.id))
   const [selectedId, setSelectedId] = useState(available[0]?.id)
   const selected = available.find(venue => venue.id === selectedId)
-  const delivery = [7, 8, 9, 10].includes(selected?.id)
+  const delivery = [7, 8, 9].includes(selected?.id)
   return <section>
     <select aria-label="选择会所" className="staff-admin-select" value={selectedId || ''}
       onChange={event => setSelectedId(Number(event.target.value))}>

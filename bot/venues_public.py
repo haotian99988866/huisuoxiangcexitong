@@ -4,7 +4,7 @@ from technician_photo_ocr import (
     extract_technician_profile,
 )
 
-DELIVERY_VENUE_IDS = {7, 8, 9, 10}
+DELIVERY_VENUE_IDS = {7, 8, 9}
 APPLE_CATEGORY_KEYWORDS = (("小苹果", "small"), ("红苹果", "red"))
 
 

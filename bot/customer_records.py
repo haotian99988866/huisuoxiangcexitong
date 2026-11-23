@@ -216,20 +216,20 @@ def _staff_history(cur, user_id, page=1, limit=20):
         UNION ALL
         SELECT 'delivery' AS person_type,c.delivery_person_id AS person_id,NULL AS staff_id,
             c.delivery_person_id AS delivery_person_id,NULL AS staff_code,
-            COALESCE(NULLIF(p.display_name,''),CONCAT('外送档案 ',p.id)) AS person_name,
+            COALESCE(NULLIF(p.display_name,''),CONCAT('外送档案 ',c.delivery_person_id)) AS person_name,
             NULL AS ended_at,'西港外送' AS venue_name,COUNT(*) AS visits,
             MIN(c.occurred_at) AS first_visit,MAX(c.occurred_at) AS last_visit,
             SUM(c.amount) AS paid,SUM(c.refunded) AS refunded,SUM(c.amount-c.refunded) AS net
-        FROM crm_consumptions c JOIN delivery_people p ON p.id=c.delivery_person_id
+        FROM crm_consumptions c LEFT JOIN delivery_people p ON p.id=c.delivery_person_id
         WHERE c.user_id=%s AND c.status='valid' AND c.delivery_person_id IS NOT NULL
-        GROUP BY c.delivery_person_id,p.id,p.display_name
+        GROUP BY c.delivery_person_id,p.display_name
         ) history
         ORDER BY last_visit DESC,person_id DESC LIMIT %s OFFSET %s""",
                 (user_id, user_id, limit, (page - 1) * limit))
     return _public(cur.fetchall()), total
 
 
-def _consumption_source(cur, data):
+def _consumption_source(cur, data, before=None):
     kind = data.get("service_kind", "venue")
     if kind == "venue":
         venue_id = _positive_id(data.get("venue_id"), "会所")
@@ -246,7 +246,12 @@ def _consumption_source(cur, data):
         if data.get("staff_id") not in (None, ""):
             raise ValueError("外送消费不能关联会所技师档案")
         venue_id = _positive_id(data.get("venue_id"), "外送来源")
-        if venue_id not in {7, 8, 9, 10}:
+        previous_person = before.get("delivery_person_id") if before else None
+        if (venue_id == 10 and before and before.get("service_kind") == "delivery"
+                and before.get("venue_id") == venue_id
+                and data.get("delivery_person_id") == previous_person):
+            return kind, venue_id, None, previous_person
+        if venue_id not in {7, 8, 9}:
             raise ValueError("请选择有效外送来源")
         cur.execute("SELECT id FROM venues WHERE id=%s", (venue_id,))
         if cur.fetchone() is None:
@@ -271,7 +276,7 @@ def _consumption_source(cur, data):
 
 def _delivery_sources(cur):
     cur.execute("""SELECT id,name FROM venues
-        WHERE id IN (7,8,9,10) AND status='active' ORDER BY id""")
+        WHERE id IN (7,8,9) AND status='active' ORDER BY id""")
     return cur.fetchall()
 
 
@@ -335,7 +340,7 @@ def detail(data, owner_id=None):
             cur.execute("""SELECT p.id,p.venue_id,COALESCE(NULLIF(p.display_name,''),CONCAT('外送档案 ',p.id))
                 AS display_name,v.name AS source_name FROM delivery_people p
                 JOIN venues v ON v.id=p.venue_id
-                WHERE p.venue_id IN (7,8,9,10) AND p.deleted_at IS NULL AND p.merged_into_id IS NULL
+                WHERE p.venue_id IN (7,8,9) AND p.deleted_at IS NULL AND p.merged_into_id IS NULL
                 ORDER BY p.venue_id,p.display_name,p.id LIMIT 1001""")
             delivery_people = cur.fetchall()
             if len(delivery_people) > 1000:
@@ -482,7 +487,7 @@ def save(data, actor_id):
                     cur.execute("UPDATE crm_consumptions SET status='void',revision=revision+1,updated_at=%s WHERE id=%s",
                                 (now, record_id))
                 else:
-                    service_kind, venue_id, staff_id, delivery_person_id = _consumption_source(cur, data)
+                    service_kind, venue_id, staff_id, delivery_person_id = _consumption_source(cur, data, before)
                     occurred = _occurred(data.get("occurred_at"))
                     if staff_id is not None:
                         cur.execute("SELECT * FROM staff_members WHERE id=%s", (staff_id,))
