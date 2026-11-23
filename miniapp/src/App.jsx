@@ -44,6 +44,11 @@ function StartParamRedirect() {
       navigate(`/music?playlist=${param.slice(9)}`, { replace: true })
       return
     }
+    const staffMatch = /^staff_(1|2|4|5|6)_([1-9]\d{0,15})$/.exec(param || '')
+    if (staffMatch) {
+      navigate(`/?module=venue&venue=${staffMatch[1]}&album=1&staff=${staffMatch[2]}`, { replace: true })
+      return
+    }
     const target = modules.find(item => item.startParam === param && param)
     if (target) navigate(target.path, { replace: true })
   }, [navigate])

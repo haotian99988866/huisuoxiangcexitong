@@ -38,6 +38,13 @@ from technician_photo_ocr import (
     save_technician_photo,
 )
 from data_cleanup import start_cleanup_thread
+from massage_channel import (
+    ensure_tables as ensure_massage_channel_tables,
+    is_complete_message as is_massage_complete_message,
+    publish_attendance as publish_massage_attendance,
+    seed_current_posts as seed_massage_channel_posts,
+    sync_staff_post as sync_massage_staff_post,
+)
 from movies import ensure_tables as ensure_movie_tables, save_movie_message
 from music import ensure_tables as ensure_music_tables, handle_channel_message as handle_music_message
 from publisher import (
@@ -870,6 +877,11 @@ def handle_photo_message(message):
         )
         raise
 
+    labeled_code = (
+        extract_code_from_caption(caption)
+        if venue_config["venue_id"] == 1
+        else None
+    )
     try:
         result = save_technician_photo(
             venue_config["venue_id"],
@@ -883,6 +895,26 @@ def handle_photo_message(message):
     except (pymysql.MySQLError, ValueError):
         logger.exception("Failed to process technician photo %s", message.message_id)
         raise
+
+    if venue_config["venue_id"] == 1:
+        from staff_archive import archive_channel_media
+        archive_code = result.get("technician_code") or labeled_code
+        if archive_code:
+            archived = archive_channel_media(
+                1,
+                archive_code,
+                file_id,
+                chat_id_str,
+                message.message_id,
+                datetime.fromtimestamp(message.date),
+                media_type="photo",
+            )
+            sync_massage_staff_post(
+                bot,
+                archived["staff_id"],
+                archive_code,
+                message.message_id,
+            )
 
 
     if result.get("skipped"):
@@ -935,7 +967,7 @@ def handle_attendance_text(message):
     text = message.text or message.caption or ""
 
     # 完整版 / 全部名单由机器人回复，不再当初稿解析，避免循环
-    if is_complete_attendance_text(text):
+    if is_complete_attendance_text(text) or is_massage_complete_message(text):
         return
 
     chat_id = message.chat.id
@@ -1031,6 +1063,8 @@ def handle_attendance_text(message):
     if ok:
         if venue_config["venue_id"] == PLATE_CODE_VENUE_ID and attendance:
             post_complete_attendance_reply(bot, message, venue_config, attendance)
+        elif venue_config["venue_id"] == 1 and attendance:
+            publish_massage_attendance(bot, attendance, message)
         else:
             post_footer(bot, message.chat.id)
 
@@ -1050,6 +1084,30 @@ def handle_other_channel_post(message):
     save_ktv_video(message)
     save_delivery_media(message)
     venue_config = get_venue_config(message.chat.id)
+    if (
+        venue_config
+        and venue_config["venue_id"] == 1
+        and message.video
+    ):
+        from staff_archive import archive_channel_media
+
+        code = extract_code_from_caption(message.caption or "")
+        if code:
+            archived = archive_channel_media(
+                1,
+                code,
+                message.video.file_id,
+                str(message.chat.id),
+                message.message_id,
+                datetime.fromtimestamp(message.date),
+                media_type="video",
+            )
+            sync_massage_staff_post(
+                bot,
+                archived["staff_id"],
+                code,
+                message.message_id,
+            )
     if venue_config and (message.photo or message.video):
         schedule_footer(bot, message.chat.id)
 
@@ -1268,6 +1326,8 @@ if __name__ == "__main__":
     ensure_delivery_staff_tables()
     from staff_archive import ensure_tables as ensure_staff_tables, start_worker as start_staff_worker
     ensure_staff_tables()
+    ensure_massage_channel_tables()
+    seed_massage_channel_posts()
     start_staff_worker()
     from staff_management import ensure_tables as ensure_staff_management_tables, start_worker as start_staff_management_worker
     ensure_staff_management_tables()

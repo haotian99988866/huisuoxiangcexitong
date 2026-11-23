@@ -173,7 +173,7 @@ class MingxiCompleteAttendanceTests(unittest.TestCase):
 
     def test_mingxi_skips_generic_footer(self):
         self.assertTrue(skip_footer("-1002323001411"))
-        self.assertFalse(skip_footer("-1002324026180"))
+        self.assertTrue(skip_footer("-1002324026180"))
 
     def test_publish_attendance_hangs_bottom_without_pinning_itself(self):
         channel = "-1002323001411"

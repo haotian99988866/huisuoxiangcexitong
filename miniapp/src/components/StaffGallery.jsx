@@ -608,23 +608,29 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
               const delta = (event.changedTouches[0]?.clientX ?? start) - start
               if (Math.abs(delta) > 60) setImageIndex(index => Math.max(0, Math.min(detail.photos.length - 1, index + (delta < 0 ? 1 : -1))))
             }}>
-            <LazyMedia className="staff-detail-photo" src={mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`)}
-              alt={`工号 ${selected.code} 的第 ${imageIndex + 1} 张照片`} />
+            {photo.media_type === 'video'
+              ? <video className="staff-detail-photo" controls playsInline preload="metadata"
+                  src={mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`)} />
+              : <LazyMedia className="staff-detail-photo" src={mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`)}
+                  alt={`工号 ${selected.code} 的第 ${imageIndex + 1} 张照片`} />}
             {detail.photos.length > 1 && (
               <span className="mingxi-detail-count">{imageIndex + 1}/{detail.photos.length}</span>
             )}
           </div>
         ) : (
-          <LazyMedia className="staff-detail-photo" src={mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`)}
-            onTouchStart={event => { touchStart.current = event.touches[0]?.clientX ?? null }}
-            onTouchEnd={event => {
-              const start = touchStart.current
-              touchStart.current = null
-              if (!photoFirst || start === null || !detail?.photos.length) return
-              const delta = (event.changedTouches[0]?.clientX ?? start) - start
-              if (Math.abs(delta) > 60) setImageIndex(index => Math.max(0, Math.min(detail.photos.length - 1, index + (delta < 0 ? 1 : -1))))
-            }}
-            alt={`工号 ${selected.code} 的第 ${imageIndex + 1} 张照片`} />
+          photo.media_type === 'video'
+            ? <video className="staff-detail-photo" controls playsInline preload="metadata"
+                src={mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`)} />
+            : <LazyMedia className="staff-detail-photo" src={mediaUrl(`${API_BASE_URL}/staff-photos/${photo.id}/image`)}
+                onTouchStart={event => { touchStart.current = event.touches[0]?.clientX ?? null }}
+                onTouchEnd={event => {
+                  const start = touchStart.current
+                  touchStart.current = null
+                  if (!photoFirst || start === null || !detail?.photos.length) return
+                  const delta = (event.changedTouches[0]?.clientX ?? start) - start
+                  if (Math.abs(delta) > 60) setImageIndex(index => Math.max(0, Math.min(detail.photos.length - 1, index + (delta < 0 ? 1 : -1))))
+                }}
+                alt={`工号 ${selected.code} 的第 ${imageIndex + 1} 张照片`} />
         )}
         {detail.photos.length > 1 && (clubStyle && photoFirst ? (
           <div className="mingxi-thumb-strip" role="tablist" aria-label="相册缩略图">

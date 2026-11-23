@@ -121,6 +121,10 @@ def staff_photo_image(photo_id):
         row = photo(photo_id)
         if not row:
             return jsonify({"error": "人员照片不存在或已停用"}), 404
+        if row.get("media_type") == "video":
+            return api_server.cached_video_response(
+                row["file_id"], api_server.delivery_video_cache
+            )
         return api_server._telegram_image(row["file_id"])
     except pymysql.MySQLError:
         api_server.logger.exception("Staff archive photo unavailable")

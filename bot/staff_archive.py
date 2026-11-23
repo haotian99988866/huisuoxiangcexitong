@@ -4,6 +4,7 @@ from decimal import Decimal
 import hashlib
 import json
 import logging
+import re
 import threading
 
 from db import get_conn
@@ -78,6 +79,12 @@ def ensure_tables():
                 cur.execute(f"SHOW COLUMNS FROM staff_members LIKE '{name}'")
                 if not cur.fetchone():
                     cur.execute(f"ALTER TABLE staff_members ADD COLUMN {name} {definition}")
+            cur.execute("SHOW COLUMNS FROM staff_photos LIKE 'media_type'")
+            if not cur.fetchone():
+                cur.execute(
+                    "ALTER TABLE staff_photos "
+                    "ADD COLUMN media_type VARCHAR(16) NOT NULL DEFAULT 'photo'"
+                )
         conn.commit()
     finally:
         conn.close()
@@ -110,6 +117,64 @@ def _save_price_tags(cur, staff_id, tags, seen_at):
         cur.execute("UPDATE staff_members SET price_tags_json=%s,price_tags_at=%s WHERE id=%s "
                     "AND (price_tags_at IS NULL OR price_tags_at<=%s)",
                     (json.dumps(sorted(set(tags))), seen_at, staff_id, seen_at))
+
+
+def archive_channel_media(
+    venue_id, code, file_id, channel_id, msg_id, seen_at, *,
+    media_type="photo", image_hash=None,
+):
+    """Archive a labeled channel photo/video without requiring a duty roster."""
+    if venue_id not in VENUE_IDS or not re.fullmatch(r"\d{1,4}", str(code or "")):
+        raise ValueError("人员频道媒体必须包含有效工号")
+    if media_type not in {"photo", "video"} or not file_id or not msg_id:
+        raise ValueError("人员频道媒体类型或消息资料无效")
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+                    staff_id = _person(cur, venue_id, str(code), seen_at)
+                    cur.execute(
+                        """
+                        SELECT id,media_type,file_id
+                        FROM staff_photos
+                        WHERE staff_id=%s
+                        ORDER BY id
+                        """,
+                        (staff_id,),
+                    )
+                    existing = next(
+                        (row for row in cur.fetchall()
+                         if row["file_id"] == file_id
+                         or (image_hash and row.get("image_hash") == image_hash)),
+                        None,
+                    )
+                    if existing is None:
+                        cur.execute(
+                            """
+                            INSERT INTO staff_photos
+                                (staff_id,file_id,image_hash,channel_id,msg_id,
+                                 first_seen,last_seen,media_type)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                            """,
+                            (
+                                staff_id, file_id, image_hash, str(channel_id), int(msg_id),
+                                seen_at, seen_at, media_type,
+                            ),
+                        )
+                        photo_id = cur.lastrowid
+                    else:
+                        photo_id = existing["id"]
+                        cur.execute(
+                            "UPDATE staff_photos SET last_seen=GREATEST(last_seen,%s),"
+                            "media_type=%s WHERE id=%s",
+                            (seen_at, media_type, photo_id),
+                        )
+        conn.commit()
+        return {"staff_id": staff_id, "media_id": photo_id}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def synchronize(cur):
@@ -278,7 +343,8 @@ def listing(data, admin=False):
                 "(SELECT MAX(r.published_at) FROM staff_rosters r WHERE r.venue_id=m.venue_id "
                 "AND JSON_CONTAINS(r.members_json,CAST(m.id AS JSON))) AS last_roster_at,"
                 "(SELECT MAX(p.last_seen) FROM staff_photos p WHERE p.staff_id=m.id) AS last_photo_at,"
-                "(SELECT p.id FROM staff_photos p WHERE p.staff_id=m.id ORDER BY p.last_seen DESC,p.id DESC LIMIT 1) AS cover,"
+                "(SELECT p.id FROM staff_photos p WHERE p.staff_id=m.id AND p.media_type='photo' "
+                "ORDER BY p.last_seen DESC,p.id DESC LIMIT 1) AS cover,"
                 "(SELECT COUNT(*) FROM staff_photos p WHERE p.staff_id=m.id) AS photo_count "
                 f"FROM staff_members m WHERE {where} ORDER BY m.id DESC", args)
             members = cur.fetchall()
@@ -349,7 +415,11 @@ def detail(data, admin=False):
                     or (row["venue_id"] in {4, 5, 6}
                         and not row["adult_confirmed"]))):
                 return None
-            cur.execute("SELECT id,first_seen FROM staff_photos WHERE staff_id=%s ORDER BY last_seen DESC,id DESC", (staff_id,))
+            cur.execute(
+                "SELECT id,first_seen,media_type FROM staff_photos "
+                "WHERE staff_id=%s ORDER BY last_seen DESC,id DESC",
+                (staff_id,),
+            )
             row["photos"] = [{**p, "first_seen": str(p["first_seen"])} for p in cur.fetchall()]
             row["ended_at"] = str(row["ended_at"]) if row["ended_at"] else None
             if admin:
@@ -364,7 +434,7 @@ def photo(photo_id):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT p.file_id,m.venue_id FROM staff_photos p JOIN staff_members m ON m.id=p.staff_id "
+                "SELECT p.file_id,p.media_type,m.venue_id FROM staff_photos p JOIN staff_members m ON m.id=p.staff_id "
                 "WHERE p.id=%s AND m.ended_at IS NULL AND m.deleted_at IS NULL AND m.blocked=0 "
                 "AND (m.venue_id NOT IN (4,5,6) OR m.adult_confirmed=1)",
                 (photo_id,))

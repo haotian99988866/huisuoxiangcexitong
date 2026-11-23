@@ -86,9 +86,9 @@ def footer_text(channel_id):
 
 
 def skip_footer(channel_id):
-    """名玺频道用出勤/全员/环境枢纽承载入口，不再挂通用底栏。"""
+    """已有专用出勤/档案枢纽的名玺频道不再挂通用底栏。"""
     config = LISTEN_CHANNELS.get(str(channel_id), {})
-    return config.get("venue_id") == 2
+    return config.get("venue_id") in {1, 2}
 
 
 def _clear_stored_footer(bot, channel_id):

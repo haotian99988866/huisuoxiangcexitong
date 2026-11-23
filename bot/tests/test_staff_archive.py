@@ -71,6 +71,36 @@ class StaffArchiveTests(unittest.TestCase):
         self.assertEqual(slot_args, (2, "820", 334))
 
     @patch("staff_archive.get_conn")
+    def test_archive_channel_media_builds_person_and_accepts_video(
+        self, get_conn
+    ):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.side_effect = [None]
+        cur.fetchall.return_value = []
+        cur.lastrowid = 6
+
+        with patch.object(staff_archive, "_person", return_value=6):
+            result = staff_archive.archive_channel_media(
+                1,
+                "029",
+                "video-file",
+                "-1002324026180",
+                5000,
+                datetime(2026, 11, 23, 10),
+                media_type="video",
+            )
+
+        self.assertEqual(result, {"staff_id": 6, "media_id": 6})
+        insert = next(
+            call for call in cur.execute.call_args_list
+            if "INSERT INTO staff_photos" in call.args[0]
+        )
+        self.assertIn("media_type", insert.args[0])
+        self.assertEqual(insert.args[1][-1], "video")
+        conn.commit.assert_called_once()
+
+    @patch("staff_archive.get_conn")
     @patch("staff_archive.synchronize")
     def test_sync_failure_rolls_back_and_releases_lock(self, synchronize, get_conn):
         conn = get_conn.return_value
