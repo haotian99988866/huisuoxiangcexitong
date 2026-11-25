@@ -236,6 +236,16 @@ API与主机器人启动时补齐订单字段及 `member_sales_config.phone_enab
 
 ## 当前 Windows 本机部署（固定 Cloudflare 隧道）
 
+### 本机频道存储盘
+
+2026年11月24日已将本地频道收录目录及媒体缓存迁至 `D:\HuisuoData`：`channel-sync`（进度、去重记录、限流、账号会话及收录日志）、`announcement-media`、`service-media`、`music`、`image-cache`、`ktv-video-cache`、`delivery-video-cache`。D盘目录仅允许当前运行用户、SYSTEM和管理员访问，不能开放或提交其中的账号会话。
+
+原 `%LOCALAPPDATA%\Huisuo\<目录名>` 保留为 NTFS Junction，实际指向上述D盘同名目录；代码、启动脚本、登录自启及 watchdog 继续使用原路径，无需修改环境变量或重新登录。不要删除这些目录链接，也不要将D盘目录当成普通缓存整体清空。MySQL数据库、数据库中的文字／媒体记录及其他未列出的目录没有迁移。
+
+迁移先在线预复制，再暂停 watchdog 恢复和相关写入进程，最终核对9738个文件的SHA256及SQLite／会话数据库完整性后切换；收录进度未重置。C盘原件保留在 `%LOCALAPPDATA%\Huisuo\<目录名>.before-d-move-20261124-043110`，不再写入，尚未删除，所以原有C盘空间暂未释放。确认迁移稳定及备份覆盖后再单独安排清理；迁移副本不替代常规备份。
+
+### 启动与访问
+
 - 公网地址：`https://app.haotianzhushou.com/`。
 - 命名隧道：`huisuo`，转发到 `http://127.0.0.1:4173`；前端通过 `/api` 代理本机 8000 端口。
 - 隧道配置及凭据保存在当前用户的 `.cloudflared` 目录，不要提交凭据。
