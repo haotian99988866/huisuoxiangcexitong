@@ -81,6 +81,27 @@ def ensure_tables():
                 INDEX idx_crm_contact_pending (status,next_attempt),
                 INDEX idx_crm_contact_user (user_id,created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("""CREATE TABLE IF NOT EXISTS crm_private_contacts (
+                telegram_user_id BIGINT PRIMARY KEY, username VARCHAR(64) NOT NULL DEFAULT '',
+                display_name VARCHAR(128) NOT NULL DEFAULT '', first_seen DATETIME NOT NULL,
+                last_seen DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("""CREATE TABLE IF NOT EXISTS crm_private_settings (
+                id TINYINT PRIMARY KEY, owner_id BIGINT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                enabled_at DATETIME NOT NULL, send_not_before DATETIME NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("SHOW COLUMNS FROM crm_private_settings LIKE 'send_not_before'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE crm_private_settings ADD COLUMN send_not_before DATETIME NULL")
+            cur.execute("""CREATE TABLE IF NOT EXISTS crm_private_notices (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY, owner_id BIGINT NOT NULL,
+                telegram_user_id BIGINT NOT NULL, customer_id BIGINT NOT NULL, contact_day DATE NOT NULL,
+                status VARCHAR(16) NOT NULL DEFAULT 'pending', error VARCHAR(80) NULL,
+                attempts INT NOT NULL DEFAULT 0, created_at DATETIME NOT NULL,
+                next_attempt DATETIME NOT NULL, sent_at DATETIME NULL,
+                UNIQUE KEY crm_private_daily (owner_id,telegram_user_id,contact_day),
+                INDEX crm_private_pending (status,id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
             cur.execute("SHOW COLUMNS FROM crm_customers LIKE 'telegram_user_id'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE crm_customers ADD COLUMN telegram_user_id BIGINT NULL, "
@@ -168,6 +189,7 @@ def _identity(cur, user_id):
     cur.execute("""SELECT user_id,username,display_name FROM (
         SELECT tg_user_id AS user_id,username,display_name,1 AS priority FROM bot_users
         UNION ALL SELECT user_id,username,display_name,2 AS priority FROM analytics_customers
+        UNION ALL SELECT telegram_user_id AS user_id,username,display_name,3 AS priority FROM crm_private_contacts
         ) identities WHERE user_id=%s ORDER BY priority LIMIT 1""", (telegram_id,))
     row = cur.fetchone()
     if row is None:
@@ -295,20 +317,22 @@ def directory(data):
             search = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             base = """FROM (
                 SELECT tg_user_id AS user_id FROM bot_users UNION SELECT user_id FROM analytics_customers
+                UNION SELECT telegram_user_id AS user_id FROM crm_private_contacts
                 UNION SELECT user_id FROM crm_customers WHERE telegram_user_id IS NULL
                 ) ids LEFT JOIN bot_users b ON b.tg_user_id=ids.user_id
                 LEFT JOIN analytics_customers a ON a.user_id=ids.user_id
+                LEFT JOIN crm_private_contacts p ON p.telegram_user_id=ids.user_id
                 LEFT JOIN crm_customers c ON c.telegram_user_id=ids.user_id
                     OR (c.telegram_user_id IS NULL AND c.user_id=ids.user_id)
-                WHERE CAST(ids.user_id AS CHAR)=%s OR COALESCE(b.username,a.username,'') LIKE %s
-                OR COALESCE(b.display_name,a.display_name,'') LIKE %s OR COALESCE(c.alias,'') LIKE %s"""
+                WHERE CAST(ids.user_id AS CHAR)=%s OR COALESCE(b.username,a.username,p.username,'') LIKE %s
+                OR COALESCE(b.display_name,a.display_name,p.display_name,'') LIKE %s OR COALESCE(c.alias,'') LIKE %s"""
             args = (query, search, search, search)
             cur.execute("SELECT COUNT(*) AS total " + base, args)
             total = cur.fetchone()["total"]
             cur.execute("""SELECT COALESCE(c.user_id,ids.user_id) AS user_id,
                 CASE WHEN ids.user_id>0 THEN ids.user_id ELSE NULL END AS telegram_user_id,
-                COALESCE(b.username,a.username,'') AS username,
-                COALESCE(b.display_name,a.display_name,'') AS display_name,COALESCE(c.alias,'') AS alias,
+                COALESCE(b.username,a.username,p.username,'') AS username,
+                COALESCE(b.display_name,a.display_name,p.display_name,'') AS display_name,COALESCE(c.alias,'') AS alias,
                 c.user_id IS NOT NULL AS registered,
                 (SELECT COUNT(*) FROM crm_consumptions r WHERE r.user_id=COALESCE(c.user_id,ids.user_id) AND r.status='valid') AS visits,
                 (SELECT COALESCE(SUM(r.amount-r.refunded),0) FROM crm_consumptions r

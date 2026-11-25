@@ -1421,6 +1421,8 @@ if __name__ == "__main__":
     from customer_records import ensure_tables as ensure_customer_record_tables, start_worker as start_customer_record_worker
     ensure_customer_record_tables()
     start_customer_record_worker(bot)
+    from private_contacts import start_if_enabled as start_private_contact_listener
+    start_private_contact_listener(bot)
     logger.warning("News subscription worker ready")
     from operations_review import start_worker as start_operations_review
     start_operations_review(bot)
