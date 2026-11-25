@@ -28,7 +28,7 @@ class DalangContentMonitorTests(unittest.TestCase):
     def test_photo_risk_stops_ingestion_and_deletes_message(self):
         bot = MagicMock()
         bot.get_file.return_value.file_path = "image"
-        with patch.object(monitor, "ocr_image_text", return_value="年龄 16"), \
+        with patch.object(monitor, "ocr_image_data", return_value=("年龄 16", [(None, "年龄 16", 0.9)])), \
                 patch.object(monitor, "_quarantine_indexed", return_value=True), \
                 patch.object(monitor, "_notify") as notify:
             stopped = monitor.handle(bot, message("photo", photo=[SimpleNamespace(file_id="file")]))
@@ -39,7 +39,7 @@ class DalangContentMonitorTests(unittest.TestCase):
     def test_unknown_photo_and_video_are_retained_and_alerted(self):
         bot = MagicMock()
         bot.get_file.return_value.file_path = "image"
-        with patch.object(monitor, "ocr_image_text", return_value="价格表"), \
+        with patch.object(monitor, "ocr_image_data", return_value=("价格表", [(None, "价格表", 0.9)])), \
                 patch.object(monitor, "_notify") as notify:
             self.assertFalse(monitor.handle(bot, message("photo", photo=[SimpleNamespace(file_id="file")])))
             self.assertFalse(monitor.handle(bot, message("video")))
@@ -53,6 +53,43 @@ class DalangContentMonitorTests(unittest.TestCase):
             self.assertFalse(monitor.handle(bot, message("photo", photo=[SimpleNamespace(file_id="file")])))
         self.assertIn("识别失败", notify.call_args.args[2][0])
         bot.delete_message.assert_not_called()
+
+    def test_safe_photo_reuses_download_and_ocr_for_attendance(self):
+        import main
+        import venue_duty_cleanup
+
+        post = message("photo", photo=[SimpleNamespace(file_id="file")])
+        post.date = 1795626000
+        post.video = None
+        bot = MagicMock()
+        bot.get_file.return_value.file_path = "image"
+        bot.download_file.return_value = b"image"
+        detections = [(None, "工号 530 年龄 23", 0.95)]
+        with patch.object(monitor, "ocr_image_data", return_value=("工号 530 年龄 23", detections)) as ocr, \
+                patch.object(main, "bot", bot), \
+                patch.object(main, "record_channel_activity"), \
+                patch.object(main, "save_delivery_media"), \
+                patch.object(main, "schedule_footer"), \
+                patch.object(main, "parse_caption", return_value=([], "")), \
+                patch.object(main, "save_technician_photo", return_value={"skipped": True}) as save, \
+                patch.object(venue_duty_cleanup, "record_media"):
+            self.assertFalse(monitor.handle(bot, post))
+            main.handle_photo_message(post)
+        bot.get_file.assert_called_once()
+        bot.download_file.assert_called_once()
+        ocr.assert_called_once()
+        self.assertEqual(save.call_args.kwargs["detections"], detections)
+        self.assertEqual(save.call_args.args[4], b"image")
+
+    def test_failed_monitor_ocr_does_not_reuse_incomplete_result(self):
+        post = message("photo", photo=[SimpleNamespace(file_id="file")])
+        bot = MagicMock()
+        bot.get_file.return_value.file_path = "image"
+        with patch.object(monitor, "ocr_image_data", return_value=None), \
+                patch.object(monitor, "_notify") as notify:
+            self.assertFalse(monitor.handle(bot, post))
+        self.assertFalse(hasattr(post, "_attendance_photo_data"))
+        self.assertIn("识别失败", notify.call_args.args[2][0])
 
     def test_failed_delete_and_quarantine_are_explicit_and_stop_ingestion(self):
         bot = MagicMock()

@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+import time
 from datetime import datetime, timezone
 
 import pymysql
@@ -90,6 +91,7 @@ import venue_content_monitor
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+performance_logger = logging.getLogger("attendance.performance")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -805,6 +807,8 @@ def handle_post_navigation(message):
 @bot.message_handler(content_types=['photo'])
 @bot.channel_post_handler(content_types=['photo'])
 def handle_photo_message(message):
+    started = time.monotonic()
+    post_age_ms = round((time.time() - message.date) * 1000) if getattr(message, "date", None) else None
     venue_config = get_venue_config(message.chat.id)
     archive = STAFF_ARCHIVE_VENUES.get(venue_config["venue_id"]) if venue_config else None
     if archive and (message.caption or "").startswith(archive["repost_prefix"]):
@@ -887,19 +891,26 @@ def handle_photo_message(message):
         )
         return
 
-    try:
-        telegram_file = bot.get_file(file_id)
-        image_bytes = bot.download_file(telegram_file.file_path)
-    except (
-        telebot.apihelper.ApiTelegramException,
-        requests.RequestException,
-    ) as exc:
-        logger.error(
-            "Failed to download technician photo %s (%s)",
-            message.message_id,
-            type(exc).__name__,
-        )
-        raise
+    cached_photo = getattr(message, "_attendance_photo_data", None)
+    if cached_photo is not None:
+        image_bytes, detections = cached_photo
+        del message._attendance_photo_data
+    else:
+        detections = None
+        try:
+            telegram_file = bot.get_file(file_id)
+            image_bytes = bot.download_file(telegram_file.file_path)
+        except (
+            telebot.apihelper.ApiTelegramException,
+            requests.RequestException,
+        ) as exc:
+            logger.error(
+                "Failed to download technician photo %s (%s)",
+                message.message_id,
+                type(exc).__name__,
+            )
+            raise
+    downloaded = time.monotonic()
 
     labeled_code = (
         extract_code_from_caption(caption)
@@ -915,14 +926,23 @@ def handle_photo_message(message):
             image_bytes,
             datetime.fromtimestamp(message.date).date(),
             published_at=datetime.fromtimestamp(message.date),
+            detections=detections,
         )
     except (pymysql.MySQLError, ValueError):
         logger.exception("Failed to process technician photo %s", message.message_id)
         raise
+    saved = time.monotonic()
 
     if venue_config["venue_id"] in (4, 5, 6):
         from venue_duty_cleanup import record_media
         record_media(message, venue_config["venue_id"])
+
+    performance_logger.info(
+        "photo_ingest venue=%s message=%s post_age_ms=%s reused=%s prepare_ms=%d save_ms=%d cleanup_ms=%d",
+        venue_config["venue_id"], message.message_id, post_age_ms, cached_photo is not None,
+        round((downloaded - started) * 1000), round((saved - downloaded) * 1000),
+        round((time.monotonic() - saved) * 1000),
+    )
 
     if venue_config["venue_id"] == 1:
         from staff_archive import archive_channel_media
@@ -1159,6 +1179,8 @@ def save_delivery_media(message):
     venue_config = get_venue_config(message.chat.id)
     if not venue_config or venue_config["venue_id"] not in DELIVERY_VENUE_IDS:
         return
+    started = time.monotonic()
+    post_age_ms = round((time.time() - message.date) * 1000) if getattr(message, "date", None) else None
     if message.photo:
         media_type, file_id = "photo", message.photo[-1].file_id
     elif message.video:
@@ -1166,11 +1188,16 @@ def save_delivery_media(message):
     else:
         return
     ocr_text, age, image_hash = None, extract_age(message.caption), None
+    download_ms, ocr_ms = None, None
     if media_type == "photo":
         try:
+            download_started = time.monotonic()
             image_bytes = bot.download_file(bot.get_file(file_id).file_path)
+            download_ms = round((time.monotonic() - download_started) * 1000)
             image_hash = compute_hash(image_bytes)
+            ocr_started = time.monotonic()
             ocr_text = ocr_image_text(image_bytes)
+            ocr_ms = round((time.monotonic() - ocr_started) * 1000)
             age = extract_age(message.caption, ocr_text)
         except Exception as exc:
             logger.exception(
@@ -1228,6 +1255,11 @@ def save_delivery_media(message):
             "Failed to attach delivery media to a personnel profile message_id=%s",
             message.message_id,
         )
+    performance_logger.info(
+        "delivery_ingest venue=%s message=%s post_age_ms=%s download_ms=%s ocr_ms=%s total_ms=%d",
+        venue_config["venue_id"], message.message_id, post_age_ms, download_ms, ocr_ms,
+        round((time.monotonic() - started) * 1000),
+    )
 
 
 def save_delivery_text(message):
@@ -1333,6 +1365,11 @@ def save_ktv_video(message):
 
 
 if __name__ == "__main__":
+    performance_logger.setLevel(logging.INFO)
+    performance_handler = logging.StreamHandler()
+    performance_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    performance_logger.addHandler(performance_handler)
+    performance_logger.propagate = False
     from wallet import ensure_tables as ensure_wallet_tables
     ensure_wallet_tables()
     from member_accounts import ensure_tables as ensure_member_account_tables

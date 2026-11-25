@@ -17,6 +17,7 @@ from staff_archive import sync as sync_staff_archive
 logger = logging.getLogger(__name__)
 VENUE_IDS = (4, 5, 6)
 REQUEST_INTERVAL = 5
+LOCK_PREFIX = "venue_duty_cleanup"
 
 
 def ensure_tables():
@@ -80,9 +81,26 @@ def record_media(message, venue_id, *, now=None):
     published_at = datetime.fromtimestamp(message.date)
     shift_start = current_shift_window(published_at)[0]
     rollover = kind == "photo" and shift_start == current_shift_window(now)[0]
+    for attempt in range(3):
+        try:
+            _record_media(message, venue, venue_id, kind, published_at, shift_start, rollover)
+            return
+        except pymysql.err.OperationalError as exc:
+            if not exc.args or exc.args[0] not in (1205, 1213) or attempt == 2:
+                raise
+            logger.warning("出勤记录锁冲突，重试 venue=%s message=%s attempt=%s error=%s",
+                           venue_id, message.message_id, attempt + 1, exc.args[0])
+            time.sleep(0.1 * (attempt + 1))
+
+
+def _record_media(message, venue, venue_id, kind, published_at, shift_start, rollover):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            cur.execute("SELECT venue_id FROM venue_duty_cleanup_policy WHERE venue_id=%s FOR UPDATE",
+                        (venue_id,))
+            if not cur.fetchone():
+                raise RuntimeError(f"Missing duty cleanup policy for venue {venue_id}")
             cur.execute("""INSERT IGNORE INTO venue_duty_messages
                 (venue_id,message_id,published_at,shift_start,kind)
                 VALUES(%s,%s,%s,%s,%s)""",
@@ -147,7 +165,7 @@ def run_once(bot, venue_id):
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT GET_LOCK(%s,0) AS acquired",
-                        (f"venue_duty_cleanup_{venue_id}",))
+                        (f"{LOCK_PREFIX}_{venue_id}",))
             locked = bool(cur.fetchone()["acquired"])
             if not locked:
                 return False
@@ -212,7 +230,7 @@ def run_once(bot, venue_id):
     finally:
         if locked:
             with conn.cursor() as cur:
-                cur.execute("SELECT RELEASE_LOCK(%s)", (f"venue_duty_cleanup_{venue_id}",))
+                cur.execute("SELECT RELEASE_LOCK(%s)", (f"{LOCK_PREFIX}_{venue_id}",))
         conn.close()
 
 

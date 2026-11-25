@@ -1,7 +1,12 @@
+import io
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from PIL import Image
 
 from api_server import build_delivery_posts, filter_adult_posts
-from delivery_age import extract_age
+from delivery_age import extract_age, ocr_image_data, ocr_image_text
 
 
 def row(id_, age=None, group=None, media_type="photo", caption=""):
@@ -28,6 +33,16 @@ class ExtractAgeTest(unittest.TestCase):
     def test_unknown(self):
         self.assertIsNone(extract_age("身高165 体重45kg"))
         self.assertIsNone(extract_age(None, ""))
+
+    def test_incomplete_ocr_confidence_preserves_all_safety_text_without_reuse(self):
+        image = io.BytesIO()
+        Image.new("RGB", (2, 2)).save(image, format="PNG")
+        output = SimpleNamespace(txts=["工号 530", "年龄 16"], scores=[0.95])
+        with patch("delivery_age._get_engine", return_value=lambda _: output):
+            text, detections = ocr_image_data(image.getvalue())
+            self.assertEqual(text, "工号 530\n年龄 16")
+            self.assertIsNone(detections)
+            self.assertEqual(ocr_image_text(image.getvalue()), text)
 
 
 class AdultFilterTest(unittest.TestCase):

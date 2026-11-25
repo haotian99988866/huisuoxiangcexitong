@@ -332,6 +332,7 @@ def save_technician_photo(
     image_bytes: bytes,
     photo_date,
     published_at: datetime | None = None,
+    detections=None,
 ):
     published_at = published_at or datetime.now()
     conn = get_conn()
@@ -377,7 +378,11 @@ def save_technician_photo(
             if code.strip()
         ]
 
-    recognition = recognize_technician_code(image_bytes, roster_codes, venue_id)
+    recognition = (
+        classify_ocr_detections(detections, roster_codes, venue_id)
+        if detections is not None
+        else recognize_technician_code(image_bytes, roster_codes, venue_id)
+    )
     image_hash = compute_hash(image_bytes)
 
     # 无候选工号的待核对图多为广告/风景，不入库，减轻人工核对负担

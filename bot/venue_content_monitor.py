@@ -2,18 +2,20 @@
 
 import logging
 import re
+import time
 
 import pymysql
 import requests
 from telebot import apihelper
 
 from db import get_conn
-from delivery_age import ocr_image_text
+from delivery_age import ocr_image_data
 from visit_stats import admin_ids
 from config.channels import STAFF_ARCHIVE_VENUES
 
 
 logger = logging.getLogger(__name__)
+performance_logger = logging.getLogger("attendance.performance")
 CHANNELS = {config["channel_id"]: (venue_id, config)
             for venue_id, config in STAFF_ARCHIVE_VENUES.items()}
 CHANNEL_ID = STAFF_ARCHIVE_VENUES[4]["channel_id"]
@@ -117,15 +119,30 @@ def handle(bot, message):
     risks, has_age = inspect_text(text)
     uncertain = None
     if getattr(message, "photo", None):
+        started = time.monotonic()
+        post_age_ms = round((time.time() - message.date) * 1000) if getattr(message, "date", None) else None
+        downloaded = None
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
             image = bot.download_file(file_info.file_path)
-            ocr_text = ocr_image_text(image)
+            downloaded = time.monotonic()
+            result = ocr_image_data(image)
+            ocr_text = result[0] if result is not None else ""
+            if result is not None and result[1] is not None:
+                message._attendance_photo_data = (image, result[1])
         except (apihelper.ApiTelegramException, requests.RequestException, OSError,
                 RuntimeError, ValueError, ImportError) as exc:
             logger.error("%s monitor image unavailable message=%s error=%s",
                          config["venue_name"], message.message_id, type(exc).__name__)
             ocr_text = ""
+        finished = time.monotonic()
+        performance_logger.info(
+            "photo_monitor venue=%s message=%s post_age_ms=%s download_ms=%s ocr_ms=%s total_ms=%d",
+            venue_id, message.message_id, post_age_ms,
+            round((downloaded - started) * 1000) if downloaded is not None else None,
+            round((finished - downloaded) * 1000) if downloaded is not None else None,
+            round((finished - started) * 1000),
+        )
         image_risks, image_has_age = inspect_text(ocr_text)
         risks = list(dict.fromkeys(risks + image_risks))
         has_age = has_age or image_has_age

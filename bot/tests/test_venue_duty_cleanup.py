@@ -1,7 +1,8 @@
 from datetime import datetime
 from types import SimpleNamespace
+import threading
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 import uuid
 
 import pymysql
@@ -41,6 +42,9 @@ class DutyCleanupTests(unittest.TestCase):
         patcher = patch.object(cleanup, "get_conn", side_effect=connect)
         patcher.start()
         cls.addClassCleanup(patcher.stop)
+        lock_patcher = patch.object(cleanup, "LOCK_PREFIX", "test_duty_" + uuid.uuid4().hex)
+        lock_patcher.start()
+        cls.addClassCleanup(lock_patcher.stop)
         conn = connect()
         try:
             with conn.cursor() as cur:
@@ -124,6 +128,57 @@ class DutyCleanupTests(unittest.TestCase):
         caption = STAFF_ARCHIVE_VENUES[4]["repost_prefix"] + "test"
         cleanup.record_media(message(14, morning, caption=caption), 4, now=morning)
         self.assertNotIn(14, self.statuses())
+
+    def test_record_media_waits_for_same_venue_policy_lock(self):
+        now = datetime(2026, 11, 24, 6, 1)
+        conn = self.connect()
+        finished = threading.Event()
+        errors = []
+
+        def record():
+            try:
+                cleanup.record_media(message(20, now), 4, now=now)
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT venue_id FROM venue_duty_cleanup_policy WHERE venue_id=4 FOR UPDATE")
+            thread = threading.Thread(target=record)
+            thread.start()
+            self.assertFalse(finished.wait(0.5))
+        finally:
+            conn.rollback()
+            conn.close()
+        thread.join(timeout=10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(self.statuses(), {20: "retained"})
+
+    def test_record_media_retries_deadlock_with_a_new_transaction(self):
+        now = datetime(2026, 11, 24, 6, 1)
+        broken = MagicMock()
+        broken.cursor.return_value.__enter__.return_value.execute.side_effect = (
+            pymysql.err.OperationalError(1213, "deadlock")
+        )
+        with patch.object(cleanup, "get_conn", side_effect=[broken, self.connect()]), \
+                patch.object(cleanup.time, "sleep"), \
+                self.assertLogs(cleanup.logger, level="WARNING"):
+            cleanup.record_media(message(20, now), 4, now=now)
+        broken.rollback.assert_called_once()
+        broken.close.assert_called_once()
+        self.assertEqual(self.statuses(), {20: "retained"})
+
+    def test_record_media_surfaces_persistent_deadlocks(self):
+        now = datetime(2026, 11, 24, 6, 1)
+        with patch.object(cleanup, "_record_media", side_effect=pymysql.err.OperationalError(1213, "deadlock")) as record, \
+                patch.object(cleanup.time, "sleep"), \
+                self.assertLogs(cleanup.logger, level="WARNING"), \
+                self.assertRaises(pymysql.err.OperationalError):
+            cleanup.record_media(message(20, now), 4, now=now)
+        self.assertEqual(record.call_count, 3)
 
     @patch.object(cleanup, "sync_staff_archive")
     def test_archive_pages_and_venue_covers_are_never_deleted(self, sync):

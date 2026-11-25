@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from technician_photo_ocr import (
     classify_ocr_detections,
@@ -8,6 +8,7 @@ from technician_photo_ocr import (
     extract_technician_profile,
     match_pending_technician_photos,
     recognize_technician_code,
+    save_technician_photo,
 )
 
 
@@ -47,6 +48,25 @@ class FakeConnection:
 
 
 class ClassifyOcrDetectionsTests(unittest.TestCase):
+    def test_saved_photo_uses_existing_detections_and_preserves_confidence(self):
+        attendance_conn = MagicMock()
+        attendance_conn.cursor.return_value.fetchone.return_value = None
+        save_conn = MagicMock()
+        save_conn.cursor.return_value.lastrowid = 42
+        detections = [(None, "工号 530", 0.95)]
+        from datetime import date
+        with patch("technician_photo_ocr.get_conn", side_effect=[attendance_conn, save_conn]), \
+                patch("technician_photo_ocr.compute_hash", return_value="hash"), \
+                patch("technician_photo_ocr.recognize_technician_code") as recognize:
+            result = save_technician_photo(
+                4, "channel", 123, "file", b"image", date(2026, 11, 25),
+                detections=detections,
+            )
+        recognize.assert_not_called()
+        self.assertEqual(result["technician_code"], "530")
+        self.assertEqual(result["ocr_confidence"], 0.95)
+        self.assertEqual(result["status"], "matched")
+
     def test_extracts_labeled_code_from_a_following_ocr_line(self):
         self.assertEqual(
             extract_labeled_technician_code("大浪淘沙\n工号：\n039\n年龄：20"),

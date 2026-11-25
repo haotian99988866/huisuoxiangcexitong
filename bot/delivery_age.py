@@ -46,8 +46,7 @@ def extract_age(*texts):
     return min(ages) if ages else None
 
 
-def ocr_image_text(image_bytes):
-    """返回图片里识别出的文字（按行），失败返回空字符串。"""
+def ocr_image_data(image_bytes):
     try:
         with Image.open(io.BytesIO(image_bytes)) as source:
             image = ImageOps.exif_transpose(source).convert("RGB")
@@ -55,6 +54,17 @@ def ocr_image_text(image_bytes):
         output = _get_engine()(image_array)
     except (UnidentifiedImageError, OSError, RuntimeError, ValueError) as exc:
         logger.error("Delivery OCR failed (%s)", type(exc).__name__)
-        return ""
+        return None
     texts = output.txts if output.txts is not None else []
-    return "\n".join(str(text) for text in texts)
+    scores = output.scores if output.scores is not None else []
+    detections = (
+        [(None, text, confidence) for text, confidence in zip(texts, scores)]
+        if len(texts) == len(scores) and len(texts) > 0 else None
+    )
+    return "\n".join(str(text) for text in texts), detections
+
+
+def ocr_image_text(image_bytes):
+    """返回图片里识别出的文字（按行），失败返回空字符串。"""
+    result = ocr_image_data(image_bytes)
+    return result[0] if result is not None else ""
