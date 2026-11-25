@@ -103,6 +103,28 @@ class PrivateContactTests(unittest.TestCase):
         self.assertEqual(self.sql("SELECT customer_id FROM crm_private_notices"), [{"customer_id": -123}])
         self.assertEqual(self.sql("SELECT COUNT(*) AS n FROM crm_customers")[0]["n"], 1)
 
+    def test_excluded_display_names_do_not_create_profile_contact_or_notice(self):
+        for index, term in enumerate((
+                "西港", "外送", "金边", "会所", "出码", "前台", "业务", "名玺", "帝豪",
+                "五象", "大浪", "凯迪", "大西洋", "七号", "娱乐", "代理", "招", "找工作",
+        )):
+            with self.subTest(term=term):
+                self.assertFalse(private_contacts.record_contact(
+                    9000, 100 + index, "customer", f"联系人{term}服务", self.now))
+        for table in ("crm_customers", "crm_private_contacts", "crm_private_notices"):
+            self.assertEqual(self.sql(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"], 0)
+
+    def test_exclusion_only_applies_to_display_name_of_new_contacts(self):
+        self.sql("""INSERT INTO crm_customers
+            (user_id,telegram_user_id,alias,preferences,avoidances,notes,revision,created_at,updated_at)
+            VALUES(-123,42,'offline','','','',1,%s,%s)""",
+                 (datetime(2026, 1, 1), datetime(2026, 1, 1)))
+        self.assertTrue(private_contacts.record_contact(9000, 42, "customer", "西港客户", self.now))
+        self.assertTrue(private_contacts.record_contact(9000, 43, "name_with_西港", "正常客户", self.now))
+        self.assertEqual(self.sql("SELECT customer_id FROM crm_private_notices ORDER BY telegram_user_id"),
+                         [{"customer_id": -123}, {"customer_id": 43}])
+        self.assertEqual(self.sql("SELECT COUNT(*) AS n FROM crm_customers")[0]["n"], 2)
+
     def test_disabled_or_old_messages_do_not_create_records(self):
         self.assertFalse(private_contacts.record_contact(
             9000, 42, "", "", datetime(2025, 1, 1, tzinfo=timezone.utc)))

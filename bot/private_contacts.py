@@ -18,6 +18,10 @@ from visit_stats import admin_ids
 
 logger = logging.getLogger(__name__)
 LOCAL_ZONE = timezone(timedelta(hours=7))
+EXCLUDED_NAME_TERMS = (
+    "西港", "外送", "金边", "会所", "出码", "前台", "业务", "名玺", "帝豪",
+    "五象", "大浪", "凯迪", "大西洋", "七号", "娱乐", "代理", "招", "找工作",
+)
 
 
 def settings():
@@ -65,15 +69,19 @@ def _record_contact(owner_id, sender_id, username, display_name, message_date):
             if not config or when < config["enabled_at"]:
                 conn.rollback()
                 return False
+            cur.execute("SELECT user_id FROM crm_customers WHERE telegram_user_id=%s FOR UPDATE",
+                        (sender_id,))
+            profile = cur.fetchone()
+            if not profile and any(term in (display_name or "") for term in EXCLUDED_NAME_TERMS):
+                conn.rollback()
+                logger.info("Private contact skipped: display name matches an exclusion")
+                return False
             cur.execute("""INSERT INTO crm_private_contacts
                 (telegram_user_id,username,display_name,first_seen,last_seen)
                 VALUES(%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE
                 username=VALUES(username),display_name=VALUES(display_name),
                 last_seen=GREATEST(last_seen,VALUES(last_seen))""",
                         (sender_id, (username or "")[:64], (display_name or "")[:128], now, now))
-            cur.execute("SELECT user_id FROM crm_customers WHERE telegram_user_id=%s FOR UPDATE",
-                        (sender_id,))
-            profile = cur.fetchone()
             if profile:
                 customer_id = profile["user_id"]
             else:
