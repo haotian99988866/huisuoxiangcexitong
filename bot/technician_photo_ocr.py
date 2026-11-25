@@ -214,16 +214,27 @@ def classify_ocr_detections(detections, roster_codes, venue_id=None):
         candidates = labeled_candidates
 
     ambiguous_dalang_label = False
-    if venue_id == 4:
-        text = "\n".join(recognized_text)
+    labeled_code = None
+    text = "\n".join(recognized_text)
+    # 凯迪/五象/帝豪海报常有「工号 / 至尊939」；优先标签，去掉身高体重噪声
+    if venue_id in {4, 5, 6}:
         labeled_code = extract_labeled_technician_code(text)
-        if labeled_code and len(labeled_code) == 4 and labeled_code.isdigit():
-            confidence = min(
-                float(detection[2]) for detection in detections
-                if str(detection[1]).strip()
-            )
-            candidates = {labeled_code: confidence}
-        elif not labeled_code:
+        if labeled_code:
+            label_confidence = max(candidates.values(), default=0.0)
+            if detections:
+                label_confidence = max(
+                    label_confidence,
+                    max(
+                        (
+                            float(detection[2])
+                            for detection in detections
+                            if str(detection[1]).strip()
+                        ),
+                        default=0.0,
+                    ),
+                )
+            candidates = {labeled_code: label_confidence}
+        elif venue_id == 4:
             four_digit_codes = [
                 code for code in _plate_code_pattern.findall(text) if len(code) == 4
             ]
@@ -252,6 +263,8 @@ def classify_ocr_detections(detections, roster_codes, venue_id=None):
         ),
         default=0.0,
     )
+    technician_code = None
+    status = "pending_review"
     if (
         not ambiguous_dalang_label
         and len(normalized_candidates) == 1
@@ -261,9 +274,17 @@ def classify_ocr_detections(detections, roster_codes, venue_id=None):
     ):
         technician_code = next(iter(unique_roster_codes))
         status = "matched"
-    else:
-        technician_code = None
-        status = "pending_review"
+    elif (
+        venue_id in {4, 5, 6}
+        and labeled_code
+        and not roster_by_normalized
+        and not ambiguous_dalang_label
+        and len(normalized_candidates) == 1
+        and max(candidates.values(), default=0.0) >= MIN_OCR_CONFIDENCE
+    ):
+        # 无文字出勤名单时：明确工号标签仍可 matched，供本班相册展示
+        technician_code = labeled_code
+        status = "matched"
 
     return {
         "ocr_text": "\n".join(recognized_text),
@@ -464,7 +485,7 @@ def match_pending_technician_photos(
             )
         for photo in cur.fetchall():
             candidates = [
-                code for code in photo["candidate_codes"].split(",") if code
+                code for code in (photo["candidate_codes"] or "").split(",") if code
             ]
             if venue_id == 2:
                 labeled_candidates = _labeled_plate_code_pattern.findall(
@@ -472,6 +493,10 @@ def match_pending_technician_photos(
                 )
                 if labeled_candidates:
                     candidates = list(dict.fromkeys(labeled_candidates))
+            elif venue_id in {4, 5, 6}:
+                labeled = extract_labeled_technician_code(photo["ocr_text"] or "")
+                if labeled:
+                    candidates = [labeled]
             technician_code = None
             normalized_candidates = {_normalize_code(code) for code in candidates}
             roster_matches = normalized_candidates.intersection(roster_by_normalized)
@@ -500,6 +525,56 @@ def match_pending_technician_photos(
                 ),
             )
             if cur.rowcount and technician_code is not None:
+                matched_count += 1
+        conn.commit()
+        return matched_count
+    except pymysql.MySQLError:
+        conn.rollback()
+        raise
+    finally:
+        if cur is not None:
+            cur.close()
+        conn.close()
+
+
+def rematch_pending_by_labeled_code(venue_ids=(4, 5, 6)):
+    """把已有 pending 中带明确工号标签的照片升为 matched（不依赖出勤名单）。"""
+    venue_ids = tuple(int(v) for v in venue_ids)
+    if not venue_ids:
+        return 0
+    conn = get_conn()
+    cur = None
+    matched_count = 0
+    try:
+        cur = conn.cursor()
+        placeholders = ",".join(["%s"] * len(venue_ids))
+        cur.execute(
+            f"""
+            SELECT id, venue_id, ocr_text, ocr_confidence, candidate_codes
+            FROM technician_photos
+            WHERE venue_id IN ({placeholders}) AND status = 'pending_review'
+            FOR UPDATE
+            """,
+            venue_ids,
+        )
+        for photo in cur.fetchall():
+            labeled = extract_labeled_technician_code(photo["ocr_text"] or "")
+            if not labeled:
+                continue
+            confidence = photo["ocr_confidence"]
+            if confidence is not None and float(confidence) < MIN_OCR_CONFIDENCE:
+                continue
+            cur.execute(
+                """
+                UPDATE technician_photos
+                SET technician_code = %s,
+                    candidate_codes = %s,
+                    status = 'matched'
+                WHERE id = %s AND status = 'pending_review'
+                """,
+                (labeled, labeled, photo["id"]),
+            )
+            if cur.rowcount:
                 matched_count += 1
         conn.commit()
         return matched_count

@@ -186,12 +186,33 @@ class ClassifyOcrDetectionsTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["technician_code"], "098")
 
-    def test_dalang_four_digit_label_is_retained_without_a_roster(self):
+    def test_dalang_four_digit_label_matches_without_a_roster(self):
         result = classify_ocr_detections(
             [([[]], "工号：2222", 0.95)], [], venue_id=4,
         )
         self.assertEqual(result["candidate_codes"], ["2222"])
-        self.assertEqual(result["status"], "pending_review")
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["technician_code"], "2222")
+
+    def test_wuxiang_category_label_matches_without_roster_noise(self):
+        result = classify_ocr_detections(
+            [
+                ([[]], "五象·大浪淘沙", 0.99),
+                ([[]], "工号", 0.99),
+                ([[]], "至尊939", 0.99),
+                ([[]], "身高", 0.99),
+                ([[]], "160", 0.99),
+                ([[]], "体重", 0.99),
+                ([[]], "49kg", 0.99),
+                ([[]], "年龄", 0.99),
+                ([[]], "22岁", 0.99),
+            ],
+            [],
+            venue_id=5,
+        )
+        self.assertEqual(result["candidate_codes"], ["939"])
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["technician_code"], "939")
 
     def test_dalang_four_digit_label_does_not_match_an_age_as_a_code(self):
         result = classify_ocr_detections(

@@ -119,6 +119,18 @@ def _protected(cur, row):
             return True
     cur.execute("SELECT msg_id FROM venue_photos WHERE channel_id=%s AND msg_id=%s LIMIT 1",
                 (str(venue["channel_id"]), row["message_id"]))
+    if cur.fetchone():
+        return True
+    # 待人工核对的出勤图：频道原帖删了就无法再审，必须保护
+    cur.execute(
+        """
+        SELECT 1 FROM technician_photos
+        WHERE venue_id=%s AND channel_id=%s AND msg_id=%s
+              AND status='pending_review'
+        LIMIT 1
+        """,
+        (row["venue_id"], str(venue["channel_id"]), row["message_id"]),
+    )
     return bool(cur.fetchone())
 
 

@@ -1,7 +1,7 @@
 import argparse
 
 from db import get_conn
-from technician_photo_ocr import review_pending_photo
+from technician_photo_ocr import rematch_pending_by_labeled_code, review_pending_photo
 
 
 def list_pending():
@@ -61,10 +61,27 @@ def main():
         action="store_true",
         help="不校验当班名单，直接 matched 写入人员档案（日韩专场等）",
     )
+    auto_parser = commands.add_parser(
+        "auto-label",
+        help="凯迪/五象/帝豪：OCR 文含明确工号标签的 pending 自动升 matched",
+    )
+    auto_parser.add_argument(
+        "--venues",
+        default="4,5,6",
+        help="会所 ID，逗号分隔，默认 4,5,6",
+    )
     args = parser.parse_args()
 
     if args.command == "list":
         list_pending()
+        return
+
+    if args.command == "auto-label":
+        venue_ids = tuple(
+            int(part.strip()) for part in str(args.venues).split(",") if part.strip()
+        )
+        count = rematch_pending_by_labeled_code(venue_ids)
+        print(f"已按工号标签自动匹配 {count} 张（venues={venue_ids}）")
         return
 
     if review_pending_photo(

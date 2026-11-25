@@ -45,7 +45,8 @@ class DutyCleanupTests(unittest.TestCase):
         try:
             with conn.cursor() as cur:
                 cur.execute("""CREATE TABLE technician_photos (
-                    venue_id INT,channel_id VARCHAR(30),msg_id BIGINT,created_at DATETIME)""")
+                    venue_id INT,channel_id VARCHAR(30),msg_id BIGINT,created_at DATETIME,
+                    status VARCHAR(32) DEFAULT 'pending_review')""")
                 cur.execute("CREATE TABLE venue_photos (channel_id VARCHAR(30),msg_id BIGINT)")
                 cur.execute("""CREATE TABLE bot_footers (
                     channel_id VARCHAR(30),message_id BIGINT,updated_at DATETIME)""")
@@ -149,6 +150,28 @@ class DutyCleanupTests(unittest.TestCase):
         self.assertEqual(self.statuses()[13], "deleted")
 
     @patch.object(cleanup, "sync_staff_archive")
+    def test_pending_review_photos_are_never_deleted(self, sync):
+        old = datetime(2026, 11, 23, 20)
+        new = datetime(2026, 11, 24, 6, 1)
+        channel_id = str(STAFF_ARCHIVE_VENUES[4]["channel_id"])
+        self.seed(10, old)
+        self.seed(11, old)
+        self.sql(
+            "INSERT INTO technician_photos VALUES(4,%s,10,%s,'pending_review')",
+            (channel_id, old),
+        )
+        cleanup.record_media(message(20, new), 4, now=new)
+        bot = Mock()
+        bot.delete_message.return_value = True
+        cleanup.run_once(bot, 4)
+        cleanup.run_once(bot, 4)
+        bot.delete_message.assert_called_once_with(
+            STAFF_ARCHIVE_VENUES[4]["channel_id"], 11, timeout=20
+        )
+        self.assertEqual(self.statuses()[10], "protected")
+        self.assertEqual(self.statuses()[11], "deleted")
+
+    @patch.object(cleanup, "sync_staff_archive")
     def test_failed_archive_sync_stops_delete_and_rate_limit_survives_restart(self, sync):
         self.seed(10, datetime(2026, 11, 23, 20))
         self.sql("UPDATE venue_duty_messages SET status='queued'")
@@ -194,8 +217,10 @@ class DutyCleanupTests(unittest.TestCase):
     def test_bootstrap_only_registers_known_photos_without_deleting(self):
         channel_id = str(STAFF_ARCHIVE_VENUES[4]["channel_id"])
         for ident in (10, 11):
-            self.sql("INSERT INTO technician_photos VALUES(4,%s,%s,%s)",
-                     (channel_id, ident, datetime(2026, 11, 23, 20)))
+            self.sql(
+                "INSERT INTO technician_photos VALUES(4,%s,%s,%s,'matched')",
+                (channel_id, ident, datetime(2026, 11, 23, 20)),
+            )
         self.sql("INSERT INTO venue_photos VALUES(%s,11)", (channel_id,))
         cleanup.ensure_tables()
         cleanup.ensure_tables()
