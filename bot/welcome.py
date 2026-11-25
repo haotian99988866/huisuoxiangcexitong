@@ -31,22 +31,20 @@ SHARE_URL = (
 )
 
 HOME_TEXT = (
-    "<b>欢迎使用西港会所/外送</b>\n"
-    "会所出勤与外送信息，一站查看。\n"
-    "下方按钮可直达会所出勤、外送、酒店、影视观影与音乐、资讯订阅、Telegram会员、话费及其他服务。\n"
-    "账户和订单请在 Telegram 小程序内操作；充值订单由人工处理。"
+    "🎁 邀请5位好友各留存7天，可得 $20 代金券！\n\n"
+    "优惠券功能正在开发中，敬请期待。"
 )
 
 PROMO_TEXT = (
     "📢 <b>最新活动</b>\n\n"
     "当前暂无进行中的限时活动。\n"
-    "会所出勤与外送信息请点主菜单对应入口查看；"
+    "会所出勤与外送信息请在小程序查看；"
     "会员与话费充值使用钱包余额付款，由昊天人工开通／代充，非即时到账。"
 )
 
 HELP_TEXT = (
     "📖 <b>使用指南</b>\n\n"
-    "点击首页分类展开功能并直接打开网页；账户、下单、收藏和人员订阅如需登录，请从 Telegram 打开小程序。\n\n"
+    "打开小程序查看各项功能；账户、下单、收藏和人员订阅如需登录，请从 Telegram 打开小程序。\n\n"
     "<b>1️⃣ 查看实时出勤</b>\n"
     "点【会所出勤】进入小程序，顶部下拉框选择会所，即可看到当前班次的出勤名单。\n\n"
     "<b>2️⃣ 白班 / 晚班</b>\n"
@@ -70,10 +68,10 @@ HELP_TEXT = (
     "💳 底部【首页】查看内容，【服务】选择会员套餐，【我的】管理余额、充值记录和购买订单。"
     "小程序自动识别账户，订单进度在【我的】查看。\n\n"
     "<b>⭐ Telegram会员充值</b>\n"
-    "点主菜单【Telegram会员】，选择3 / 6 / 12个月套餐，可为自己或他人赠送；"
+    "在小程序打开【Telegram会员】，选择3 / 6 / 12个月套餐，可为自己或他人赠送；"
     "核对收件人及金额后使用钱包余额购买，由管理员人工开通，不是即时自动到账。\n\n"
     "<b>📱 柬埔寨话费充值</b>\n"
-    "点主菜单【话费充值】，填写手机号和充值金额，核对手续费与总额后使用钱包余额支付，由管理员人工代充。"
+    "在小程序打开【话费充值】，填写手机号和充值金额，核对手续费与总额后使用钱包余额支付，由管理员人工代充。"
     "付款结果未确认时先查看订单，不要重复提交。\n"
     "点【余额充值】提交钱包充值申请，待管理员核实到账；点【我的账户】查看余额和订单，或点【服务中心】选择便民服务。普通浏览器可发送 /member 获取网站登录链接。\n"
     "付款或赠送问题可发送 /paysupport 联系管理员。\n\n"
@@ -153,6 +151,7 @@ MENU_CATEGORIES = {
         "我的与客服",
         (
             ("我的账户", PERSONAL_URL),
+            ("邀请代金券", "callback:coupon:mine"),
             ("频道", CHANNEL_URL),
             ("分享好友", "share"),
             ("联系昊天", CONTACT_URL),
@@ -170,14 +169,8 @@ def _menu_button(label, destination, user_id=None):
 
 
 def home_keyboard(user_id=None):
-    keyboard = types.InlineKeyboardMarkup(row_width=3)
-    buttons = [
-        _menu_button(label, destination, user_id)
-        for _, entries in MENU_CATEGORIES.values()
-        for label, destination in entries
-    ]
-    for offset in range(0, len(buttons), 3):
-        keyboard.row(*buttons[offset:offset + 3])
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("领取代金券", callback_data="coupon:mine"))
     return keyboard
 
 

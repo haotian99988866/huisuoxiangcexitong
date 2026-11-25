@@ -3,14 +3,15 @@ import { requestAdmin } from '../utils/admin'
 import { newMemberOrderId } from '../utils/membership'
 import { money } from '../utils/commerce'
 import { hasTelegramBackButton, registerBackOverlay } from '../utils/twa'
+import { consumptionDate } from '../utils/customerRecords'
 import StaffGallery from './StaffGallery'
 import DeliveryPersonPicker from './DeliveryPersonPicker'
 import MusicDialog from './MusicDialog'
 import MusicIcon from './MusicIcon'
+import AdminCouponPanel from './AdminCouponPanel'
 import './CustomerRecords.css'
 
-export const consumptionDate = value => value
-  ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Phnom_Penh', hour12: false }) : '暂无'
+export { consumptionDate }
 const inputDate = value => new Date(new Date(value).getTime() + 7 * 3600000).toISOString().slice(0, 16)
 const identity = row => row.alias || row.display_name || (row.username ? `@${row.username}` : `ID ${row.user_id}`)
 const actions = { admin_customer_save: '保存客户档案', admin_customer_bind: '绑定 Telegram 账号', admin_consumption_save: '登记 / 修改消费', admin_consumption_void: '作废消费' }
@@ -45,7 +46,7 @@ export function ConsumptionRows({ records, onEdit, onVoid, busy }) {
         {onEdit && row.note && <details><summary>内部备注</summary><p>{row.note}</p></details>}</td>
       <td>${money(row.amount)}<small>已退 ${money(row.refunded)}</small></td>
       {onEdit && <td>${money(row.commission_amount)}</td>}
-      <td>{row.status === 'void' ? '已作废' : Number(row.refunded) === Number(row.amount) ? '已全额退款' : Number(row.refunded) > 0 ? '部分退款' : '有效'}</td>
+      <td>{row.status === 'void' ? '已作废' : Number(row.refunded) > 0 && Number(row.refunded) === Number(row.amount) ? '已全额退款' : Number(row.refunded) > 0 ? '部分退款' : '有效'}</td>
       {onEdit && <td>{row.status === 'valid' && <>
         <button type="button" disabled={busy} onClick={() => onEdit(row)}>修改 / 登记退款</button>
         <button type="button" disabled={busy} onClick={() => onVoid(row)}>作废</button>
@@ -89,7 +90,9 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
       const payload = JSON.parse(pending)
       if (payload.user_id !== userId || !/^[0-9a-f]{32}$/.test(payload.request_id)) throw new Error('暂存操作编号不匹配')
       setConfirmation(payload)
-      setEditor({ ...payload, occurred_at: payload.occurred_at ? inputDate(payload.occurred_at) : undefined })
+      setEditor({ ...payload,
+        amount: payload.coupon_previewed && !payload.revision ? payload.original_amount : payload.amount,
+        occurred_at: payload.occurred_at ? inputDate(payload.occurred_at) : undefined })
       setUncertain(true)
       setProfileExtras(true)
       setConsumptionExtras(true)
@@ -186,8 +189,10 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
       ...current, service_kind, venue_id: '', staff_id: '', delivery_person_id: '', service: '',
     }))
   }
-  const prepare = event => {
+  const prepare = async event => {
     event.preventDefault()
+    if (busy || writing.current) return
+    writing.current = true
     setError('')
     try {
       const payload = {
@@ -201,7 +206,7 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
         const serviceKind = editor.service_kind || 'venue'
         payload.service_kind = serviceKind
         if (!editor.service.trim() || !editor.amount || !editor.venue_id) {
-          throw new Error('请填写会所或外送类型、项目和实际付款金额')
+          throw new Error('请填写会所或外送类型、项目和消费金额')
         }
         payload.venue_id = Number(editor.venue_id)
         payload.staff_id = serviceKind === 'venue' && editor.staff_id ? Number(editor.staff_id) : null
@@ -213,14 +218,28 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
             !/^\d{1,10}(?:\.\d{1,2})?$/.test(payload.refunded)) {
           throw new Error('金额须为美元数字，最多两位小数')
         }
-        if (Number(editor.amount) <= 0 || Number(payload.refunded) > Number(editor.amount)) {
-          throw new Error('实付金额必须大于0，已退款金额不能超过实付金额')
+        if (Number(editor.amount) <= 0) throw new Error('消费金额必须大于0')
+        if (!editor.revision) {
+          setBusy(true)
+          const preview = await requestAdmin('admin_coupon_preview', {
+            user_id: data.customer.user_id, service_kind: serviceKind, venue_id: payload.venue_id,
+            occurred_at: payload.occurred_at, original_amount: editor.amount,
+          })
+          payload.original_amount = editor.amount
+          payload.amount = preview.payable
+          payload.coupon_previewed = true
+          payload.coupon_expected_id = preview.coupon_id
+          payload.coupon_manual_review = preview.manual_review
+        }
+        if (Number(payload.refunded) > Number(payload.amount)) {
+          throw new Error('已退款金额不能超过折后实付金额')
         }
       }
       if (editor.revision && !editor.reason.trim()) throw new Error('修改或作废必须填写原因')
       setConfirmation(payload)
       setUncertain(false)
     } catch (failure) { setError(failure.message) }
+    finally { writing.current = false; if (mounted.current) setBusy(false) }
   }
   const save = async () => {
     if (writing.current || !confirmation) return
@@ -244,7 +263,11 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
       if (!mounted.current) return
       setError(failure.message)
       if ([400, 401, 403, 409].includes(failure.status)) {
-        if ([400, 409].includes(failure.status)) sessionStorage.removeItem(pendingKey)
+        if ([400, 409].includes(failure.status)) {
+          sessionStorage.removeItem(pendingKey)
+          setUncertain(false)
+          setNotice('')
+        }
         setConfirmation(null)
         if ([401, 403].includes(failure.status)) { setData(null); setEditor(null) }
       } else {
@@ -285,7 +308,7 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
         </div>
       </section>
       <nav className="crm-tabs" aria-label="客户资料分类">
-        {[['overview', '概览'], ['consumption', '消费'], ['staff', '服务人员'], ['history', '操作记录']].map(([key, label]) =>
+        {[['overview', '概览'], ['consumption', '消费'], ['coupons', '优惠券'], ['staff', '服务人员'], ['history', '操作记录']].map(([key, label]) =>
           <button key={key} type="button" aria-pressed={tab === key} disabled={busy || !!editor} onClick={() => setTab(key)}>{label}</button>)}
       </nav>
       {tab === 'overview' && <section className="admin-card crm-overview">
@@ -319,6 +342,10 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
         <ConsumptionRows records={data.records} onEdit={editRecord} busy={busy || !!editor}
           onVoid={row => setEditor({ action: 'admin_consumption_void', record_id: row.id, revision: row.revision, reason: '' })} />
         <ConsumptionPager page={page} total={data.total} onChange={setPage} busy={busy || !!editor} />
+      </section>}
+      {tab === 'coupons' && <section className="admin-card">
+        <h2>邀请优惠券</h2>
+        <AdminCouponPanel ownerId={data.customer.telegram_user_id} records={data.records} />
       </section>}
       {tab === 'history' && <>
       <section className="admin-card"><h2>联系提醒</h2>
@@ -445,7 +472,8 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
                 ? `本项目固定提成 $${money(selected.commission_amount)}；已退金额将从提成中扣减，最低为 $0。`
                 : '未匹配固定提成价目项目时，本笔客人提成按 $0 计。请尽量从项目建议中选择。'}</p>
           })()}
-          <label>实际付款 USD<input required inputMode="decimal" pattern="\d{1,10}(\.\d{1,2})?" value={editor.amount} onChange={e => field('amount', e.target.value)} /></label>
+          <label>{editor.revision ? '实际付款' : '消费原价'} USD<input required inputMode="decimal" pattern="\d{1,10}(\.\d{1,2})?" value={editor.amount} onChange={e => field('amount', e.target.value)} /></label>
+          {!editor.revision && <p className="admin-hint">下一步自动核对可用代金券并显示折后实付；每笔最多使用一张。</p>}
           <details open={consumptionExtras} onToggle={event => setConsumptionExtras(event.currentTarget.open)}>
           <summary>已退款金额与内部备注（选填）</summary>
           <label>已经实际退款 USD<input inputMode="decimal" pattern="\d{1,10}(\.\d{1,2})?" value={editor.refunded} onChange={e => field('refunded', e.target.value)} /></label>
@@ -483,6 +511,13 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
               row.venue_id === Number(confirmation.venue_id) && row.service_name === confirmation.service)
               ?.commission_amount || 0
           })()) - Number(confirmation.refunded)))}
+        </p>}
+        {confirmation.action === 'admin_consumption_save' && confirmation.coupon_previewed && <p>
+          原价 ${money(confirmation.original_amount)} · {confirmation.coupon_expected_id
+            ? `自动抵用 $20，券号 ${confirmation.coupon_expected_id}`
+            : confirmation.coupon_manual_review
+              ? '原价不足 $20，优惠券保留，请人工处理。'
+              : '未使用代金券'}
         </p>}
         {confirmation.reason && <p>操作原因：{confirmation.reason}</p>}
         {confirmation.action === 'admin_consumption_void' && <p>作废后不再计入累计，原消费记录仍保留。</p>}

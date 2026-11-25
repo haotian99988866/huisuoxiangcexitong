@@ -447,14 +447,14 @@ def save(data, actor_id):
             # Serialize all edits for a customer, including initial profile creation.
             cur.execute("SELECT user_id FROM analytics_customers WHERE user_id=%s FOR UPDATE", (user_id,))
             cur.execute("SELECT tg_user_id FROM bot_users WHERE tg_user_id=%s FOR UPDATE", (user_id,))
-            cur.execute("SELECT * FROM crm_audit WHERE request_id=%s", (request_id,))
+            cur.execute("SELECT * FROM crm_customers WHERE user_id=%s FOR UPDATE", (user_id,))
+            customer = cur.fetchone()
+            cur.execute("SELECT * FROM crm_audit WHERE request_id=%s FOR UPDATE", (request_id,))
             prior = cur.fetchone()
             if prior:
                 if prior["request_hash"] not in {digest, legacy_digest} or prior["actor_id"] != actor_id:
                     raise RecordConflict("操作编号已用于不同内容，请先刷新核对")
                 return {"ok": True, "record_id": prior["record_id"], "user_id": prior["user_id"], "replayed": True}
-            cur.execute("SELECT * FROM crm_customers WHERE user_id=%s FOR UPDATE", (user_id,))
-            customer = cur.fetchone()
             if action == "admin_customer_bind":
                 if not customer or revision != customer["revision"]:
                     raise RecordConflict("客户档案已变更，请刷新后绑定")
@@ -505,6 +505,12 @@ def save(data, actor_id):
                     raise ValueError("该消费记录不属于所选客户")
                 if revision != (before["revision"] if before else 0) or (before and before["status"] != "valid"):
                     raise RecordConflict("消费记录已变更或作废，请刷新后核对")
+                linked_coupon = None
+                if before:
+                    cur.execute("SELECT * FROM coupon_vouchers WHERE consumption_id=%s FOR UPDATE", (record_id,))
+                    linked_coupon = cur.fetchone()
+                    if linked_coupon and linked_coupon["status"] != "reversal_pending":
+                        raise RecordConflict("该消费已核销优惠券，请先在优惠券管理中撤销核销，再修改消费")
                 if action == "admin_consumption_void":
                     if before is None:
                         raise ValueError("消费记录不存在")
@@ -526,8 +532,15 @@ def save(data, actor_id):
                     service = _text(data.get("service"), "消费项目", 128, True)
                     note = _text(data.get("note", ""), "消费内部备注", 2000)
                     amount, refunded = _money(data.get("amount"), "实付金额"), _money(data.get("refunded", "0"), "已退款金额")
-                    if amount <= 0 or refunded > amount:
+                    automatic_coupon = None
+                    if before is None:
+                        from coupon_campaign import automatic_redemption
+                        automatic_coupon = automatic_redemption(
+                            cur, data, user_id, service_kind, venue_id, occurred, amount, now)
+                    if (amount <= 0 and not (automatic_coupon and amount == 0)) or refunded > amount:
                         raise ValueError("实付金额必须大于0，已退款金额不能超过实付金额")
+                    if linked_coupon and amount < linked_coupon["original_amount"]:
+                        raise ValueError("请先核实收款；撤销优惠券后，实付须恢复至少原价，或作废该消费")
                     from finance import commission_after_refund, commission_item
                     commission_owner_id = (before.get("commission_owner_id") or actor_id) if before else actor_id
                     from finance import _ensure_defaults
@@ -562,6 +575,24 @@ def save(data, actor_id):
                                 (record_id, user_id, service_kind, venue_id, staff_id, delivery_person_id,
                                  commission_owner_id, commission_key, base_commission, final_commission,
                                  service, occurred, amount, refunded, note, now, now))
+                    if automatic_coupon:
+                        from coupon_campaign import apply_automatic_redemption
+                        coupon, original = automatic_coupon
+                        apply_automatic_redemption(cur, coupon, original, record_id, actor_id, now)
+                if linked_coupon:
+                    cur.execute("""SELECT invitee_id FROM coupon_invites WHERE voucher_id=%s
+                        AND left_at IS NOT NULL AND left_at<DATE_ADD(joined_at,INTERVAL 7 DAY) FOR UPDATE""",
+                                (linked_coupon["id"],))
+                    disqualified = cur.fetchall()
+                    if disqualified:
+                        cur.execute("""UPDATE coupon_invites SET state='left' WHERE voucher_id=%s
+                            AND left_at IS NOT NULL AND left_at<DATE_ADD(joined_at,INTERVAL 7 DAY)""",
+                                    (linked_coupon["id"],))
+                        cur.execute("""UPDATE coupon_invites SET voucher_id=NULL
+                            WHERE voucher_id=%s AND state='qualified'""", (linked_coupon["id"],))
+                    cur.execute("""UPDATE coupon_vouchers SET status=%s,consumption_id=NULL,
+                        original_amount=NULL,redeemed_at=NULL,redeemed_by=NULL WHERE id=%s""",
+                                ("invalid" if disqualified else "available", linked_coupon["id"]))
                 cur.execute("SELECT * FROM crm_consumptions WHERE id=%s", (record_id,))
                 after = cur.fetchone()
             cur.execute("""INSERT INTO crm_audit(request_id,request_hash,actor_id,user_id,action,record_id,

@@ -88,12 +88,24 @@ from relay import (
 )
 from delivery_age import extract_age, ocr_image_text
 import venue_content_monitor
+import coupon_campaign
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 performance_logger = logging.getLogger("attendance.performance")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-bot = telebot.TeleBot(BOT_TOKEN)
+
+
+class CouponBot(telebot.TeleBot):
+    capture_coupon_updates = False
+
+    def process_new_updates(self, updates):
+        if self.capture_coupon_updates:
+            coupon_campaign.record_updates(updates)
+        return super().process_new_updates(updates)
+
+
+bot = CouponBot(BOT_TOKEN)
 
 def normalize_tag(tag):
     t = tag.strip()
@@ -625,6 +637,19 @@ def handle_pay_support(message):
         message,
         "Premium 付款、赠送或机器人 Stars 补充遇到问题，请联系管理员并提供订单编号及官方付款记录。"
         "请勿发送密码、验证码或两步验证密码。")
+
+
+@bot.message_handler(commands=["coupons", "coupon_admin", "coupon_redeem"], chat_types=["private"])
+def handle_coupon_command(message):
+    from coupon_bot import command
+    touch_user(message.from_user)
+    command(bot, message)
+
+
+@bot.callback_query_handler(func=lambda call: (call.data or "").startswith("coupon:"))
+def handle_coupon_callback(call):
+    from coupon_bot import callback
+    callback(bot, call)
 
 
 @bot.callback_query_handler(func=lambda call: (call.data or "").startswith("menu:"))
@@ -1421,6 +1446,11 @@ if __name__ == "__main__":
     from customer_records import ensure_tables as ensure_customer_record_tables, start_worker as start_customer_record_worker
     ensure_customer_record_tables()
     start_customer_record_worker(bot)
+    coupon_campaign.ensure_tables()
+    coupon_enabled = coupon_campaign.is_enabled()
+    if coupon_enabled:
+        bot.capture_coupon_updates = True
+        coupon_campaign.start_worker(bot)
     from private_contacts import start_if_enabled as start_private_contact_listener
     start_private_contact_listener(bot)
     logger.warning("News subscription worker ready")
@@ -1432,4 +1462,6 @@ if __name__ == "__main__":
     start_duty_cleanup_worker(bot)
     start_cleanup_thread()
     logger.warning("Venue content monitors READY: risk deletion; uncertain media alerts")
-    bot.infinity_polling(allowed_updates=[])
+    coupon_updates = [kind for kind in util.update_types
+                      if kind not in {"message_reaction", "message_reaction_count"}]
+    bot.infinity_polling(allowed_updates=coupon_updates if coupon_enabled else [])

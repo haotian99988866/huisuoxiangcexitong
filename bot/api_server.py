@@ -567,6 +567,7 @@ def webhook():
                   "admin_staff_detail", "admin_staff_description", "admin_staff_delete",
                   "admin_customers", "admin_customer_detail",
                   "admin_customer_save", "admin_customer_create", "admin_customer_bind",
+                  "admin_coupon_detail", "admin_coupon_preview", "admin_coupon_redeem", "admin_coupon_review", "admin_coupon_reverse",
                   "admin_finance_dashboard", "admin_finance_daily_summary",
                   "admin_finance_transaction", "admin_finance_budget",
                   "admin_finance_goal", "admin_finance_account", "admin_finance_category",
@@ -695,6 +696,32 @@ def webhook():
                         customer_record_detail(data, user["id"]) if action == "admin_customer_detail"
                         else save_customer_record(data, user["id"]))
                     return jsonify(result)
+                except RecordConflict as exc:
+                    return jsonify({"error": str(exc)}), 409
+            if action in {"admin_coupon_detail", "admin_coupon_preview", "admin_coupon_redeem", "admin_coupon_review", "admin_coupon_reverse"}:
+                import coupon_campaign
+                from customer_records import RecordConflict
+                try:
+                    if action == "admin_coupon_detail":
+                        result = coupon_campaign.mine(data.get("owner_id"), data.get("page", 1),
+                                                      data.get("voucher_page", 1))
+                    elif action == "admin_coupon_preview":
+                        result = coupon_campaign.preview(data)
+                    elif action == "admin_coupon_redeem":
+                        result = coupon_campaign.redeem(
+                            data.get("owner_id"), data.get("voucher_id"), data.get("consumption_id"),
+                            data.get("original_amount"), user["id"], data.get("confirmed"), data.get("request_id"))
+                    elif action == "admin_coupon_review":
+                        result = coupon_campaign.review(
+                            data.get("invitee_id"), data.get("approved"), data.get("reason"),
+                            user["id"], data.get("confirmed"), data.get("request_id"))
+                    else:
+                        result = coupon_campaign.reverse_redemption(
+                            data.get("voucher_id"), data.get("reason"), user["id"], data.get("confirmed"),
+                            data.get("request_id"))
+                    response = jsonify(result)
+                    response.headers["Cache-Control"] = "private, no-store"
+                    return response
                 except RecordConflict as exc:
                     return jsonify({"error": str(exc)}), 409
             if action in {"admin_staff", "admin_staff_replace", "admin_staff_detail",
@@ -956,6 +983,7 @@ def webhook():
         "member_login", "member_logout", "member_account", "member_deposit",
         "member_catalog", "member_purchase", "phone_purchase", "member_orders", "member_order", "member_ledger",
         "member_test_account", "member_test_purchase", "customer_mine", "customer_contact",
+        "coupon_mine", "coupon_invite",
     }:
         from member_accounts import authenticate as browser_auth, exchange_link, logout, site_origin
         from premium_balance import catalog, create_order, get_order, order_public, recent_orders, recent_ledger
@@ -992,6 +1020,17 @@ def webhook():
             if action in {"customer_mine", "customer_contact"}:
                 from customer_records import mine, contact
                 return jsonify(mine(user_id, data) if action == "customer_mine" else contact(user_id))
+            if action in {"coupon_mine", "coupon_invite"}:
+                import coupon_campaign
+                if action == "coupon_invite":
+                    import telebot
+                    result = {"invite_link": coupon_campaign.create_link(
+                        telebot.TeleBot(os.environ["TELEGRAM_BOT_TOKEN"]), user_id)}
+                else:
+                    result = coupon_campaign.mine(user_id, data.get("page", 1), data.get("voucher_page", 1))
+                response = jsonify(result)
+                response.headers["Cache-Control"] = "private, no-store"
+                return response
             from visit_stats import admin_ids
             if action.startswith("member_test_"):
                 if user_id not in admin_ids():
@@ -1049,6 +1088,8 @@ def webhook():
             logger.exception("Browser member operation failed action=%s", action)
             if action in {"customer_mine", "customer_contact"}:
                 return jsonify({"error": "客户消费记录或联系提醒暂不可用，请稍后重试或联系昊天人工核对"}), 503
+            if action in {"coupon_mine", "coupon_invite"}:
+                return jsonify({"error": "优惠券服务暂不可用；链接创建结果不明时请联系管理员核对"}), 503
             return jsonify({"error": "账户服务暂不可用；购买请求异常时请先查询订单，勿重新扣款"}), 503
     if action in {"wallet_account", "wallet_submit"}:
         from wallet import account, submit
@@ -1574,6 +1615,8 @@ if __name__ == "__main__":
     ensure_subscription_center()
     from customer_records import ensure_tables as ensure_customer_record_tables
     ensure_customer_record_tables()
+    from coupon_campaign import ensure_tables as ensure_coupon_tables
+    ensure_coupon_tables()
     from finance import ensure_tables as ensure_finance_tables
     ensure_finance_tables()
     host = os.getenv("API_HOST", "127.0.0.1")

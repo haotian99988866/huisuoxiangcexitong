@@ -15,28 +15,27 @@ class WelcomeTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_main_menu_groups_features_into_five_categories(self):
+    def test_main_menu_only_shows_coupon_entry_and_legacy_categories_remain(self):
         buttons = [button for row in welcome.home_keyboard().keyboard for button in row]
-        self.assertEqual([len(row) for row in welcome.home_keyboard().keyboard], [3, 3, 3, 3, 3, 2])
+        self.assertEqual([(button.text, button.callback_data) for button in buttons],
+                         [("领取代金券", "coupon:mine")])
         all_destinations = {
             welcome.SHARE_URL if destination == "share" else destination
             for _, entries in welcome.MENU_CATEGORIES.values()
             for _, destination in entries
         }
-        rendered_home_destinations = {
-            button.url or f"callback:{button.callback_data}" for button in buttons
-        }
-        self.assertEqual(rendered_home_destinations, all_destinations)
         self.assertTrue({
             welcome.VENUE_URL, welcome.DELIVERY_URL, welcome.HOTELS_URL,
             welcome.SHORT_DRAMAS_URL, welcome.NEWS_URL, welcome.RECHARGE_URL,
             welcome.SERVICES_URL, welcome.MOVIES_URL, welcome.PERSONAL_URL,
             welcome.CONTACT_URL, welcome.CHANNEL_URL, welcome.MEMBERSHIP_URL,
-            welcome.PHONE_URL, "callback:news:menu", "callback:sub:menu", welcome.SHARE_URL,
+            welcome.PHONE_URL, "callback:news:menu", "callback:sub:menu", "callback:coupon:mine", welcome.SHARE_URL,
         }.issubset(all_destinations))
-        self.assertEqual(len(buttons), 17)
-        self.assertIn("会所出勤", {button.text for button in buttons})
-        self.assertIn("充值订单由人工处理", welcome.HOME_TEXT)
+        self.assertIn("邀请5位好友", welcome.HOME_TEXT)
+        self.assertIn("留存7天", welcome.HOME_TEXT)
+        self.assertIn("$20", welcome.HOME_TEXT)
+        self.assertIn("优惠券功能正在开发中", welcome.HOME_TEXT)
+        self.assertNotIn("会所出勤", welcome.HOME_TEXT)
         self.assertIn("【新闻订阅】", welcome.HELP_TEXT)
         self.assertEqual(len(welcome.sub_keyboard().keyboard), 1)
         self.assertEqual(len(welcome.sub_keyboard().keyboard[0]), 2)
@@ -56,7 +55,7 @@ class WelcomeTests(unittest.TestCase):
     def test_descriptions_fit_telegram_limits_and_cover_current_modules(self):
         self.assertLessEqual(len(bot_profile.DESCRIPTION.encode("utf-16-le")) // 2, 512)
         self.assertLessEqual(len(bot_profile.SHORT_DESCRIPTION.encode("utf-16-le")) // 2, 120)
-        for text in [welcome.HOME_TEXT, welcome.HELP_TEXT, bot_profile.DESCRIPTION]:
+        for text in [welcome.HELP_TEXT, bot_profile.DESCRIPTION]:
             for feature in ["观影", "音乐", "出勤"]:
                 self.assertIn(feature, text)
             self.assertNotIn("水墨", text)
@@ -64,7 +63,7 @@ class WelcomeTests(unittest.TestCase):
         self.assertIn("/news_off", welcome.HELP_TEXT)
         self.assertNotIn("筹备中", welcome.HELP_TEXT)
         self.assertNotIn("正式会员销售暂未开放", welcome.HELP_TEXT)
-        for text in [welcome.HOME_TEXT, welcome.HELP_TEXT, bot_profile.DESCRIPTION]:
+        for text in [welcome.HELP_TEXT, bot_profile.DESCRIPTION]:
             self.assertIn("Telegram会员", text)
             self.assertIn("话费", text)
             self.assertIn("人工", text)
@@ -77,7 +76,7 @@ class WelcomeTests(unittest.TestCase):
         self.assertTrue({"member", "member_sales", "paysupport"}.issubset(commands))
         self.assertFalse({"premium_sales", "stars_sales"} & commands)
 
-    def test_start_removes_old_reply_keyboard_and_displays_all_feature_buttons(self):
+    def test_start_removes_old_reply_keyboard_and_displays_coupon_entry(self):
         bot = Mock()
         bot.send_message.side_effect = [
             SimpleNamespace(chat=SimpleNamespace(id=123), message_id=455),
@@ -95,17 +94,14 @@ class WelcomeTests(unittest.TestCase):
         self.assertEqual(options["parse_mode"], "HTML")
         self.assertTrue(options["disable_web_page_preview"])
         inline_markup = json.loads(options["reply_markup"].to_json())
-        self.assertEqual([len(row) for row in inline_markup["inline_keyboard"]], [3, 3, 3, 3, 3, 2])
-        self.assertEqual(sum(map(len, inline_markup["inline_keyboard"])), 17)
+        self.assertEqual(inline_markup["inline_keyboard"], [[{"text": "领取代金券", "callback_data": "coupon:mine"}]])
         bot.edit_message_reply_markup.assert_not_called()
         bot.delete_message.assert_called_once_with(123, 455, timeout=20)
 
-    def test_home_menu_uses_personal_share_link(self):
+    def test_home_menu_does_not_create_personal_share_link(self):
         with patch("welcome.personal_share_url", return_value="https://example.test/share") as share:
-            buttons = [button for row in welcome.home_keyboard(123).keyboard for button in row]
-        share.assert_called_once_with(123)
-        share_button = next(button for button in buttons if button.text == "分享好友")
-        self.assertEqual(share_button.url, "https://example.test/share")
+            welcome.home_keyboard(123)
+        share.assert_not_called()
 
     def test_menu_links_preserve_destinations_and_personal_share(self):
         bot = Mock()
@@ -184,8 +180,9 @@ class WelcomeTests(unittest.TestCase):
             welcome.show_screen(bot, call)
         bot.send_message.assert_not_called()
         bot.edit_message_text.assert_called_once()
+        self.assertEqual(bot.edit_message_text.call_args.args[0], welcome.HOME_TEXT)
         markup = json.loads(bot.edit_message_text.call_args.kwargs["reply_markup"].to_json())
-        self.assertEqual([len(row) for row in markup["inline_keyboard"]], [3, 3, 3, 3, 3, 2])
+        self.assertEqual(markup["inline_keyboard"], [[{"text": "领取代金券", "callback_data": "coupon:mine"}]])
 
     def test_command_history_handler_runs_before_start_and_continues_dispatch(self):
         import main

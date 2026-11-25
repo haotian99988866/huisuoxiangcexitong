@@ -4,6 +4,7 @@ import OrderSummary from '../components/OrderSummary'
 import BrandArtwork from '../components/BrandArtwork'
 import AccountHeader from '../components/AccountHeader'
 import ModuleIcon from '../components/ModuleIcon'
+import CouponPanel from '../components/CouponPanel'
 import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
 import '../components/ui/ui.css'
@@ -107,6 +108,7 @@ export default function Personal() {
         <div className="membership-row"><h2>我的消费</h2><Link to="/consumption">查看消费记录</Link></div>
         <p>会所消费明细、已退款金额及净累计消费。</p>
       </section>
+      <CouponPanel userId={account.user_id} />
     </>}
     <footer className="personal-footer" aria-label="帮助与客服">
       <Button className="personal-support" type="button" variant="quiet" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>

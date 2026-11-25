@@ -1,0 +1,15 @@
+.coupon-panel h3 { margin: 1rem 0 .4rem; font-size: 1rem; }
+.coupon-action, .coupon-pager button, .coupon-panel .membership-error button, .coupon-admin button {
+  min-height: 44px;
+  padding: .5rem .85rem;
+  border: 1px solid var(--ink-border, #ccc);
+  border-radius: .6rem;
+  background: transparent;
+  color: inherit;
+}
+.coupon-item { display: grid; gap: .25rem; padding: .75rem 0; border-top: 1px solid var(--ink-border, #ddd); }
+.coupon-item small { overflow-wrap: anywhere; }
+.coupon-pager { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.coupon-operation { display: grid; gap: .75rem; margin-top: 1rem; padding: 1rem; border: 1px solid var(--ink-border, #ddd); border-radius: .6rem; }
+.coupon-operation label { display: grid; gap: .35rem; }
+.coupon-operation input, .coupon-operation select, .coupon-operation textarea { min-height: 44px; width: 100%; }

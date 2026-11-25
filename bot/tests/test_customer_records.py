@@ -120,7 +120,7 @@ class CustomerRecordTests(unittest.TestCase):
         conn = MagicMock()
         cursor = conn.cursor.return_value.__enter__.return_value
         cursor.fetchone.side_effect = [
-            None, {"user_id": -123, "telegram_user_id": None, "revision": 1}, {"user_id": 42},
+            {"user_id": -123, "telegram_user_id": None, "revision": 1}, None, {"user_id": 42},
         ]
         with patch.object(records, "get_conn", return_value=conn), \
                 patch.object(records, "_identity", return_value={"user_id": -123}):
