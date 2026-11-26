@@ -5,13 +5,14 @@ import time
 from telebot import types
 
 from db import get_conn
+from menu_messages import ADMIN_BUTTON, reply_keyboard
 from relay import RELAY_CONTENT_TYPES, user_summary
 from visit_stats import format_stats
 
 logger = logging.getLogger(__name__)
 
 SEND_INTERVAL = 0.05
-PANEL_BUTTON = "🛠 管理后台"
+PANEL_BUTTON = ADMIN_BUTTON
 
 # 管理员待输入状态: {管理员ID: {"kind": "promo"|"broadcast", "panel": 后台消息ID}}
 _pending = {}
@@ -113,9 +114,7 @@ def _back_keyboard(extra=None):
 
 
 def _quick_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
-    keyboard.add(types.KeyboardButton(PANEL_BUTTON))
-    return keyboard
+    return reply_keyboard(is_admin=True)
 
 
 def _safe_delete(bot, chat_id, message_id):

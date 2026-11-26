@@ -213,7 +213,13 @@ def handle_start(message):
         show_news_menu(message, "" if parts[1] == "news" else parts[1][5:])
         menu_messages.delete_command(bot, message)
         return
-    send_welcome(bot, message.chat.id, message.from_user.id)
+    try:
+        from coupon_bot import show_start
+        if not show_start(bot, message.chat.id, message.from_user.id):
+            send_welcome(bot, message.chat.id, message.from_user.id)
+    except (pymysql.MySQLError, ValueError):
+        logger.exception("Could not load coupon status on start")
+        bot.send_message(message.chat.id, "暂时无法读取邀请活动状态，请稍后发送 /start 重试。")
     menu_messages.delete_command(bot, message)
 
 
@@ -227,6 +233,10 @@ def handle_fixed_menu(message):
             handle_remind(message)
         elif message.text == "使用指南":
             send_help(bot, message.chat.id)
+        elif message.text == menu_messages.INVITE_BUTTON:
+            from coupon_bot import show_start
+            if not show_start(bot, message.chat.id, message.from_user.id):
+                send_welcome(bot, message.chat.id, message.from_user.id)
         else:
             send_menu_link(bot, message.chat.id, message.from_user.id, message.text)
     except ValueError as error:

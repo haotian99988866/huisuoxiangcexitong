@@ -107,6 +107,7 @@ class PrivateContactTests(unittest.TestCase):
         for index, term in enumerate((
                 "西港", "外送", "金边", "会所", "出码", "前台", "业务", "名玺", "帝豪",
                 "五象", "大浪", "凯迪", "大西洋", "七号", "娱乐", "代理", "招", "找工作",
+                "官方", "通知", "客服", "能量", "代开", "机器人",
         )):
             with self.subTest(term=term):
                 self.assertFalse(private_contacts.record_contact(
@@ -119,11 +120,21 @@ class PrivateContactTests(unittest.TestCase):
             (user_id,telegram_user_id,alias,preferences,avoidances,notes,revision,created_at,updated_at)
             VALUES(-123,42,'offline','','','',1,%s,%s)""",
                  (datetime(2026, 1, 1), datetime(2026, 1, 1)))
-        self.assertTrue(private_contacts.record_contact(9000, 42, "customer", "西港客户", self.now))
-        self.assertTrue(private_contacts.record_contact(9000, 43, "name_with_西港", "正常客户", self.now))
+        self.assertTrue(private_contacts.record_contact(9000, 42, "customer", "能量客户", self.now))
+        self.assertTrue(private_contacts.record_contact(9000, 43, "name_with_能量", "正常客户", self.now))
         self.assertEqual(self.sql("SELECT customer_id FROM crm_private_notices ORDER BY telegram_user_id"),
                          [{"customer_id": -123}, {"customer_id": 43}])
         self.assertEqual(self.sql("SELECT COUNT(*) AS n FROM crm_customers")[0]["n"], 2)
+
+    def test_telegram_notifications_account_is_excluded_even_if_already_bound(self):
+        self.sql("""INSERT INTO crm_customers
+            (user_id,telegram_user_id,alias,preferences,avoidances,notes,revision,created_at,updated_at)
+            VALUES(-123,777000,'existing','','','',1,%s,%s)""",
+                 (datetime(2026, 1, 1), datetime(2026, 1, 1)))
+        self.assertFalse(private_contacts.record_contact(9000, 777000, "", "Telegram", self.now))
+        self.assertEqual(self.sql("SELECT COUNT(*) AS n FROM crm_customers")[0]["n"], 1)
+        self.assertEqual(self.sql("SELECT COUNT(*) AS n FROM crm_private_contacts")[0]["n"], 0)
+        self.assertEqual(self.sql("SELECT COUNT(*) AS n FROM crm_private_notices")[0]["n"], 0)
 
     def test_disabled_or_old_messages_do_not_create_records(self):
         self.assertFalse(private_contacts.record_contact(
@@ -267,6 +278,7 @@ class PrivateContactTests(unittest.TestCase):
             await callback(event(types.User(id=41), private=False))
             await callback(event(types.User(id=42), when=datetime(2025, 1, 1, tzinfo=timezone.utc)))
             await callback(event(types.User(id=43, bot=True)))
+            await callback(event(types.User(id=777000, first_name="Telegram")))
             await callback(event(types.User(id=9000)))
             await callback(event(types.User(id=44), chat_id=45))
             await callback(event(types.User(id=46, first_name="Customer", username="customer")))

@@ -76,7 +76,7 @@ class WelcomeTests(unittest.TestCase):
         self.assertTrue({"member", "member_sales", "paysupport"}.issubset(commands))
         self.assertFalse({"premium_sales", "stars_sales"} & commands)
 
-    def test_start_removes_old_reply_keyboard_and_displays_coupon_entry(self):
+    def test_start_replaces_old_reply_keyboard_and_displays_coupon_entry(self):
         bot = Mock()
         bot.send_message.side_effect = [
             SimpleNamespace(chat=SimpleNamespace(id=123), message_id=455),
@@ -88,7 +88,8 @@ class WelcomeTests(unittest.TestCase):
         remove_args, remove_options = bot.send_message.call_args_list[0]
         self.assertEqual(remove_args, (123, "已更新菜单。"))
         remove_markup = json.loads(remove_options["reply_markup"].to_json())
-        self.assertTrue(remove_markup["remove_keyboard"])
+        self.assertEqual(remove_markup["keyboard"][0][0]["text"], menu_messages.INVITE_BUTTON)
+        self.assertTrue(remove_markup["is_persistent"])
         args, options = bot.send_message.call_args_list[1]
         self.assertEqual(args, (123, welcome.HOME_TEXT))
         self.assertEqual(options["parse_mode"], "HTML")
@@ -170,19 +171,47 @@ class WelcomeTests(unittest.TestCase):
         self.assertFalse(welcome.is_menu_message(SimpleNamespace(text="普通留言")))
         self.assertFalse(welcome.is_menu_message(SimpleNamespace(text="联系昊天", reply_to_message=object())))
 
+    def test_invite_reply_button_opens_progress_not_customer_relay(self):
+        import main
+        message = SimpleNamespace(text=menu_messages.INVITE_BUTTON, chat=SimpleNamespace(id=123),
+                                  from_user=SimpleNamespace(id=123))
+        self.assertTrue(welcome.is_menu_message(message))
+        with patch("main.touch_user"), patch("coupon_bot.show_start", return_value=True) as show, \
+                patch("main.send_welcome") as fallback:
+            main.handle_fixed_menu(message)
+        show.assert_called_once_with(main.bot, 123, 123)
+        fallback.assert_not_called()
+        with patch("main.touch_user"), patch("coupon_bot.show_start", return_value=False), \
+                patch("main.send_welcome") as fallback:
+            main.handle_fixed_menu(message)
+        fallback.assert_called_once_with(main.bot, 123, 123)
+        self.assertFalse(welcome.is_menu_message(
+            SimpleNamespace(text=menu_messages.INVITE_BUTTON, reply_to_message=object())))
+
     def test_return_home_edits_the_existing_message(self):
         bot = Mock()
         call = SimpleNamespace(data="menu:home", id="callback",
                                from_user=SimpleNamespace(id=123),
                                message=SimpleNamespace(chat=SimpleNamespace(id=123),
                                                        message_id=456))
-        with patch("welcome.personal_share_url", return_value=welcome.SHARE_URL):
+        with patch("coupon_campaign.is_enabled", return_value=False), \
+                patch("welcome.personal_share_url", return_value=welcome.SHARE_URL):
             welcome.show_screen(bot, call)
         bot.send_message.assert_not_called()
         bot.edit_message_text.assert_called_once()
         self.assertEqual(bot.edit_message_text.call_args.args[0], welcome.HOME_TEXT)
         markup = json.loads(bot.edit_message_text.call_args.kwargs["reply_markup"].to_json())
         self.assertEqual(markup["inline_keyboard"], [[{"text": "领取代金券", "callback_data": "coupon:mine"}]])
+
+    def test_return_home_does_not_claim_active_campaign_is_in_development(self):
+        bot = Mock()
+        call = SimpleNamespace(data="menu:home", id="callback",
+                               from_user=SimpleNamespace(id=123),
+                               message=SimpleNamespace(chat=SimpleNamespace(id=123), message_id=456))
+        with patch("coupon_campaign.is_enabled", return_value=True):
+            welcome.show_screen(bot, call)
+        self.assertIn("查看邀请进度", bot.edit_message_text.call_args.args[0])
+        self.assertNotIn("开发中", bot.edit_message_text.call_args.args[0])
 
     def test_command_history_handler_runs_before_start_and_continues_dispatch(self):
         import main

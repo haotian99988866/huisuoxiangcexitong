@@ -42,7 +42,7 @@ export default function CouponPanel({ userId }) {
   return <section className="membership-panel coupon-panel" aria-labelledby="my-coupons">
     <div className="membership-row"><h2 id="my-coupons">邀请好友 · 我的代金券</h2></div>
     <p>先加入频道，再分享专属链接邀请好友；每位连续留存7天，每5人获得一张 $20 代金券。</p>
-    <p>发券后一个月内使用，适用于会所和外送，不含名玺水汇按摩；登记新消费时自动抵用一张。</p>
+    <p>新券有效期2个月，适用于会所和外送，不含名玺水汇按摩；符合条件的新消费自动抵扣，每次最多使用一张。</p>
     {error && <p className="membership-error" role="alert">{error}
       <button type="button" onClick={() => setReload(value => value + 1)}>重新读取</button></p>}
     {!data && !error && <p role="status">正在读取邀请进度…</p>}

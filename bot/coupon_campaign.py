@@ -12,7 +12,7 @@ import time
 
 import pymysql
 import requests
-from telebot import apihelper
+from telebot import apihelper, types
 from customer_records import RecordConflict, _customer_id, _money, _occurred, _page, _positive_id, _public, _utcnow
 from db import get_conn
 
@@ -89,10 +89,10 @@ def ensure_tables():
 
 
 def expiry(issued_at):
-    """One local calendar month, clamped to the last day of the target month."""
+    """Two local calendar months, clamped to the last day of the target month."""
     local = issued_at.replace(tzinfo=timezone.utc).astimezone(LOCAL_ZONE)
-    year = local.year + (local.month == 12)
-    month = local.month % 12 + 1
+    year, month_index = divmod(local.year * 12 + local.month + 1, 12)
+    month = month_index + 1
     day = min(local.day, calendar.monthrange(year, month)[1])
     return local.replace(year=year, month=month, day=day).astimezone(timezone.utc).replace(tzinfo=None)
 
@@ -185,18 +185,30 @@ def participant_status(bot, owner_id):
         conn.close()
 
 
+def _link_state(cur, now):
+    cur.execute("SELECT * FROM coupon_campaign_state WHERE id=1 FOR UPDATE")
+    state = cur.fetchone()
+    if not state or not state["enabled"]:
+        raise ValueError("邀请活动尚未开放")
+    if not state["caught_up"] or not state["last_poll"] or now - state["last_poll"] > timedelta(minutes=2):
+        raise ValueError("频道监听尚未就绪，请稍后再试")
+    return state
+
+
 def create_link(bot, owner_id):
     _positive_id(owner_id, "Telegram ID")
     now = _utcnow()
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM coupon_campaign_state WHERE id=1 FOR UPDATE")
-            state = cur.fetchone()
-            if not state or not state["enabled"]:
-                raise ValueError("邀请活动尚未开放")
-            if not state["caught_up"] or not state["last_poll"] or now - state["last_poll"] > timedelta(minutes=2):
-                raise ValueError("频道监听尚未就绪，请稍后再试")
+            state = _link_state(cur, now)
+            if state["request_after"] and state["request_after"] > now:
+                delay = (state["request_after"] - now).total_seconds()
+                if delay <= 2:
+                    conn.rollback()
+                    time.sleep(delay + 0.05)
+                    now = _utcnow()
+                    state = _link_state(cur, now)
             if state["request_after"] and state["request_after"] > now:
                 raise ValueError("Telegram 请求暂受限制，请稍后再试")
             cur.execute("SELECT * FROM coupon_invite_links WHERE inviter_id=%s FOR UPDATE", (owner_id,))
@@ -504,6 +516,15 @@ def verify_one(bot):
         conn.close()
 
 
+def _work_cycle(bot, notify_first):
+    if notify_first:
+        notify_one(bot)
+    verify_one(bot)
+    issue_ready()
+    if not notify_first:
+        notify_one(bot)
+
+
 def start_worker(bot):
     conn = get_conn()
     try:
@@ -514,11 +535,11 @@ def start_worker(bot):
         conn.close()
 
     def run():
+        notify_first = False
         while True:
+            notify_first = not notify_first
             try:
-                verify_one(bot)
-                issue_ready()
-                notify_one(bot)
+                _work_cycle(bot, notify_first)
             except (pymysql.MySQLError, OSError, ValueError):
                 logger.exception("Coupon campaign worker failed; retrying later")
             time.sleep(10)
@@ -598,7 +619,12 @@ def notify_one(bot):
                     conn.commit()
                     return True
             try:
-                bot.send_message(job["owner_id"], text)
+                keyboard = types.InlineKeyboardMarkup()
+                if job["voucher_id"]:
+                    keyboard.add(types.InlineKeyboardButton("查看优惠券", callback_data="coupon:vouchers"))
+                else:
+                    keyboard.add(types.InlineKeyboardButton("查看邀请进度", callback_data="coupon:mine"))
+                bot.send_message(job["owner_id"], text, reply_markup=keyboard)
             except apihelper.ApiTelegramException as exc:
                 delay = exc.result_json.get("parameters", {}).get("retry_after") if exc.error_code == 429 else None
                 status = "pending" if type(delay) is int and delay > 0 else (
@@ -927,10 +953,20 @@ def mine(owner_id, page=1, voucher_page=1):
             cur.execute("SELECT status FROM coupon_invite_links WHERE inviter_id=%s", (owner_id,))
             link = cur.fetchone()
             cur.execute("""SELECT COUNT(*) AS total,
-                COALESCE(SUM(state='qualified' AND voucher_id IS NULL),0) AS eligible
+                COALESCE(SUM(state='qualified' AND voucher_id IS NULL),0) AS eligible,
+                COALESCE(SUM(state='pending' AND voucher_id IS NULL AND left_at IS NULL),0) AS retaining
                 FROM coupon_invites WHERE inviter_id=%s""", (owner_id,))
             counts = cur.fetchone()
-            cur.execute("""SELECT invitee_id,display_name,username,joined_at,left_at,state,review_reason
+            eligible, retaining = int(counts["eligible"]), int(counts["retaining"])
+            needed = max(0, 5 - eligible)
+            estimated_at = None
+            if needed and retaining >= needed:
+                cur.execute("""SELECT joined_at FROM coupon_invites WHERE inviter_id=%s
+                    AND state='pending' AND voucher_id IS NULL AND left_at IS NULL
+                    ORDER BY joined_at,invitee_id LIMIT %s""", (owner_id, needed))
+                candidates = cur.fetchall()
+                estimated_at = candidates[-1]["joined_at"] + RETENTION
+            cur.execute("""SELECT invitee_id,display_name,username,joined_at,left_at,state,review_reason,voucher_id
                 FROM coupon_invites WHERE inviter_id=%s ORDER BY joined_at DESC,invitee_id DESC
                 LIMIT 20 OFFSET %s""", (owner_id, (page - 1) * 20))
             invites = cur.fetchall()
@@ -942,7 +978,8 @@ def mine(owner_id, page=1, voucher_page=1):
             vouchers = cur.fetchall()
         return _public({"enabled": bool(state and state["enabled"]), "link": link,
                         "invites": invites, "vouchers": vouchers, "invite_total": counts["total"],
-                        "eligible": counts["eligible"], "voucher_total": total_vouchers,
+                        "eligible": eligible, "retaining": retaining,
+                        "estimated_at": estimated_at, "voucher_total": total_vouchers,
                         "page": page, "voucher_page": voucher_page})
     finally:
         conn.close()

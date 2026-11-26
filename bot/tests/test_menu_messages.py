@@ -1,3 +1,4 @@
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
@@ -74,7 +75,7 @@ class MenuMessageTests(unittest.TestCase):
         with self.assertLogs("menu_messages"):
             self.assertFalse(menu_messages.delete_command(bot, command))
 
-    def test_tracked_reply_removes_legacy_keyboard_before_sending_inline_menu(self):
+    def test_tracked_reply_replaces_legacy_keyboard_with_invite_entry(self):
         bot = Mock()
         bot.send_message.return_value = SimpleNamespace(
             chat=SimpleNamespace(id=123), message_id=20)
@@ -82,16 +83,33 @@ class MenuMessageTests(unittest.TestCase):
             SimpleNamespace(chat=SimpleNamespace(id=123), message_id=19),
             SimpleNamespace(chat=SimpleNamespace(id=123), message_id=20),
         ]
-        with patch("menu_messages.keep_latest", side_effect=lambda bot, message, **kwargs: message) as track:
+        with patch("menu_messages.admin_ids", return_value=set()), \
+                patch("menu_messages.keep_latest", side_effect=lambda bot, message, **kwargs: message) as track:
             result = menu_messages.send_tracked(
                 bot, 123, "Menu", reply_markup=types.InlineKeyboardMarkup())
 
         self.assertEqual(result.message_id, 20)
         self.assertEqual(bot.send_message.call_args_list[0].args, (123, "已更新菜单。"))
-        self.assertTrue(bot.send_message.call_args_list[0].kwargs["reply_markup"].remove_keyboard)
+        reply = bot.send_message.call_args_list[0].kwargs["reply_markup"]
+        self.assertTrue(reply.is_persistent)
+        self.assertEqual([[button["text"] for button in row] for row in json.loads(reply.to_json())["keyboard"]],
+                         [[menu_messages.INVITE_BUTTON]])
         self.assertEqual(bot.send_message.call_args_list[1].args, (123, "Menu"))
         self.assertIsInstance(bot.send_message.call_args_list[1].kwargs["reply_markup"],
                               types.InlineKeyboardMarkup)
         bot.edit_message_reply_markup.assert_not_called()
         bot.delete_message.assert_called_once_with(123, 19, timeout=20)
         track.assert_called_once_with(bot, bot.send_message.return_value, is_keyboard=True)
+
+    def test_admin_keyboard_keeps_admin_entry_alongside_invite(self):
+        import admin
+        keyboard = admin._quick_keyboard()
+        self.assertEqual([[button["text"] for button in row] for row in json.loads(keyboard.to_json())["keyboard"]],
+                         [[menu_messages.INVITE_BUTTON], [admin.PANEL_BUTTON]])
+        bot = Mock()
+        with patch("menu_messages.admin_ids", return_value={123}), \
+                patch("menu_messages.keep_latest"):
+            menu_messages.send_tracked(bot, 123, "Menu")
+        markup = bot.send_message.call_args.kwargs["reply_markup"]
+        self.assertEqual([[button["text"] for button in row] for row in json.loads(markup.to_json())["keyboard"]],
+                         [[menu_messages.INVITE_BUTTON], [admin.PANEL_BUTTON]])

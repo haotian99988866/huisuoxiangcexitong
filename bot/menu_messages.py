@@ -5,9 +5,20 @@ import threading
 from telebot import apihelper, types
 
 from db import get_conn
+from visit_stats import admin_ids
 
 logger = logging.getLogger(__name__)
 _lock = threading.Lock()
+INVITE_BUTTON = "🎁 我的邀请"
+ADMIN_BUTTON = "🛠 管理后台"
+
+
+def reply_keyboard(is_admin=False):
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
+    keyboard.add(types.KeyboardButton(INVITE_BUTTON))
+    if is_admin:
+        keyboard.add(types.KeyboardButton(ADMIN_BUTTON))
+    return keyboard
 
 
 def ensure_tables():
@@ -65,9 +76,10 @@ def keep_latest(bot, message, is_keyboard=False):
 
 def send_tracked(bot, chat_id, text, is_keyboard=True, **kwargs):
     markup = kwargs.pop("reply_markup", None)
+    persistent_keyboard = reply_keyboard(chat_id in admin_ids()) if chat_id > 0 else types.ReplyKeyboardRemove()
     if markup is not None:
         clear_message = bot.send_message(
-            chat_id, "已更新菜单。", reply_markup=types.ReplyKeyboardRemove())
+            chat_id, "已更新菜单。", reply_markup=persistent_keyboard)
         message = bot.send_message(chat_id, text, reply_markup=markup, **kwargs)
         try:
             bot.delete_message(chat_id, clear_message.message_id, timeout=20)
@@ -80,8 +92,7 @@ def send_tracked(bot, chat_id, text, is_keyboard=True, **kwargs):
             logger.exception("Could not remove temporary keyboard message %s:%s",
                              chat_id, clear_message.message_id)
     else:
-        message = bot.send_message(
-            chat_id, text, reply_markup=types.ReplyKeyboardRemove(), **kwargs)
+        message = bot.send_message(chat_id, text, reply_markup=persistent_keyboard, **kwargs)
     keep_latest(bot, message, is_keyboard=is_keyboard)
     return message
 

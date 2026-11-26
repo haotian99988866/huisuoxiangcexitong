@@ -1,10 +1,11 @@
 from urllib.parse import quote
 import logging
 
+import pymysql
 from telebot import apihelper, types
 
 from admin import get_setting
-from menu_messages import send_tracked
+from menu_messages import INVITE_BUTTON, send_tracked
 
 logger = logging.getLogger(__name__)
 MINIAPP_URL = "https://t.me/haotianzhaopian_bot?startapp"
@@ -34,6 +35,7 @@ HOME_TEXT = (
     "🎁 邀请5位好友各留存7天，可得 $20 代金券！\n\n"
     "优惠券功能正在开发中，敬请期待。"
 )
+ACTIVE_HOME_TEXT = "🎁 邀请5位好友各留存7天，可得 $20 代金券！点击下方按钮查看邀请进度。"
 
 PROMO_TEXT = (
     "📢 <b>最新活动</b>\n\n"
@@ -195,8 +197,8 @@ def personal_share_url(user_id):
 
 def is_menu_message(message):
     return (not getattr(message, "reply_to_message", None)
-            and any(message.text == button.text
-                    for row in legacy_home_keyboard().keyboard for button in row))
+            and (message.text == INVITE_BUTTON or any(message.text == button.text
+                 for row in legacy_home_keyboard().keyboard for button in row)))
 
 
 def send_menu_link(bot, chat_id, user_id, text):
@@ -262,7 +264,14 @@ def show_screen(bot, call):
     data = call.data or ""
     bot.answer_callback_query(call.id)
     if data == "menu:home":
-        text, keyboard = HOME_TEXT, home_keyboard(call.from_user.id)
+        try:
+            from coupon_campaign import is_enabled
+            text = ACTIVE_HOME_TEXT if is_enabled() else HOME_TEXT
+        except pymysql.MySQLError:
+            logger.exception("Could not load coupon status when returning home")
+            bot.send_message(call.message.chat.id, "暂时无法读取邀请活动状态，请稍后重试。")
+            return
+        keyboard = home_keyboard(call.from_user.id)
     elif data.startswith("menu:category:"):
         category = data.removeprefix("menu:category:")
         if category not in MENU_CATEGORIES:

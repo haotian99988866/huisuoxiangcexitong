@@ -21,7 +21,9 @@ LOCAL_ZONE = timezone(timedelta(hours=7))
 EXCLUDED_NAME_TERMS = (
     "西港", "外送", "金边", "会所", "出码", "前台", "业务", "名玺", "帝豪",
     "五象", "大浪", "凯迪", "大西洋", "七号", "娱乐", "代理", "招", "找工作",
+    "官方", "通知", "客服", "能量", "代开", "机器人",
 )
+EXCLUDED_SYSTEM_USER_IDS = frozenset({777000})
 
 
 def settings():
@@ -48,6 +50,9 @@ def record_contact(owner_id, sender_id, username, display_name, message_date):
         raise ValueError("Invalid or unauthorized private-contact owner")
     if message_date.tzinfo is None:
         raise ValueError("Private message timestamp must have a timezone")
+    if sender_id in EXCLUDED_SYSTEM_USER_IDS:
+        logger.info("Private contact skipped: Telegram system account")
+        return False
     for attempt in range(3):
         try:
             return _record_contact(owner_id, sender_id, username, display_name, message_date)
