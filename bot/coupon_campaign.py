@@ -13,7 +13,7 @@ import time
 import pymysql
 import requests
 from telebot import apihelper, types
-from customer_records import RecordConflict, _customer_id, _money, _occurred, _page, _positive_id, _public, _utcnow
+from customer_records import RecordConflict, _customer_id, _money, _occurred, _page, _positive_id, _public, _text, _utcnow
 from db import get_conn
 
 logger = logging.getLogger(__name__)
@@ -985,6 +985,100 @@ def mine(owner_id, page=1, voucher_page=1):
                         "estimated_at": estimated_at, "voucher_total": voucher_counts["total"],
                         "available_voucher_total": int(voucher_counts["available"]),
                         "page": page, "voucher_page": voucher_page})
+    finally:
+        conn.close()
+
+
+def admin_overview(data):
+    page = _page(data.get("page", 1))
+    view = data.get("view", "invites")
+    status = data.get("status", "all")
+    query = _text(data.get("query", ""), "搜索条件", 128).lstrip("@")
+    if not isinstance(view, str) or view not in {"invites", "vouchers"}:
+        raise ValueError("查看类型无效")
+    filters = {
+        "all": "1=1",
+        "available": "v.status='available' AND v.issued_at<=%s AND v.expires_at>%s",
+        "expiring": "v.status='available' AND v.issued_at<=%s AND v.expires_at>%s AND v.expires_at<=%s",
+        "expired": "v.status='available' AND v.issued_at<=%s AND v.expires_at<=%s",
+        "redeemed": "v.status='redeemed'",
+        "invalid": "v.status='invalid'",
+        "review": "v.status NOT IN ('available','redeemed','invalid')",
+    }
+    if not isinstance(status, str) or (view == "invites" and status not in {"all", "review"}) or (view == "vouchers" and status not in filters):
+        raise ValueError("筛选状态无效")
+    now = _utcnow()
+    deadline = now + timedelta(days=7)
+    search = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    identities = """ LEFT JOIN bot_users b ON b.tg_user_id=ids.owner_id
+        LEFT JOIN analytics_customers a ON a.user_id=ids.owner_id
+        LEFT JOIN crm_private_contacts p ON p.telegram_user_id=ids.owner_id
+        LEFT JOIN crm_customers c ON c.telegram_user_id=ids.owner_id """
+    name = "COALESCE(NULLIF(c.alias,''),NULLIF(b.display_name,''),NULLIF(a.display_name,''),NULLIF(p.display_name,''),'')"
+    username = "COALESCE(NULLIF(b.username,''),NULLIF(a.username,''),NULLIF(p.username,''),'')"
+    search_sql = """(CAST(ids.owner_id AS CHAR)=%s OR COALESCE(c.alias,'') LIKE %s
+        OR COALESCE(b.display_name,'') LIKE %s OR COALESCE(a.display_name,'') LIKE %s OR COALESCE(p.display_name,'') LIKE %s
+        OR COALESCE(b.username,'') LIKE %s OR COALESCE(a.username,'') LIKE %s OR COALESCE(p.username,'') LIKE %s)"""
+    search_args = (query, *([search] * 7))
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT enabled,caught_up,last_poll FROM coupon_campaign_state WHERE id=1""")
+            health = cur.fetchone()
+            cur.execute("""SELECT COUNT(*) AS issued,
+                COALESCE(SUM(status='available' AND issued_at<=%s AND expires_at>%s),0) AS available,
+                COALESCE(SUM(status='available' AND issued_at<=%s AND expires_at>%s AND expires_at<=%s),0) AS expiring,
+                COALESCE(SUM(status='available' AND issued_at<=%s AND expires_at<=%s),0) AS expired,
+                COALESCE(SUM(status='redeemed'),0) AS redeemed,
+                COALESCE(SUM(status='invalid'),0) AS invalid,
+                COALESCE(SUM(status NOT IN ('available','redeemed','invalid')),0) AS review,
+                COALESCE(SUM(status='available' AND issued_at>%s),0) AS future
+                FROM coupon_vouchers""", (now, now, now, now, deadline, now, now, now))
+            summary = {key: int(value) for key, value in cur.fetchone().items()}
+            cur.execute("SELECT COUNT(*) AS total FROM coupon_invites WHERE state='review'")
+            summary["invite_review"] = cur.fetchone()["total"]
+            if view == "invites":
+                base = """ FROM (SELECT inviter_id AS owner_id FROM coupon_invite_links
+                    UNION SELECT inviter_id FROM coupon_invites UNION SELECT owner_id FROM coupon_vouchers) ids
+                    LEFT JOIN (SELECT inviter_id,COUNT(*) AS invite_total,
+                        SUM(state='qualified') AS qualified_total,
+                        SUM(state='qualified' AND voucher_id IS NULL) AS eligible,
+                        SUM(state='pending' AND voucher_id IS NULL AND left_at IS NULL) AS retaining,
+                        SUM(state='review') AS review_count
+                        FROM coupon_invites GROUP BY inviter_id) i ON i.inviter_id=ids.owner_id
+                    LEFT JOIN (SELECT owner_id,COUNT(*) AS issued FROM coupon_vouchers GROUP BY owner_id) v
+                        ON v.owner_id=ids.owner_id """ + identities
+                where = " WHERE " + search_sql + (" AND i.review_count>0" if status == "review" else "")
+                cur.execute("SELECT COUNT(*) AS total" + base + where, search_args)
+                total = cur.fetchone()["total"]
+                cur.execute(f"""SELECT ids.owner_id,{name} AS display_name,{username} AS username,
+                    c.user_id AS customer_id,COALESCE(i.invite_total,0) AS invite_total,
+                    COALESCE(i.qualified_total,0) AS qualified_total,COALESCE(i.eligible,0) AS eligible,
+                    COALESCE(i.retaining,0) AS retaining,COALESCE(i.review_count,0) AS review_count,
+                    COALESCE(v.issued,0) AS issued""" + base + where +
+                            " ORDER BY invite_total DESC,ids.owner_id ASC LIMIT 20 OFFSET %s",
+                            (*search_args, (page - 1) * 20))
+            else:
+                base = " FROM coupon_vouchers v " + identities.replace("ids.owner_id", "v.owner_id")
+                where = " WHERE " + search_sql.replace("ids.owner_id", "v.owner_id") + " AND " + filters[status]
+                times = {
+                    "available": (now, now), "expiring": (now, now, deadline),
+                    "expired": (now, now),
+                }.get(status, ())
+                args = (*search_args, *times)
+                cur.execute("SELECT COUNT(*) AS total" + base + where, args)
+                total = cur.fetchone()["total"]
+                cur.execute(f"""SELECT v.id,v.owner_id,v.issued_at,v.expires_at,v.status,
+                    v.consumption_id,{name} AS display_name,{username} AS username,c.user_id AS customer_id"""
+                            + base + where + " ORDER BY v.expires_at ASC,v.id ASC LIMIT 20 OFFSET %s",
+                            (*args, (page - 1) * 20))
+            items = cur.fetchall()
+            if view == "invites":
+                for item in items:
+                    for key in ("qualified_total", "eligible", "retaining", "review_count"):
+                        item[key] = int(item[key])
+        return _public({"summary": summary, "health": health, "server_time": now,
+                        "items": items, "total": total, "page": page, "view": view})
     finally:
         conn.close()
 

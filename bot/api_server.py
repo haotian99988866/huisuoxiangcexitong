@@ -567,7 +567,7 @@ def webhook():
                   "admin_staff_detail", "admin_staff_description", "admin_staff_delete",
                   "admin_customers", "admin_customer_detail",
                   "admin_customer_save", "admin_customer_create", "admin_customer_bind",
-                  "admin_coupon_detail", "admin_coupon_preview", "admin_coupon_redeem", "admin_coupon_review", "admin_coupon_reverse",
+                  "admin_coupon_overview", "admin_coupon_detail", "admin_coupon_preview", "admin_coupon_redeem", "admin_coupon_review", "admin_coupon_reverse",
                   "admin_finance_dashboard", "admin_finance_daily_summary",
                   "admin_finance_transaction", "admin_finance_budget",
                   "admin_finance_goal", "admin_finance_account", "admin_finance_category",
@@ -698,11 +698,13 @@ def webhook():
                     return jsonify(result)
                 except RecordConflict as exc:
                     return jsonify({"error": str(exc)}), 409
-            if action in {"admin_coupon_detail", "admin_coupon_preview", "admin_coupon_redeem", "admin_coupon_review", "admin_coupon_reverse"}:
+            if action in {"admin_coupon_overview", "admin_coupon_detail", "admin_coupon_preview", "admin_coupon_redeem", "admin_coupon_review", "admin_coupon_reverse"}:
                 import coupon_campaign
                 from customer_records import RecordConflict
                 try:
-                    if action == "admin_coupon_detail":
+                    if action == "admin_coupon_overview":
+                        result = coupon_campaign.admin_overview(data)
+                    elif action == "admin_coupon_detail":
                         result = coupon_campaign.mine(data.get("owner_id"), data.get("page", 1),
                                                       data.get("voucher_page", 1))
                     elif action == "admin_coupon_preview":

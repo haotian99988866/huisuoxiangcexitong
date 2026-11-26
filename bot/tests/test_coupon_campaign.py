@@ -52,7 +52,10 @@ class CouponCampaignTests(unittest.TestCase):
         conn = connect()
         try:
             with conn.cursor() as cur:
-                cur.execute("CREATE TABLE crm_customers(user_id BIGINT PRIMARY KEY, telegram_user_id BIGINT)")
+                cur.execute("CREATE TABLE crm_customers(user_id BIGINT PRIMARY KEY, telegram_user_id BIGINT, alias VARCHAR(128) NOT NULL DEFAULT '')")
+                cur.execute("CREATE TABLE bot_users(tg_user_id BIGINT PRIMARY KEY, username VARCHAR(64), display_name VARCHAR(128))")
+                cur.execute("CREATE TABLE analytics_customers(user_id BIGINT PRIMARY KEY, username VARCHAR(64), display_name VARCHAR(128))")
+                cur.execute("CREATE TABLE crm_private_contacts(telegram_user_id BIGINT PRIMARY KEY, username VARCHAR(64), display_name VARCHAR(128))")
                 cur.execute("""CREATE TABLE crm_consumptions (
                     id CHAR(32) PRIMARY KEY,user_id BIGINT NOT NULL,venue_id INT,service_kind VARCHAR(16),
                     amount DECIMAL(12,2),refunded DECIMAL(12,2),status VARCHAR(16),occurred_at DATETIME,
@@ -81,7 +84,7 @@ class CouponCampaignTests(unittest.TestCase):
 
     def setUp(self):
         for table in ("coupon_operations", "coupon_redemption_requests", "coupon_redemption_audit", "coupon_notifications", "coupon_events", "coupon_invites", "coupon_invite_links", "coupon_vouchers",
-                      "crm_consumptions", "crm_customers", "venues"):
+                      "crm_consumptions", "crm_customers", "venues", "bot_users", "analytics_customers", "crm_private_contacts"):
             self.sql(f"DELETE FROM {table}")
         self.start = datetime(2026, 1, 1)
         self.sql("UPDATE coupon_campaign_state SET enabled=TRUE,enabled_at=%s,last_poll=%s,caught_up=TRUE,request_after=NULL",
@@ -346,6 +349,61 @@ class CouponCampaignTests(unittest.TestCase):
                 self.assertEqual(result["available_voucher_total"], 25)
                 self.assertEqual(result["voucher_total"], 30)
 
+    def test_admin_overview_counts_filters_search_and_invitation_progress(self):
+        now = self.start + timedelta(days=10)
+        self.sql("INSERT INTO bot_users VALUES(100,'guest_100','Guest One')")
+        self.sql("INSERT INTO crm_customers(user_id,telegram_user_id,alias) VALUES(-1,100,'Alias')")
+        self.sql("INSERT INTO coupon_invite_links(inviter_id,invite_link,status,created_at) VALUES(101,'https://t.me/+test2','ready',%s)",
+                 (self.start,))
+        for invitee, state, voucher_id in ((1, "qualified", None), (2, "qualified", "a" * 32),
+                                           (3, "pending", None), (4, "review", None)):
+            self.sql("""INSERT INTO coupon_invites(invitee_id,inviter_id,joined_at,state,voucher_id)
+                VALUES(%s,100,%s,%s,%s)""", (invitee, self.start, state, voucher_id))
+        for number, status, issued, expires in (
+                (1, "available", self.start, now + timedelta(days=7)),
+                (2, "available", self.start, now + timedelta(days=7, seconds=1)),
+                (3, "available", self.start, now),
+                (4, "redeemed", self.start, now + timedelta(days=1)),
+                (5, "invalid", self.start, now + timedelta(days=1)),
+                (6, "reversal_pending", self.start, now + timedelta(days=1)),
+                (7, "available", now + timedelta(seconds=1), now + timedelta(days=1))):
+            self.sql("INSERT INTO coupon_vouchers(id,owner_id,issued_at,expires_at,status) VALUES(%s,100,%s,%s,%s)",
+                     (f"{number:032x}", issued, expires, status))
+        with patch.object(campaign, "_utcnow", return_value=now):
+            result = campaign.admin_overview({"query": "Alias"})
+            self.assertEqual(result["summary"], {"issued": 7, "available": 2, "expiring": 1,
+                             "expired": 1, "redeemed": 1, "invalid": 1, "review": 1,
+                             "future": 1, "invite_review": 1})
+            self.assertEqual(result["total"], 1)
+            person = result["items"][0]
+            self.assertEqual((person["owner_id"], person["customer_id"], person["invite_total"],
+                              person["qualified_total"], person["eligible"], person["retaining"],
+                              person["review_count"], person["issued"]), (100, -1, 4, 2, 1, 1, 1, 7))
+            self.assertEqual(campaign.admin_overview({"view": "vouchers", "status": "expiring"})["total"], 1)
+            self.assertEqual(campaign.admin_overview({"view": "vouchers", "status": "expired"})["total"], 1)
+            self.assertEqual(campaign.admin_overview({"view": "vouchers", "status": "review"})["total"], 1)
+            self.assertEqual(campaign.admin_overview({"query": "guest_100"})["total"], 1)
+            self.assertEqual(campaign.admin_overview({"query": "Guest One"})["total"], 1)
+            self.assertEqual(campaign.admin_overview({"query": "guest%100"})["total"], 0)
+            self.assertEqual(campaign.admin_overview({"status": "review"})["total"], 1)
+            self.assertEqual(campaign.admin_overview({})["total"], 2)
+            self.assertEqual(campaign.admin_overview({"page": 2})["items"], [])
+        with self.assertRaises(ValueError):
+            campaign.admin_overview({"view": "invites", "status": "expired"})
+
+    def test_admin_voucher_listing_pages_over_all_matching_rows(self):
+        now = self.start + timedelta(days=10)
+        for index in range(25):
+            self.sql("""INSERT INTO coupon_vouchers(id,owner_id,issued_at,expires_at,status)
+                VALUES(%s,100,%s,%s,'available')""",
+                     (f"{index:032x}", self.start, now + timedelta(days=1, seconds=index)))
+        with patch.object(campaign, "_utcnow", return_value=now):
+            first = campaign.admin_overview({"view": "vouchers", "status": "expiring", "page": 1})
+            second = campaign.admin_overview({"view": "vouchers", "status": "expiring", "page": 2})
+        self.assertEqual((first["total"], len(first["items"]), len(second["items"])), (25, 20, 5))
+        self.assertFalse({row["id"] for row in first["items"]} & {row["id"] for row in second["items"]})
+        self.assertEqual(first["summary"]["expiring"], 25)
+
     def test_existing_participant_start_renders_real_database_progress(self):
         self.sql("""INSERT INTO coupon_invites
             (invitee_id,inviter_id,display_name,joined_at,state)
@@ -454,7 +512,7 @@ class CouponCampaignTests(unittest.TestCase):
         voucher, record = "a" * 32, "b" * 32
         self.sql("INSERT INTO coupon_vouchers(id,owner_id,issued_at,expires_at) VALUES(%s,100,%s,%s)",
                  (voucher, now, now + timedelta(days=30)))
-        self.sql("INSERT INTO crm_customers VALUES(-1,100)")
+        self.sql("INSERT INTO crm_customers(user_id,telegram_user_id) VALUES(-1,100)")
         self.sql("INSERT INTO crm_consumptions VALUES(%s,-1,2,'venue',30,0,'valid',%s,'Service')",
                  (record, now + timedelta(days=1)))
         with patch.object(campaign, "_utcnow", return_value=now + timedelta(days=2)):
@@ -474,7 +532,7 @@ class CouponCampaignTests(unittest.TestCase):
         voucher, record = "a" * 32, "b" * 32
         self.sql("INSERT INTO coupon_vouchers(id,owner_id,issued_at,expires_at) VALUES(%s,100,%s,%s)",
                  (voucher, now, now + timedelta(days=30)))
-        self.sql("INSERT INTO crm_customers VALUES(-1,100)")
+        self.sql("INSERT INTO crm_customers(user_id,telegram_user_id) VALUES(-1,100)")
         self.sql("INSERT INTO crm_consumptions VALUES(%s,-1,1,'venue',30,0,'valid',%s,'Service')",
                  (record, now + timedelta(days=1)))
         with patch.object(campaign, "_utcnow", return_value=now + timedelta(days=2)):
@@ -489,7 +547,7 @@ class CouponCampaignTests(unittest.TestCase):
         voucher, record = "a" * 32, "b" * 32
         self.sql("INSERT INTO coupon_vouchers(id,owner_id,issued_at,expires_at) VALUES(%s,100,%s,%s)",
                  (voucher, now, now + timedelta(days=30)))
-        self.sql("INSERT INTO crm_customers VALUES(-1,100)")
+        self.sql("INSERT INTO crm_customers(user_id,telegram_user_id) VALUES(-1,100)")
         self.sql("INSERT INTO venues VALUES(2,'Venue')")
         self.sql("INSERT INTO crm_consumptions VALUES(%s,-1,2,'venue',30,0,'valid',%s,'Service')",
                  (record, now + timedelta(days=1)))
@@ -523,6 +581,18 @@ class CouponAccessTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Cache-Control"], "private, no-store")
         mine.assert_called_once_with(456, 1, 1)
+
+    def test_overview_requires_platform_admin_and_is_not_cached(self):
+        with patch.object(campaign, "admin_overview", return_value={"items": []}) as overview:
+            for identity, expected in ((None, 401), (signed(456), 403),
+                                       (signed(123, start_param="tenant_test-shop"), 403),
+                                       (signed(123), 200)):
+                response = self.client.post("/webhook", json={"action": "admin_coupon_overview",
+                                                              "init_data": identity})
+                self.assertEqual(response.status_code, expected)
+                if expected == 200:
+                    self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+            overview.assert_called_once()
 
     def test_new_participant_gets_join_or_link_based_on_membership(self):
         bot = Mock()
