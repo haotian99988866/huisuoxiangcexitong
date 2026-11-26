@@ -322,6 +322,30 @@ class CouponCampaignTests(unittest.TestCase):
         self.sql("UPDATE coupon_invites SET state='left' WHERE invitee_id IN (14,15)")
         self.assertIsNone(campaign.mine(100)["estimated_at"])
 
+    def test_available_voucher_count_spans_pages_and_excludes_expired_or_non_available(self):
+        now = self.start + timedelta(days=10)
+        for index in range(25):
+            self.sql("""INSERT INTO coupon_vouchers(id,owner_id,issued_at,expires_at,status)
+                VALUES(%s,100,%s,%s,'available')""",
+                     (f"{index:032x}", self.start, now + timedelta(days=1)))
+        for index, expires_at, status in (
+                (25, now, "available"),
+                (26, now + timedelta(days=1), "redeemed"),
+                (27, now + timedelta(days=1), "invalid"),
+                (28, now + timedelta(days=1), "review")):
+            self.sql("""INSERT INTO coupon_vouchers(id,owner_id,issued_at,expires_at,status)
+                VALUES(%s,100,%s,%s,%s)""", (f"{index:032x}", self.start, expires_at, status))
+        self.sql("""INSERT INTO coupon_vouchers(id,owner_id,issued_at,expires_at,status)
+            VALUES(%s,101,%s,%s,'available')""", (f"{29:032x}", self.start, now + timedelta(days=1)))
+        self.sql("""INSERT INTO coupon_vouchers(id,owner_id,issued_at,expires_at,status)
+            VALUES(%s,100,%s,%s,'available')""",
+                 (f"{30:032x}", now + timedelta(seconds=1), now + timedelta(days=1)))
+        with patch.object(campaign, "_utcnow", return_value=now):
+            for page in (1, 2):
+                result = campaign.mine(100, voucher_page=page)
+                self.assertEqual(result["available_voucher_total"], 25)
+                self.assertEqual(result["voucher_total"], 30)
+
     def test_existing_participant_start_renders_real_database_progress(self):
         self.sql("""INSERT INTO coupon_invites
             (invitee_id,inviter_id,display_name,joined_at,state)

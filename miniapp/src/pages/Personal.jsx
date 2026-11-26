@@ -46,31 +46,15 @@ export default function Personal() {
       </div>
     </header>
     </AccountHeader>
-    {error && <p className="membership-error" role="alert">{errorText(error)}</p>}
-    <section className="membership-panel personal-services" aria-labelledby="personal-services">
-      <div className="membership-row"><h2 id="personal-services">服务</h2><span>常用入口</span></div>
-      <div className="personal-service-grid">
-        {[
-          ['movies', '观影', '/movies'],
-          ['movies', '短剧', '/short-dramas'],
-          ['music', '音乐', '/music'],
-          ['location', '酒店', '/hotels'],
-          ['announcements', '资讯', '/announcements'],
-          ['announcements', '订阅', '/subscriptions'],
-          ['membership', '会员', '/membership'],
-          ['phone', '话费', '/phone-topup'],
-        ].map(([icon, label, path]) => (
-          <Link key={path} to={path}>
-            <ModuleIcon name={icon} /><span>{label}</span>
-          </Link>
-        ))}
-      </div>
-    </section>
+    {error && account && <p className="membership-error" role="alert">{errorText(error)}</p>}
     {!account ? <section className="membership-panel" role="status">
       {telegramEntry ? <>
         <h2>{loading ? '正在识别 Telegram 账户' : '账户信息暂不可用'}</h2>
-        <p>{loading ? '无需登录，正在读取你的账户信息。' : '无需登录。请重新读取账户，或稍后重试。'}</p>
-        {!loading && <Button type="button" variant="primary" onClick={() => accountAction(refresh)}>重新读取账户</Button>}
+        <p>{loading ? '无需登录，正在读取你的账户信息。' : '无需登录，请重新读取账户或稍后重试。'}</p>
+        {error && <p className="membership-error" role="alert">{errorText(error)}</p>}
+        {!loading && <Button type="button" variant="primary" disabled={busy} onClick={() => accountAction(refresh)}>
+          {busy ? '正在读取…' : '重新读取账户'}
+        </Button>}
       </> : <EmptyState actionLabel="在 Telegram 中打开" onAction={() => openTelegramLink('https://t.me/haotianzhaopian_bot?startapp=personal')}>
         请从 Telegram 打开「我的」。账户会由 Telegram 自动识别，无需登录。
       </EmptyState>}
@@ -93,7 +77,7 @@ export default function Personal() {
           申请 #{pendingDeposit.id} 待复核 · 尚未入账
         </Link>}
       </section>
-      <section className="membership-panel" aria-labelledby="my-orders">
+      <section className="membership-panel personal-orders" aria-labelledby="my-orders">
         <div className="membership-row"><h2 id="my-orders">我的订单</h2><Link to="/orders">全部订单</Link></div>
         <div className="account-link-grid account-order-filters">
           {[['processing', '处理中'], ['completed', '已完成'], ['attention', '退款 / 待核实']].map(([filter, label]) =>
@@ -101,14 +85,14 @@ export default function Personal() {
               <strong>{orders.filter(item => orderMatches(item, filter)).length}</strong><span>{label}</span>
             </Link>)}
         </div>
-        <p>最近30笔</p>
+        <p className="personal-orders-hint">最近30笔</p>
         {attention ? <OrderSummary order={attention} /> : orders[0] ? <OrderSummary order={orders[0]} /> : <EmptyState>暂无订单</EmptyState>}
       </section>
-      <section className="membership-panel">
-        <div className="membership-row"><h2>我的消费</h2><Link to="/consumption">查看消费记录</Link></div>
-        <p>会所消费明细、已退款金额及净累计消费。</p>
-      </section>
       <CouponPanel userId={account.user_id} />
+      <section className="membership-panel personal-consumption">
+        <div className="membership-row"><h2>我的消费</h2><Link to="/consumption">查看消费记录</Link></div>
+        <p>会所及外送消费、退款与净累计。</p>
+      </section>
     </>}
     <footer className="personal-footer" aria-label="帮助与客服">
       <Button className="personal-support" type="button" variant="quiet" onClick={() => openTelegramLink('https://t.me/haotian99988866')}>

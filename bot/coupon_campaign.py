@@ -970,8 +970,11 @@ def mine(owner_id, page=1, voucher_page=1):
                 FROM coupon_invites WHERE inviter_id=%s ORDER BY joined_at DESC,invitee_id DESC
                 LIMIT 20 OFFSET %s""", (owner_id, (page - 1) * 20))
             invites = cur.fetchall()
-            cur.execute("SELECT COUNT(*) AS total FROM coupon_vouchers WHERE owner_id=%s", (owner_id,))
-            total_vouchers = cur.fetchone()["total"]
+            now = _utcnow()
+            cur.execute("""SELECT COUNT(*) AS total,
+                COALESCE(SUM(status='available' AND issued_at<=%s AND expires_at>%s),0) AS available
+                FROM coupon_vouchers WHERE owner_id=%s""", (now, now, owner_id))
+            voucher_counts = cur.fetchone()
             cur.execute("""SELECT id,issued_at,expires_at,status,consumption_id,redeemed_at
                 FROM coupon_vouchers WHERE owner_id=%s ORDER BY issued_at DESC,id DESC
                 LIMIT 20 OFFSET %s""", (owner_id, (voucher_page - 1) * 20))
@@ -979,7 +982,8 @@ def mine(owner_id, page=1, voucher_page=1):
         return _public({"enabled": bool(state and state["enabled"]), "link": link,
                         "invites": invites, "vouchers": vouchers, "invite_total": counts["total"],
                         "eligible": eligible, "retaining": retaining,
-                        "estimated_at": estimated_at, "voucher_total": total_vouchers,
+                        "estimated_at": estimated_at, "voucher_total": voucher_counts["total"],
+                        "available_voucher_total": int(voucher_counts["available"]),
                         "page": page, "voucher_page": voucher_page})
     finally:
         conn.close()

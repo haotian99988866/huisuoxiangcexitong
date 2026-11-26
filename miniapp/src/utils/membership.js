@@ -34,7 +34,12 @@ export async function requestMember(action, fields = {}) {
     }
     return result
   } catch (failure) {
-    if (failure.name === 'AbortError') throw new Error('账户请求超时；交易结果未确认时请先查询记录，勿重复付款或重新下单。')
+    if (failure.name === 'AbortError') {
+      if (action === 'member_account' || action === 'member_orders') {
+        throw new Error('账户信息读取超时，请检查网络后重试。')
+      }
+      throw new Error('账户请求超时；交易结果未确认时请先查询记录，勿重复付款或重新下单。')
+    }
     throw failure
   } finally { clearTimeout(timer) }
 }

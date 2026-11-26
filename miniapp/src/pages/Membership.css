@@ -50,37 +50,21 @@
 .personal-page .account-profile h1 { font-size: 16px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .personal-page .account-profile p { margin: 4px 0 0; font-size: 11px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .personal-page .account-avatar { width: 36px; height: 36px; border-radius: 11px; font-size: 17px; }
-.personal-services { margin-bottom: 12px; }
-.personal-service-grid {
+.personal-consumption p { margin: 8px 0 0; }
+.personal-orders .account-order-filters { grid-template-columns: 1fr 1fr 1.35fr; gap: 4px; margin: 8px 0; }
+.personal-orders .account-order-filters a { min-width: 0; flex-direction: row; gap: 5px; padding: 6px 2px; white-space: nowrap; }
+.personal-orders .account-order-filters strong { font-size: 18px; }
+.personal-orders .personal-orders-hint { margin: 0 0 4px; font-size: 11px; }
+.personal-orders .membership-order {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  padding: 9px 0 0;
 }
-.personal-service-grid a {
-  display: flex;
-  min-width: 0;
-  min-height: 66px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--ink-line);
-  border-radius: 12px;
-  background: var(--ink-reading);
-  color: var(--ink-text);
-  text-decoration: none;
-  font-size: 12px;
-}
-.personal-service-grid svg {
-  width: 22px;
-  height: 22px;
-  color: var(--ink-accent);
-}
-.personal-service-grid a:focus-visible {
-  outline: 2px solid var(--ink-accent);
-  outline-offset: 2px;
-}
+.personal-orders .membership-order .membership-row { grid-column: 1 / -1; }
+.personal-orders .membership-order p { margin: 0; overflow-wrap: anywhere; }
+.personal-orders .account-order-more { align-self: center; }
+.personal-orders .ui-empty { margin: 4px 0 0; padding: 10px 12px; font-size: 13px; }
 .account-compact-header { position: sticky; top: var(--account-header-top, 0px); z-index: 50; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 4px 16px; margin: 0 -16px 12px; background: var(--ink-reading); border-bottom: 1px solid var(--ink-line); }
 .membership-page.personal-page, .membership-page.orders-page { padding-top: var(--account-header-top, 0px); }
 .account-compact-header h1 { flex: 1; min-width: 0; font-size: 20px; margin: 0; }
