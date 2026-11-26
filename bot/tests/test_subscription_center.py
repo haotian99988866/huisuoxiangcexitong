@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, Mock, patch
@@ -6,6 +7,7 @@ import uuid
 
 import pymysql
 
+import price_catalog
 import subscription_center as center
 from customer_records import RecordConflict
 from db import get_conn
@@ -29,6 +31,8 @@ class SubscriptionCenterTests(unittest.TestCase):
         patcher.start()
         cls.addClassCleanup(patcher.stop)
         center.ensure_tables()
+        with patch.object(price_catalog, "get_conn", side_effect=connect):
+            price_catalog.ensure_tables()
         conn = connect()
         try:
             with conn.cursor() as cur:
@@ -93,6 +97,24 @@ class SubscriptionCenterTests(unittest.TestCase):
         self.assertFalse(any(item["subscribed"] for item in center.catalog(456)["scopes"]))
         center.save(self.operation(enabled=False), 123)
         self.assertFalse(next(item["subscribed"] for item in center.catalog(123)["scopes"] if item["kind"] == "delivery"))
+
+    def test_delivery_scope_uses_current_price_without_changing_subscription_identity(self):
+        center.save(self.operation(), 123)
+        prices = price_catalog.initial_catalog()
+        prices["deliveryPrices"]["7"] = "175.50"
+        self.sql("UPDATE venue_price_catalog SET catalog_json=%s WHERE id=1",
+                 (json.dumps(prices),))
+        try:
+            result = center.catalog(123)
+            scope = next(item for item in result["scopes"] if item["id"] == 7)
+            self.assertEqual(scope["label"], "西港175.5💲外送")
+            self.assertTrue(scope["subscribed"])
+            self.assertEqual(next(row["name"] for row in result["venues"] if row["id"] == 7),
+                             "西港175.5💲外送")
+            self.assertEqual(self.sql("SELECT name FROM venues WHERE id=7")[0]["name"], "外送")
+        finally:
+            self.sql("UPDATE venue_price_catalog SET catalog_json=%s WHERE id=1",
+                     (json.dumps(price_catalog.initial_catalog()),))
 
     def test_retry_preserves_baseline_and_never_replays_old_request_after_cancel(self):
         payload = self.operation()
@@ -197,6 +219,7 @@ class DeliveryScopeNotificationTests(unittest.TestCase):
             cur.rowcount = 1
             bot = Mock()
             with patch.object(center, "get_conn", return_value=conn), \
+                    patch.object(center, "read_catalog", return_value=(price_catalog.initial_catalog(), 1)), \
                     patch.object(center, "current_shift_window", return_value=window), \
                     patch.object(center, "delivery_publication", return_value=True):
                 center.deliver_scopes(bot)
@@ -204,6 +227,7 @@ class DeliveryScopeNotificationTests(unittest.TestCase):
             if not cancelled:
                 queries = [call.args[0] for call in cur.execute.call_args_list]
                 self.assertTrue(any("'sending'" in query for query in queries))
+                self.assertIn("西港170💲外送", bot.send_message.call_args.args[1])
             conn.close.assert_called_once()
 
     def test_rate_limit_queues_with_actual_wait_and_unknown_send_is_not_resent(self):
@@ -222,6 +246,7 @@ class DeliveryScopeNotificationTests(unittest.TestCase):
             bot = Mock()
             bot.send_message.side_effect = failure
             with patch.object(center, "get_conn", return_value=conn), \
+                    patch.object(center, "read_catalog", return_value=(price_catalog.initial_catalog(), 1)), \
                     patch.object(center, "current_shift_window", return_value=(start, start + timedelta(hours=12), "晚班")), \
                     patch.object(center, "delivery_publication", return_value=True), self.assertLogs("subscription_center"):
                 center.deliver_scopes(bot)

@@ -48,7 +48,7 @@ def resolve_mingxi_board_name(group_name):
     return None
 
 
-def mingxi_board_price_suffix(group_name):
+def mingxi_board_price_suffix(group_name, catalog=PRICES):
     """牌名后的价签，如「 · 半价$249 · 会员$499」；无价则空串。"""
     board_name = resolve_mingxi_board_name(group_name)
     if not board_name:
@@ -56,7 +56,7 @@ def mingxi_board_price_suffix(group_name):
     board = next(
         (
             item
-            for item in PRICES.get("mingxiBoardPrices") or []
+            for item in catalog.get("mingxiBoardPrices") or []
             if item.get("board") == board_name
         ),
         None,
@@ -73,7 +73,7 @@ def mingxi_board_price_suffix(group_name):
     return " · " + " · ".join(parts)
 
 
-def mingxi_price_options(tags):
+def mingxi_price_options(tags, catalog=PRICES):
     resolved = set()
     for tag in tags or []:
         if not str(tag).startswith("board:"):
@@ -84,7 +84,7 @@ def mingxi_price_options(tags):
     return [
         {"board": board["board"], "minutes": minutes, "price_usd": str(board[field]),
          "label": label}
-        for board in PRICES["mingxiBoardPrices"] if board["board"] in resolved
+        for board in catalog["mingxiBoardPrices"] if board["board"] in resolved
         for minutes, field, label in ((45, "half", "半价"), (90, "member", "会员"))
         if board.get(field) is not None
     ]
@@ -117,7 +117,7 @@ def staff_group_name(venue_id, code, tags):
     return _club_category(venue_id, code, tags)
 
 
-def staff_price(venue_id, code, tags, services):
+def staff_price(venue_id, code, tags, services, catalog=PRICES):
     candidates = []
     if venue_id == 1:
         for service in services:
@@ -129,14 +129,14 @@ def staff_price(venue_id, code, tags, services):
             for tag in tags or []
             if str(tag).startswith("board:")
         }
-        for board in PRICES["mingxiBoardPrices"]:
+        for board in catalog["mingxiBoardPrices"]:
             if board["board"] in resolved and board.get("half") is not None:
                 candidates.append((Decimal(str(board["half"])), f"{board['board']} · 45分钟"))
     else:
         key = {4: "kaidiTechnicianCategories", 5: "atlanticTechnicianCategories",
                6: "dihaoTechnicianCategories"}[venue_id]
         category = _club_category(venue_id, code, tags)
-        for item in PRICES[key]:
+        for item in catalog[key]:
             if item["name"] == category and item.get("price") is not None:
                 candidates.append((Decimal(str(item["price"])), f"{category} · 90分钟"))
     if not candidates:

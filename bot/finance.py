@@ -289,7 +289,19 @@ def _commission_items(cur, owner_id):
         i.listed_price,i.commission_amount FROM finance_commission_items i
         JOIN venues v ON v.id=i.venue_id
         WHERE i.owner_id=%s AND i.venue_id<>10 ORDER BY i.venue_id,i.service_key""", (owner_id,))
-    return cur.fetchall()
+    rows = cur.fetchall()
+    if not rows:
+        return rows
+    from price_catalog import read_catalog
+    from price_management import _target
+    catalog, _revision = read_catalog(cur)
+    cur.execute("SELECT id,name,price FROM service_items WHERE venue_id=1")
+    services = cur.fetchall()
+    for row in rows:
+        target, field = _target(catalog, row, services)
+        value = target.get(field)
+        row["listed_price"] = Decimal(str(value)) if value is not None else None
+    return rows
 
 
 def commission_catalog(owner_id):

@@ -12,6 +12,7 @@ import StaffAdmin from '../components/StaffAdmin'
 import CustomerRecords from '../components/CustomerRecords'
 import OperationsHealth from '../components/OperationsHealth'
 import CouponAdminOverview from '../components/CouponAdminOverview'
+import PriceAdmin from '../components/PriceAdmin'
 import MusicDialog from '../components/MusicDialog'
 import './Membership.css'
 import './Admin.css'
@@ -232,7 +233,7 @@ export default function Admin() {
           <button key={key} type="button" aria-pressed={section === key} disabled={saving}
             onClick={() => setSection(key)}>{label}</button>)}
         <label className="admin-more"><span className="music-sr-only">其他管理功能</span>
-          <select aria-label="其他管理功能" disabled={saving} value={['deposits', 'credited', 'hotels', 'recommendations', 'tenants', 'operations', 'coupons', 'finance'].includes(section) ? section : ''}
+          <select aria-label="其他管理功能" disabled={saving} value={['deposits', 'credited', 'hotels', 'recommendations', 'tenants', 'operations', 'coupons', 'prices', 'finance'].includes(section) ? section : ''}
             onChange={event => {
               if (event.target.value === 'finance') navigate('/personal-finance?from=admin')
               else if (event.target.value) setSection(event.target.value)
@@ -245,6 +246,7 @@ export default function Admin() {
             <option value="tenants">租户管理</option>
             <option value="operations">运营健康</option>
             <option value="coupons">优惠券管理</option>
+            <option value="prices">价目与提成</option>
             <option value="finance">个人财务</option>
           </select>
         </label>
@@ -266,6 +268,7 @@ export default function Admin() {
         {section === 'hotels' && <HotelAdmin />}
         {section === 'recommendations' && <VenueRecommendationAdmin />}
         {section === 'operations' && <OperationsHealth />}
+        {section === 'prices' && <PriceAdmin />}
         {section === 'coupons' && <CouponAdminOverview onCustomer={userId => {
           navigate(`/admin?customer=${userId}`)
           setSection('customers')

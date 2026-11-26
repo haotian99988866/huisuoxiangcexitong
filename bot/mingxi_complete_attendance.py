@@ -347,10 +347,11 @@ def _format_code(code, href):
     return f'<a href="{safe}">{label}</a>'
 
 
-def _format_board_heading(group_name):
+def _format_board_heading(group_name, catalog=None):
     """牌名加粗 + 紧凑价签，如 9号牌  半$249  会$499（避免长标题折行）。"""
     name = str(group_name or "名单")
-    suffix = mingxi_board_price_suffix(name)
+    suffix = (mingxi_board_price_suffix(name, catalog) if catalog is not None
+              else mingxi_board_price_suffix(name))
     compact = (
         suffix.replace(" · 半价$", "  半$")
         .replace(" · 会员$", "  会$")
@@ -422,6 +423,8 @@ def refresh_cross_nav_messages(
     """出勤/全员/环境互相导航：锚点变化后刷新其余枢纽文末链接。"""
     channel_id = int(channel_id)
     skip = {str(item) for item in skip}
+    from price_catalog import current_catalog
+    catalog = current_catalog()
     if "env" not in skip:
         env_id = get_channel_anchor(channel_id, ANCHOR_ENV_NAV) or ENV_NAV_MSG_ID
         _edit_hub_message(bot, channel_id, env_id, build_env_nav_html(venue_name))
@@ -431,7 +434,7 @@ def refresh_cross_nav_messages(
             bot,
             channel_id,
             roster_id,
-            build_full_roster_html(venue_name, channel_id),
+            build_full_roster_html(venue_name, channel_id, catalog=catalog),
         )
     if "attendance" not in skip:
         att_id = get_channel_anchor(channel_id, ANCHOR_ATTENDANCE)
@@ -445,7 +448,7 @@ def refresh_cross_nav_messages(
                     PLATE_VENUE_ID, codes, channel_id=channel_id
                 )
                 text, _markup = build_complete_attendance_content(
-                    venue_name, attendance, channel_id, album_urls=album_urls
+                    venue_name, attendance, channel_id, album_urls=album_urls, catalog=catalog
                 )
                 _edit_hub_message(bot, channel_id, att_id, text)
 
@@ -472,6 +475,7 @@ def build_complete_attendance_html(
     attendance,
     channel_id,
     album_urls=None,
+    catalog=None,
 ):
     """完整版正文：紧凑牌价 + 工号自然折行铺满气泡宽度。"""
     album_urls = dict(album_urls or {})
@@ -494,7 +498,7 @@ def build_complete_attendance_html(
     missing = []
     for group in groups:
         name = group.get("group_name") or "名单"
-        lines.append(_format_board_heading(name))
+        lines.append(_format_board_heading(name, catalog))
         chips = []
         for code in group.get("technician_codes") or []:
             code = str(code).strip()
@@ -550,6 +554,7 @@ def build_complete_attendance_content(
     attendance,
     channel_id,
     album_urls=None,
+    catalog=None,
 ):
     """完整版正文 + 入口底栏（工号在正文蓝字，不用按钮）。"""
     text = build_complete_attendance_html(
@@ -557,11 +562,12 @@ def build_complete_attendance_content(
         attendance,
         channel_id,
         album_urls=album_urls,
+        catalog=catalog,
     )
     return text, footer_keyboard()
 
 
-def build_full_roster_html(venue_name, channel_id, entries=None):
+def build_full_roster_html(venue_name, channel_id, entries=None, catalog=None):
     """全部人员名单（与今日出勤分开）；仅含频道相册索引中的工号。"""
     entries = list(entries if entries is not None else list_album_entries(channel_id))
     codes = [code for code, _msg_id in entries]
@@ -583,7 +589,7 @@ def build_full_roster_html(venue_name, channel_id, entries=None):
         return "\n".join(lines).rstrip() + "\n"
 
     for group in group_roster_codes(codes):
-        lines.append(_format_board_heading(group["group_name"]))
+        lines.append(_format_board_heading(group["group_name"], catalog))
         chips = [
             _format_code(code, album_urls.get(code))
             for code in group["technician_codes"]
@@ -639,7 +645,8 @@ def post_full_roster(bot, channel_id, venue_config, reply_to_message_id=None):
         return None
     venue_name = venue_config.get("venue_name") or "名玺水汇会所"
     sync_album_from_matched_photos(channel_id)
-    text = build_full_roster_html(venue_name, channel_id)
+    from price_catalog import current_catalog
+    text = build_full_roster_html(venue_name, channel_id, catalog=current_catalog())
     try:
         sent = publish_full_roster(bot, channel_id, text)
         new_id = getattr(sent, "message_id", None)
@@ -727,8 +734,9 @@ def refresh_complete_attendance_links(bot, channel_id, venue_name="名玺水汇�
     album_urls, _msg_ids = resolve_album_links(
         PLATE_VENUE_ID, codes, channel_id=channel_id
     )
+    from price_catalog import current_catalog
     text, markup = build_complete_attendance_content(
-        venue_name, attendance, channel_id, album_urls=album_urls
+        venue_name, attendance, channel_id, album_urls=album_urls, catalog=current_catalog()
     )
     return publish_complete_attendance(
         bot, channel_id, text, reply_markup=markup
@@ -799,11 +807,13 @@ def post_complete_attendance_reply(bot, message, venue_config, attendance):
         PLATE_VENUE_ID, codes, channel_id=message.chat.id
     )
     venue_name = venue_config.get("venue_name") or "名玺水汇会所"
+    from price_catalog import current_catalog
     text, markup = build_complete_attendance_content(
         venue_name,
         attendance,
         message.chat.id,
         album_urls=album_urls,
+        catalog=current_catalog(),
     )
     draft_id = getattr(message, "message_id", None)
     try:

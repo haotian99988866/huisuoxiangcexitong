@@ -568,6 +568,7 @@ def webhook():
                   "admin_customers", "admin_customer_detail",
                   "admin_customer_save", "admin_customer_create", "admin_customer_bind",
                   "admin_coupon_overview", "admin_coupon_detail", "admin_coupon_preview", "admin_coupon_redeem", "admin_coupon_review", "admin_coupon_reverse",
+                  "admin_price_overview", "admin_price_save",
                   "admin_finance_dashboard", "admin_finance_daily_summary",
                   "admin_finance_transaction", "admin_finance_budget",
                   "admin_finance_goal", "admin_finance_account", "admin_finance_category",
@@ -608,6 +609,17 @@ def webhook():
         if local_debug:
             logger.warning("Local admin debug request: %s (audit actor -1)", action)
         try:
+            if action in {"admin_price_overview", "admin_price_save"}:
+                import price_management
+                from customer_records import RecordConflict
+                try:
+                    result = (price_management.overview(user["id"]) if action == "admin_price_overview"
+                              else price_management.save(data, user["id"]))
+                    response = jsonify(result)
+                    response.headers["Cache-Control"] = "private, no-store"
+                    return response
+                except RecordConflict as exc:
+                    return jsonify({"error": str(exc)}), 409
             if action == "admin_operations_health":
                 from operations_health import snapshot as operations_health
                 response = jsonify(operations_health())
@@ -1193,6 +1205,8 @@ def webhook():
         cur = conn.cursor()
 
         if action == "get_venues":
+            from price_catalog import delivery_label, read_catalog
+            price_catalog, _price_revision = read_catalog(cur)
             cur.execute(
                 """
                 SELECT v.id, v.name, v.address, v.phone, v.business_hours,
@@ -1210,6 +1224,12 @@ def webhook():
             if g.tenant:
                 venues = [venue for venue in venues if venue["id"] in g.tenant["venue_ids"]]
             for venue in venues:
+                price_key = {2: "mingxiBoardPrices", 4: "kaidiTechnicianCategories",
+                             5: "atlanticTechnicianCategories", 6: "dihaoTechnicianCategories"}.get(venue["id"])
+                if price_key:
+                    venue["price_catalog"] = price_catalog[price_key]
+                if venue["id"] in {7, 8, 9}:
+                    venue["categoryLabel"] = delivery_label(price_catalog, venue["id"])
                 message_date = venue["last_channel_message_at"]
                 venue["last_channel_message_at"] = (
                     message_date.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1621,6 +1641,8 @@ if __name__ == "__main__":
     ensure_coupon_tables()
     from finance import ensure_tables as ensure_finance_tables
     ensure_finance_tables()
+    from price_catalog import ensure_tables as ensure_price_catalog
+    ensure_price_catalog()
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", 8000))
     logger.info("Starting API server on %s:%s", host, port)

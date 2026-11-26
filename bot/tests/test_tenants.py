@@ -221,6 +221,7 @@ class TenantTests(unittest.TestCase):
         ]
         with patch.object(api_server, "load_tenant", return_value=config()), \
                 patch.object(api_server, "get_db_connection", return_value=conn), \
+                patch("price_catalog.read_catalog", return_value=({}, 1)), \
                 patch.object(api_server, "parse_venue", side_effect=lambda row: row):
             response = api_server.app.test_client().post(
                 "/webhook?tenant=test-shop", json={"action": "get_venues"}

@@ -221,8 +221,9 @@ class MingxiCompleteAttendanceTests(unittest.TestCase):
         return_value=(f"{COMPLETE_MARKER}\nok", MagicMock()),
     )
     @patch("mingxi_complete_attendance.publish_complete_attendance")
+    @patch("price_catalog.current_catalog", return_value={})
     def test_post_complete_deletes_draft_without_reply(
-        self, publish, build_content, _links, _sync
+        self, _catalog, publish, build_content, _links, _sync
     ):
         channel = -1002323001411
         publish.return_value = MagicMock(message_id=20002)

@@ -8,19 +8,15 @@ import { mediaUrl, tenantHeaders } from '../../utils/tenant'
 import { API_BASE_URL } from '../../utils/twa'
 import { massageRosterMembers, massageRosterPhoto, massageRosterServices } from '../../utils/massageRoster'
 import {
-  atlanticTechnicianCategories,
   attendanceHeadingRowStyle,
   attendanceInlineHeadingStyle,
   attendancePanelStyle,
   CHANNEL_PHOTO_VENUE_IDS,
-  dihaoTechnicianCategories,
   formatChannelMessageTime,
   getAtlanticCategoryCodes,
   getDihaoCategoryCodes,
   getKaidiCategoryCodes,
-  kaidiTechnicianCategories,
   lazyFillStyle,
-  mingxiBoardPrices,
   photoViewerButtonStyle,
   recentUpdateStyle,
   technicianGridStyle,
@@ -271,11 +267,7 @@ export default function TechnicianBoard({
         : getKaidiCategoryCodes(selectedVenue, category)
   )
 
-  const categoryList = venueId === '5'
-    ? atlanticTechnicianCategories
-    : venueId === '6'
-      ? dihaoTechnicianCategories
-      : kaidiTechnicianCategories
+  const categoryList = selectedVenue.price_catalog || []
 
   return (
     <>
@@ -346,7 +338,7 @@ export default function TechnicianBoard({
                   {group.group_name}
                   {venueId === '2' && (() => {
                     const boardNumber = group.group_name.match(/(\d+)\s*号牌/)?.[1]
-                    const price = mingxiBoardPrices.find(item => (
+                    const price = (selectedVenue.price_catalog || []).find(item => (
                       item.board === `${boardNumber}号牌`
                     ))
                     return price && (

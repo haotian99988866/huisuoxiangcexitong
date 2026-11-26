@@ -217,7 +217,7 @@ def _request(cur, conn, table, key_column, key, send, validate, *,
                             (max(retry + 1, INTERVAL_SECONDS),))
                 status = "sent" if editing else "pending"
             else:
-                status = "uncertain" if exc.error_code >= 500 and not editing else "failed"
+                status = "uncertain" if exc.error_code >= 500 else "failed"
             error = f"Telegram error {exc.error_code}, retry_after={retry}"
             cur.execute(f"UPDATE {table} SET status=%s,error=%s WHERE {key_column}=%s",
                         (status, error, key))
@@ -226,7 +226,7 @@ def _request(cur, conn, table, key_column, key, send, validate, *,
                          _venue(venue_id)["venue_name"], key_column, key, status, error)
             return
     except Exception as exc:
-        status = "failed" if editing else "uncertain"
+        status = "uncertain"
         error = f"request exception: {type(exc).__name__}"
         cur.execute(f"UPDATE {table} SET status=%s,error=%s WHERE {key_column}=%s",
                     (status, error, key))
@@ -349,7 +349,7 @@ def run_once(bot, username, venue_id=4):
                         "error='interrupted while sending' WHERE status='sending'")
             cur.execute(f"UPDATE {pages_table} SET status='uncertain',"
                         "error='interrupted while deleting' WHERE status='deleting'")
-            cur.execute(f"UPDATE {pages_table} SET status='sent',content_hash=NULL,"
+            cur.execute(f"UPDATE {pages_table} SET status='uncertain',"
                         "error='interrupted while editing' WHERE status='editing'")
             cur.execute(f"SELECT enabled,next_request_at IS NULL OR next_request_at<=UTC_TIMESTAMP() AS ready "
                         f"FROM {policy_table} WHERE id=1")
@@ -378,6 +378,14 @@ def run_once(bot, username, venue_id=4):
             if not blocked and pending:
                 return _send_post(bot, username, cur, conn, current[pending[0]["staff_id"]],
                                   venue_id=venue_id)
+            cur.execute("SELECT revision FROM venue_price_channel_review "
+                        "WHERE venue_id=%s AND status='review' ORDER BY revision", (venue_id,))
+            reviews = cur.fetchall()
+            if reviews:
+                _report_blocked("revision", [{**row, "status": "price review"} for row in reviews],
+                                venue_id)
+                return
+            _report_blocked("revision", [], venue_id)
             published = {row["staff_id"]: row["message_id"] for row in posts
                          if row["status"] == "sent" and row["message_id"]}
             texts = navigation_pages(members, published, venue_id)

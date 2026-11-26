@@ -11,7 +11,7 @@ class MassageChannelTests(unittest.TestCase):
         with patch.object(massage_channel, "_staff_services", return_value=[
             {
                 "name": "柔式风情按摩",
-                "price": "129.00",
+                "price": "129.50",
                 "duration": "80分钟",
             },
             {
@@ -24,7 +24,7 @@ class MassageChannelTests(unittest.TestCase):
 
         self.assertIn("工号：029", text)
         self.assertIn("柔式风情按摩", text)
-        self.assertIn("价格：129美元｜时长：80分钟", text)
+        self.assertIn("价格：129.5美元｜时长：80分钟", text)
         self.assertNotIn("app.haotianzhushou.com", text)
 
     @patch.object(massage_channel, "schedule_directory_refresh")
@@ -79,7 +79,7 @@ class MassageChannelTests(unittest.TestCase):
             "category": "medium",
             "category_name": "⭐️ 中项",
             "name": "柔式风情按摩",
-            "price": "129.00",
+            "price": "129.50",
             "duration": "80分钟",
             "codes": "029",
         }]
@@ -93,7 +93,7 @@ class MassageChannelTests(unittest.TestCase):
         }, draft)
 
         self.assertEqual(sent, 5000)
-        self.assertIn("129", edit.call_args.args[2])
+        self.assertIn("129.5美元", edit.call_args.args[2])
         self.assertIn(
             '<a href="https://t.me/c/2324026180/4908?single">029</a>',
             edit.call_args.args[2],

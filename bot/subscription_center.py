@@ -15,6 +15,7 @@ from db import get_conn
 from duty_shift import current_shift_window
 from subscribe import SUBSCRIBE_VENUES
 from delivery_staff import DELIVERY_VENUE_IDS
+from price_catalog import delivery_name, read_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +45,12 @@ def catalog(user_id, venue_id=None):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            prices, _revision = read_catalog(cur)
             cur.execute("SELECT id,name FROM venues WHERE id IN (1,2,4,5,6,7,8,9) ORDER BY id")
             venues = cur.fetchall()
+            for venue in venues:
+                if venue["id"] in DELIVERY_VENUE_IDS:
+                    venue["name"] = delivery_name(prices, venue["id"])
             cur.execute("SELECT venue_id FROM bot_subscriptions WHERE tg_user_id=%s", (user_id,))
             venue_subs = {row["venue_id"] for row in cur.fetchall()}
             cur.execute("SELECT venue_id FROM delivery_scope_subscriptions WHERE user_id=%s", (user_id,))
@@ -186,6 +191,7 @@ def deliver_scopes(bot):
             cur.execute("SELECT s.*,v.name FROM delivery_scope_subscriptions s"
                         " JOIN venues v ON v.id=s.venue_id ORDER BY s.venue_id,s.user_id")
             subscriptions = cur.fetchall()
+            prices, _revision = read_catalog(cur)
             for sub in subscriptions:
                 cur.execute("SELECT status,retry_at FROM delivery_scope_notifications"
                             " WHERE venue_id=%s AND user_id=%s AND duty_date=%s",
@@ -219,7 +225,7 @@ def deliver_scopes(bot):
                 markup.add(types.InlineKeyboardButton("查看外送出勤", url="https://t.me/haotianzhaopian_bot?startapp=delivery"))
                 markup.add(types.InlineKeyboardButton("管理订阅", url="https://t.me/haotianzhaopian_bot?startapp=subscriptions"))
                 try:
-                    bot.send_message(sub["user_id"], f"{sub['name']} · 晚班出勤已更新\n"
+                    bot.send_message(sub["user_id"], f"{delivery_name(prices, sub['venue_id'])} · 晚班出勤已更新\n"
                                      "收到新的公开照片出勤发布，不代表实时在岗。", reply_markup=markup, timeout=20)
                 except apihelper.ApiTelegramException as error:
                     if error.error_code == 429:

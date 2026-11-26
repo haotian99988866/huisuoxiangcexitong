@@ -1426,6 +1426,8 @@ if __name__ == "__main__":
     ensure_movie_tables()
     ensure_music_tables()
     ensure_image_hash_columns()
+    from price_catalog import ensure_tables as ensure_price_catalog
+    ensure_price_catalog()
     from delivery_staff import ensure_tables as ensure_delivery_staff_tables
     ensure_delivery_staff_tables()
     from staff_archive import ensure_tables as ensure_staff_tables, start_worker as start_staff_worker

@@ -12,6 +12,7 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from db import get_conn
+from price_catalog import format_price
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,7 @@ def staff_caption(staff_id, code, duty_date=None):
         for service in services:
             lines.extend([
                 html.escape(service["name"]),
-                f"价格：{int(float(service['price']))}美元｜"
+                f"价格：{format_price(service['price'])}美元｜"
                 f"时长：{html.escape(service['duration'])}",
                 "",
             ])
@@ -519,7 +520,7 @@ def publish_attendance(bot, attendance, source_message):
         for item in items:
             lines.append(
                 f"项目：{html.escape(item['name'])}｜"
-                f"{int(float(item['price']))}美元｜"
+                f"{format_price(item['price'])}美元｜"
                 f"{html.escape(item['duration'])}"
             )
         lines.extend([

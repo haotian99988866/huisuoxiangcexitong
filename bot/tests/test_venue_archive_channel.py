@@ -147,6 +147,19 @@ class DalangChannelTests(unittest.TestCase):
         self.assertEqual(cur.execute.call_args_list[-1].args[1][0], "uncertain")
         self.assertEqual(conn.commit.call_count, 2)
 
+    def test_unknown_edit_outcome_requires_review(self):
+        for error in (
+            TimeoutError(),
+            apihelper.ApiTelegramException(
+                "editMessageText", Mock(), {"error_code": 500, "description": "Internal error"},
+            ),
+        ):
+            with self.subTest(error=type(error).__name__):
+                cur, conn = Mock(), Mock()
+                channel._request(cur, conn, "dalang_archive_pages", "page_number", 1,
+                                 Mock(side_effect=error), lambda _: True, editing=True)
+                self.assertEqual(cur.execute.call_args_list[-1].args[1][0], "uncertain")
+
     @patch.object(channel, "photo")
     @patch.object(channel, "detail")
     def test_new_post_uses_real_eligible_cover_and_is_saved_once(self, detail, photo):
@@ -216,6 +229,45 @@ class DalangChannelTests(unittest.TestCase):
         self.assertNotIn((3,), inserted)
 
     @patch.object(channel, "get_conn")
+    @patch.object(channel, "listing")
+    @patch.object(channel, "_send_page")
+    def test_price_review_blocks_existing_navigation_edits(self, send_page, listing, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.side_effect = [
+            {"acquired": 1}, {"enabled": 1, "ready": 1},
+            {"status": "sent", "message_id": 20045},
+        ]
+        cur.fetchall.side_effect = [
+            [{"staff_id": 1, "status": "sent", "message_id": 20001}],
+            [{"revision": 8}],
+        ]
+        listing.return_value = {"members": [member(1)]}
+        channel.run_once(Mock(), "example_bot")
+        send_page.assert_not_called()
+        self.assertTrue(any("venue_price_channel_review" in call.args[0]
+                            for call in cur.execute.call_args_list))
+
+    @patch.object(channel, "get_conn")
+    @patch.object(channel, "listing")
+    @patch.object(channel, "_send_page")
+    def test_navigation_can_update_when_no_price_review_is_pending(self, send_page, listing, get_conn):
+        conn = get_conn.return_value
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.side_effect = [
+            {"acquired": 1}, {"enabled": 1, "ready": 1},
+            {"status": "sent", "message_id": 20045},
+        ]
+        cur.fetchall.side_effect = [
+            [{"staff_id": 1, "status": "sent", "message_id": 20001}],
+            [],
+            [{"page_number": 1, "status": "sent", "message_id": 20045, "content_hash": "old"}],
+        ]
+        listing.return_value = {"members": [member(1)]}
+        channel.run_once(Mock(), "example_bot")
+        send_page.assert_called_once()
+
+    @patch.object(channel, "get_conn")
     def test_interrupted_send_is_recovered_as_uncertain_even_when_disabled(self, get_conn):
         conn = get_conn.return_value
         cur = conn.cursor.return_value.__enter__.return_value
@@ -225,6 +277,8 @@ class DalangChannelTests(unittest.TestCase):
         self.assertTrue(any("dalang_archive_posts SET status='uncertain'" in sql for sql in queries))
         self.assertTrue(any("dalang_archive_pages SET status='uncertain'" in sql for sql in queries))
         self.assertTrue(any("status='deleting'" in sql for sql in queries))
+        self.assertTrue(any("status='uncertain'" in sql and "status='editing'" in sql
+                            for sql in queries))
         self.assertTrue(any("RELEASE_LOCK" in sql for sql in queries))
 
     @patch.object(channel, "get_conn")

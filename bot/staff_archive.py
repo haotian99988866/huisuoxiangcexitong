@@ -356,14 +356,20 @@ def listing(data, admin=False):
             members = cur.fetchall()
             cur.execute("SELECT category,name,price FROM service_items WHERE venue_id=%s", (venue_id,))
             services = cur.fetchall()
+            price_catalog = None
+            if venue_id != 1:
+                from price_catalog import read_catalog
+                price_catalog, _revision = read_catalog(cur)
             for row in members:
                 tags = json.loads(row.pop("price_tags_json") or "[]")
-                price, price_detail = staff_price(venue_id, row["code"], tags, services)
+                price, price_detail = (staff_price(venue_id, row["code"], tags, services, price_catalog)
+                                       if price_catalog is not None
+                                       else staff_price(venue_id, row["code"], tags, services))
                 row["price_usd"] = str(price) if price is not None else None
                 row["price_detail"] = price_detail
                 row["group_name"] = staff_group_name(venue_id, row["code"], tags)
                 if venue_id == 2:
-                    row["price_options"] = mingxi_price_options(tags)
+                    row["price_options"] = mingxi_price_options(tags, price_catalog)
                 label = roster["shift"] if roster and row["id"] not in photo_duty_ids else shift
                 row["duty_label"] = f"{label}出勤" if row["id"] in duty_ids else None
                 row["duty_source"] = "photo" if row["id"] in photo_duty_ids else "roster" if row["id"] in duty_ids else None

@@ -1,0 +1,16 @@
+.price-admin { margin-top: 12px; }
+.price-admin > .admin-header h2 { margin: 0; }
+.admin-console .price-admin-venue { margin: 12px 0; }
+.admin-console .price-admin-venue select { margin-top: 4px; }
+.price-admin-list { display: grid; gap: 8px; }
+.price-admin-row { padding: 12px; border: 1px solid var(--ink-line); border-radius: 12px; background: var(--ink-reading); }
+.price-admin-row > strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
+.price-admin-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.admin-console .price-admin-fields label { min-width: 0; margin: 8px 0 0; font-size: 12px; }
+.admin-console .price-admin-fields input { min-width: 0; margin-top: 4px; }
+.admin-console .price-admin-preview { width: 100%; margin-top: 12px; }
+.price-admin-confirm h3 { margin: 16px 0 8px; }
+.price-admin-change { display: grid; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--ink-line); font-size: 13px; overflow-wrap: anywhere; }
+.price-admin-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.price-admin-reviews { margin-top: 16px; }
+.price-admin-reviews summary { min-height: 44px; cursor: pointer; color: var(--ink-accent); }
