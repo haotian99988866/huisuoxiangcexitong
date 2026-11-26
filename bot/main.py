@@ -1437,6 +1437,9 @@ if __name__ == "__main__":
     start_staff_worker()
     from venue_archive_channel import start_workers as start_staff_archive_channel_workers
     start_staff_archive_channel_workers(bot)
+    if os.getenv("VENUE_PRICE_SAVE_ENABLED") == "1":
+        from price_sync import start_worker as start_price_sync_worker
+        start_price_sync_worker(bot)
     for venue_id in (4, 5, 6):
         schedule_footer(bot, STAFF_ARCHIVE_VENUES[venue_id]["channel_id"])
     from staff_management import ensure_tables as ensure_staff_management_tables, start_worker as start_staff_management_worker

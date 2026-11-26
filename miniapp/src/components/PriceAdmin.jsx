@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { requestAdmin } from '../utils/admin'
 import { consumptionDate } from '../utils/customerRecords'
+import { API_BASE_URL } from '../utils/twa'
+import { telegramDownload } from '../utils/priceDownload'
+import { importedPrices, priceAmount as amount, priceSheetRows } from '../utils/priceSpreadsheet'
 import './PriceAdmin.css'
 
 const rowKey = row => `${row.venue_id}:${row.service_key}`
-const amount = value => {
-  if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(value)) return null
-  const cents = Math.round(Number(value) * 100)
-  return Number.isSafeInteger(cents) ? cents : null
-}
 const shown = value => value == null ? '待确认' : `$${value}`
 
 export default function PriceAdmin() {
@@ -22,6 +20,7 @@ export default function PriceAdmin() {
   const [needsRefresh, setNeedsRefresh] = useState(false)
   const mounted = useRef(true)
   const requestId = useRef(0)
+  const fileInput = useRef(null)
 
   const load = async () => {
     const id = ++requestId.current
@@ -92,8 +91,8 @@ export default function PriceAdmin() {
         })),
       })
       if (!mounted.current) return
-      setNotice(result.channel_review_venues.length
-        ? '已保存。部分会所频道消息需人工核对；外送频道不修改。'
+      setNotice(result.channel_sync_venues.length
+        ? '已保存，频道价格等待同步；外送频道不修改。'
         : '已保存。已有消费的提成不变。')
       setNeedsRefresh(true)
       await load()
@@ -103,6 +102,86 @@ export default function PriceAdmin() {
         setNeedsRefresh(true)
         setConfirming(false)
       }
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  const retrySync = async task => {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await requestAdmin('admin_price_sync_retry', { revision: task.revision, venue_id: task.venue_id })
+      if (mounted.current) {
+        setNotice('已重新安排频道同步。')
+        await load()
+      }
+    } catch (failure) {
+      if (mounted.current) setError(`${failure.message}。请刷新后查看同步状态。`)
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  const exportPrices = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const { default: writeExcelFile } = await import('write-excel-file/browser')
+      const name = groups.find(([id]) => String(id) === venue)?.[1] || '价目'
+      const rows = priceSheetRows(entries.filter(item => String(item.venue_id) === venue))
+      const fileName = `${name.replace(/[\\/:*?"<>|]/g, '_')}-价目表.xlsx`
+      const file = writeExcelFile(rows, { columns: [{ width: 35 }, { width: 18 }, { width: 14 }, { width: 24 }] })
+      const tg = window.Telegram?.WebApp
+      if (tg?.initData) {
+        const bytes = new Uint8Array(await (await file.toBlob()).arrayBuffer())
+        if (bytes.length > 8192) throw new Error('价目表文件过大，请联系管理员')
+        const content = btoa(String.fromCharCode(...bytes))
+        const { token } = await requestAdmin('admin_price_download', { content })
+        const url = new URL(`${API_BASE_URL}/price-download/${token}`, window.location.origin).href
+        await telegramDownload(tg, url, fileName)
+        if (mounted.current) setNotice('已请求下载，请在 Telegram 下载记录中查看。')
+      } else {
+        await file.toFile(fileName)
+        if (mounted.current) setNotice('已请求下载，请在浏览器下载记录中查看。')
+      }
+    } catch (failure) {
+      if (mounted.current) setError(`导出失败：${failure.message}`)
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  const importPrices = async event => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setError('')
+    setNotice('')
+    if (!file.name.toLowerCase().endsWith('.xlsx') || file.size > 1024 * 1024) {
+      setError('请选择不超过 1 MB 的 .xlsx 表格。')
+      return
+    }
+    setBusy(true)
+    try {
+      const { readSheet } = await import('read-excel-file/browser')
+      const prices = importedPrices(await readSheet(file), entries, venue)
+      const overwrites = Object.entries(prices).some(([key, price]) => {
+        const item = entries.find(entry => rowKey(entry) === key)
+        return drafts[key].price !== (item.price ?? '') && drafts[key].price !== price
+      })
+      if (overwrites && !window.confirm('导入会覆盖当前会所未保存的价格修改，是否继续？')) return
+      setDrafts(current => {
+        const next = { ...current }
+        for (const [key, price] of Object.entries(prices)) {
+          next[key] = { ...current[key], price }
+        }
+        return next
+      })
+      setNotice('价格已导入，请核对修改并确认保存。个人提成不受影响。')
+    } catch (failure) {
+      if (mounted.current) setError(`导入失败：${failure.message}`)
     } finally {
       if (mounted.current) setBusy(false)
     }
@@ -131,7 +210,7 @@ export default function PriceAdmin() {
             {priceChanged && <span>价格：{shown(item.price)} → ${draft.price}</span>}
             {commissionChanged && <span>个人提成：{shown(item.commission_amount)} → ${draft.commission}</span>}
           </div>)}
-        <p className="admin-hint">会所价格变更后，旧频道消息需人工核对；大浪、五象和帝豪人员导航自动更新将暂停。外送频道不修改。</p>
+        <p className="admin-hint">会所价格变更后同步到频道；外送频道不修改。</p>
         <div className="price-admin-actions">
           <button type="button" disabled={busy} onClick={() => setConfirming(false)}>返回修改</button>
           <button type="button" disabled={busy || needsRefresh} onClick={save}>{busy ? '正在保存…' : '确认保存'}</button>
@@ -142,6 +221,13 @@ export default function PriceAdmin() {
             {groups.map(([id, name]) => <option value={id} key={id}>{name}</option>)}
           </select>
         </label>
+        <div className="price-admin-actions">
+          <button type="button" disabled={busy || needsRefresh || !venue} onClick={exportPrices}>导出 Excel</button>
+          <button type="button" disabled={busy || needsRefresh || !venue}
+            onClick={() => fileInput.current?.click()}>导入 Excel</button>
+          <input ref={fileInput} type="file" accept=".xlsx" hidden onChange={importPrices} />
+        </div>
+        <p className="admin-hint">导出已保存价格；导入后需确认保存。空价格不修改，请勿更改项目及编号。</p>
         <div className="price-admin-list">
           {entries.filter(item => String(item.venue_id) === venue).map(item => {
             const draft = drafts[rowKey(item)]
@@ -164,11 +250,13 @@ export default function PriceAdmin() {
         <button type="button" className="price-admin-preview" disabled={busy || needsRefresh || !changes.length}
           onClick={preview}>核对修改{changes.length ? `（${changes.length}）` : ''}</button>
       </>}
-      {data.channel_reviews.length > 0 && <details className="price-admin-reviews">
-        <summary>频道待核对（最近 {data.channel_reviews.length} 条）</summary>
-        {data.channel_reviews.map(review => <p className="admin-hint" key={`${review.revision}:${review.venue_id}`}>
-          {groups.find(([id]) => id === review.venue_id)?.[1] || `来源 ${review.venue_id}`} ·
-          {consumptionDate(review.created_at)} · {review.reason}
+      {data.channel_sync.length > 0 && <details className="price-admin-reviews">
+        <summary>频道同步（最近 {data.channel_sync.length} 条）</summary>
+        {data.channel_sync.map(task => <p className="admin-hint" key={`${task.revision}:${task.venue_id}`}>
+          {groups.find(([id]) => id === task.venue_id)?.[1] || `来源 ${task.venue_id}`} ·
+          {consumptionDate(task.created_at)} · {task.reason}
+          {task.status === 'failed' && <button type="button" disabled={busy}
+            onClick={() => retrySync(task)}>重新同步</button>}
         </p>)}
       </details>}
     </>}

@@ -5,7 +5,6 @@ import os
 from decimal import Decimal
 
 import finance
-from config.channels import STAFF_ARCHIVE_VENUES
 from customer_records import RecordConflict
 from db import get_conn
 from price_catalog import delivery_name, read_catalog
@@ -82,10 +81,34 @@ def overview(owner_id):
             cur.execute("""SELECT revision,venue_id,status,reason,created_at
                            FROM venue_price_channel_review
                            ORDER BY revision DESC,venue_id LIMIT 30""")
-            reviews = [{**row, "created_at": row["created_at"].isoformat() + "Z"}
-                       for row in cur.fetchall()]
+            tasks = [{**row, "created_at": row["created_at"].isoformat() + "Z"}
+                     for row in cur.fetchall()]
         conn.commit()
-        return {"revision": revision, "items": items, "channel_reviews": reviews}
+        return {"revision": revision, "items": items, "channel_sync": tasks}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def retry_sync(data):
+    if os.getenv("VENUE_PRICE_SAVE_ENABLED") != "1":
+        raise ValueError("价目与提成保存暂未开放，频道价格同步仍在完善")
+    revision, venue_id = data.get("revision"), data.get("venue_id")
+    if (type(revision) is not int or revision < 1 or type(venue_id) is not int
+            or venue_id not in (1, 2, 4, 5, 6)):
+        raise ValueError("频道同步任务无效")
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""UPDATE venue_price_channel_review SET status='pending',reason='等待频道同步'
+                           WHERE revision=%s AND venue_id=%s AND status='failed'""",
+                        (revision, venue_id))
+            if cur.rowcount != 1:
+                raise RecordConflict("同步任务状态已变化，请刷新后查看")
+        conn.commit()
+        return {"ok": True}
     except Exception:
         conn.rollback()
         raise
@@ -124,12 +147,6 @@ def save(data, owner_id):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            for venue_id in sorted({key[0] for key, (change, _, _) in parsed.items()
-                                    if key[0] in STAFF_ARCHIVE_VENUES and "price" in change}):
-                lock_name = f"{STAFF_ARCHIVE_VENUES[venue_id]['table_prefix']}_channel"
-                cur.execute("SELECT GET_LOCK(%s,0) AS acquired", (lock_name,))
-                if not cur.fetchone()["acquired"]:
-                    raise RecordConflict("频道正在更新，请稍后刷新并重新核对")
             catalog, current_revision = read_catalog(cur, lock=True)
             if revision != current_revision:
                 raise RecordConflict("价目已被修改，请刷新后重新核对")
@@ -139,7 +156,7 @@ def save(data, owner_id):
             if not set(parsed).issubset(by_key):
                 raise ValueError("价目项目不存在或已停用")
             actual_changes = []
-            channel_reviews = set()
+            channel_sync_venues = set()
             now = finance._now_utc()
             next_revision = revision + 1
             for key, (change, price, commission) in parsed.items():
@@ -155,7 +172,7 @@ def save(data, owner_id):
                     continue
                 if price is not None and price != old_price:
                     if key[0] in (1, 2, 4, 5, 6):
-                        channel_reviews.add(key[0])
+                        channel_sync_venues.add(key[0])
                     target, field = _target(catalog, item, services)
                     if key[0] == 1:
                         cur.execute("UPDATE service_items SET price=%s WHERE id=%s AND venue_id=1",
@@ -178,15 +195,13 @@ def save(data, owner_id):
                 raise ValueError("没有需要保存的变更")
             cur.execute("UPDATE venue_price_catalog SET revision=%s,catalog_json=%s WHERE id=1",
                         (next_revision, json.dumps(catalog, ensure_ascii=False)))
-            for venue_id in sorted(channel_reviews):
+            for venue_id in sorted(channel_sync_venues):
                 cur.execute("""INSERT INTO venue_price_channel_review
                                (revision,venue_id,status,reason,created_at)
-                               VALUES(%s,%s,'review',%s,%s)""",
-                            (next_revision, venue_id,
-                             "既有频道消息缺少可核验的原文快照，请人工核对" +
-                             ("；人员导航自动更新已暂停" if venue_id in STAFF_ARCHIVE_VENUES else ""), now))
+                               VALUES(%s,%s,'pending',%s,%s)""",
+                            (next_revision, venue_id, "等待频道同步", now))
         conn.commit()
-        return {"ok": True, "revision": next_revision, "channel_review_venues": sorted(channel_reviews)}
+        return {"ok": True, "revision": next_revision, "channel_sync_venues": sorted(channel_sync_venues)}
     except Exception:
         conn.rollback()
         raise

@@ -231,7 +231,7 @@ class DalangChannelTests(unittest.TestCase):
     @patch.object(channel, "get_conn")
     @patch.object(channel, "listing")
     @patch.object(channel, "_send_page")
-    def test_price_review_blocks_existing_navigation_edits(self, send_page, listing, get_conn):
+    def test_navigation_updates_without_price_review_blocker(self, send_page, listing, get_conn):
         conn = get_conn.return_value
         cur = conn.cursor.return_value.__enter__.return_value
         cur.fetchone.side_effect = [
@@ -240,27 +240,6 @@ class DalangChannelTests(unittest.TestCase):
         ]
         cur.fetchall.side_effect = [
             [{"staff_id": 1, "status": "sent", "message_id": 20001}],
-            [{"revision": 8}],
-        ]
-        listing.return_value = {"members": [member(1)]}
-        channel.run_once(Mock(), "example_bot")
-        send_page.assert_not_called()
-        self.assertTrue(any("venue_price_channel_review" in call.args[0]
-                            for call in cur.execute.call_args_list))
-
-    @patch.object(channel, "get_conn")
-    @patch.object(channel, "listing")
-    @patch.object(channel, "_send_page")
-    def test_navigation_can_update_when_no_price_review_is_pending(self, send_page, listing, get_conn):
-        conn = get_conn.return_value
-        cur = conn.cursor.return_value.__enter__.return_value
-        cur.fetchone.side_effect = [
-            {"acquired": 1}, {"enabled": 1, "ready": 1},
-            {"status": "sent", "message_id": 20045},
-        ]
-        cur.fetchall.side_effect = [
-            [{"staff_id": 1, "status": "sent", "message_id": 20001}],
-            [],
             [{"page_number": 1, "status": "sent", "message_id": 20045, "content_hash": "old"}],
         ]
         listing.return_value = {"members": [member(1)]}

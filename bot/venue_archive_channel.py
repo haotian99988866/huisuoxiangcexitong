@@ -378,14 +378,6 @@ def run_once(bot, username, venue_id=4):
             if not blocked and pending:
                 return _send_post(bot, username, cur, conn, current[pending[0]["staff_id"]],
                                   venue_id=venue_id)
-            cur.execute("SELECT revision FROM venue_price_channel_review "
-                        "WHERE venue_id=%s AND status='review' ORDER BY revision", (venue_id,))
-            reviews = cur.fetchall()
-            if reviews:
-                _report_blocked("revision", [{**row, "status": "price review"} for row in reviews],
-                                venue_id)
-                return
-            _report_blocked("revision", [], venue_id)
             published = {row["staff_id"]: row["message_id"] for row in posts
                          if row["status"] == "sent" and row["message_id"]}
             texts = navigation_pages(members, published, venue_id)

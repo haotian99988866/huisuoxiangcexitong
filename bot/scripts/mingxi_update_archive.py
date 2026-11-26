@@ -91,7 +91,7 @@ def current_prices():
         conn.close()
 
 
-async def run(bot, reader, after, limit, apply=False):
+async def run(bot, reader, after, limit, apply=False, boards=None):
     me = bot.get_me()
     member = bot.get_chat_member(int(MINGXI_CHANNEL_ID), me.id)
     if not me.username or not getattr(member, "can_edit_messages", False):
@@ -109,9 +109,12 @@ async def run(bot, reader, after, limit, apply=False):
     if len(messages) != len(rows):
         raise RuntimeError("频道读取结果不完整，请核对后重试")
     for row, message in zip(rows, messages):
-        markup = keyboard(row, me.username)
         counts["checked"] += 1
         counts["last_message_id"] = row["msg_id"]
+        tags = json.loads(row["price_tags_json"] or "[]")
+        board_name = staff_group_name(2, row["code"], tags)
+        if boards is not None and board_name not in boards:
+            continue
         issue = original_issue(message)
         if issue:
             counts["review"] += 1
@@ -122,8 +125,7 @@ async def run(bot, reader, after, limit, apply=False):
             continue
         await asyncio.sleep(INTERVAL)
         catalog, _revision = current_prices()
-        tags = json.loads(row["price_tags_json"] or "[]")
-        board_name = staff_group_name(2, row["code"], tags)
+        markup = keyboard(row, me.username)
         text = caption(row["code"], board_name, catalog)
         try:
             result = bot.edit_message_caption(text, int(MINGXI_CHANNEL_ID), row["msg_id"],
@@ -154,7 +156,7 @@ async def run(bot, reader, after, limit, apply=False):
     return counts
 
 
-async def main_async(args):
+async def main_async(args, bot=None, boards=None):
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -172,19 +174,22 @@ async def main_async(args):
         await reader.connect()
         if not await reader.is_user_authorized() or (await reader.get_me()).bot:
             raise RuntimeError("频道读取会话未授权")
-        bot = telebot.TeleBot(token)
+        bot = bot or telebot.TeleBot(token)
         after = args.after
+        failures = []
         while True:
             try:
-                result = await run(bot, reader, after, args.limit, args.apply)
+                result = await run(bot, reader, after, args.limit, args.apply, boards=boards)
             except errors.FloodWaitError as error:
                 await asyncio.sleep(error.seconds + 1)
                 raise RuntimeError("频道读取限流，已等待指定时间，请核对后重试") from error
             print(json.dumps(result, ensure_ascii=False), flush=True)
+            failures.extend(item["message_id"] for item in result["review_messages"])
             if not args.all or result["checked"] < args.limit:
                 break
             after = result["last_message_id"]
             await asyncio.sleep(INTERVAL)
+        return failures
     finally:
         await reader.disconnect()
 

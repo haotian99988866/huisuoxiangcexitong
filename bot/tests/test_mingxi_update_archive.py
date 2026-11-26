@@ -100,6 +100,27 @@ class MingxiArchiveUpdateTests(unittest.TestCase):
         self.assertEqual(result["updated"], 1)
         self.assertIn("半价 $149 · 45分钟", bot.edit_message_caption.call_args.args[0])
 
+    def test_only_changed_board_is_updated(self):
+        rows = [
+            {"code": "123", "msg_id": 100, "staff_id": 25, "exact_photo": 1,
+             "price_tags_json": '["board:1号牌"]'},
+            {"code": "223", "msg_id": 101, "staff_id": 26, "exact_photo": 1,
+             "price_tags_json": '["board:2号牌"]'},
+        ]
+        bot = Mock()
+        bot.get_me.return_value = SimpleNamespace(id=1, username="example_bot")
+        bot.get_chat_member.return_value = SimpleNamespace(can_edit_messages=True)
+        bot.edit_message_caption.side_effect = lambda text, _chat_id, message_id, **kwargs: SimpleNamespace(
+            message_id=message_id, caption=text, reply_markup=kwargs["reply_markup"])
+        reader = SimpleNamespace(get_entity=AsyncMock(return_value=SimpleNamespace(id=2323001411)),
+                                 get_messages=AsyncMock(return_value=[message(), message()]))
+        with patch.object(update, "candidates", return_value=rows), \
+                patch.object(update, "current_prices", return_value=(update.PRICES, 1)), \
+                patch.object(update.asyncio, "sleep", new_callable=AsyncMock):
+            result = asyncio.run(update.run(bot, reader, 0, 2, apply=True, boards={"2号牌"}))
+        self.assertEqual(result["updated"], 1)
+        self.assertEqual(bot.edit_message_caption.call_args.args[2], 101)
+
 
 if __name__ == "__main__":
     unittest.main()

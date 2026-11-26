@@ -538,6 +538,20 @@ def upload_too_large(error):
     return error
 
 
+@app.get("/price-download/<token>")
+def price_download_file(token):
+    from price_download import get
+
+    content = get(token)
+    if content is None:
+        return jsonify({"error": "下载链接无效或已过期，请重新导出"}), 404
+    response = send_file(io.BytesIO(content), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name="prices.xlsx", max_age=0)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @app.post("/webhook")
 @app.post("/member-deposit")
 @app.post("/admin-hotel-save")
@@ -568,7 +582,7 @@ def webhook():
                   "admin_customers", "admin_customer_detail",
                   "admin_customer_save", "admin_customer_create", "admin_customer_bind",
                   "admin_coupon_overview", "admin_coupon_detail", "admin_coupon_preview", "admin_coupon_redeem", "admin_coupon_review", "admin_coupon_reverse",
-                  "admin_price_overview", "admin_price_save",
+                  "admin_price_overview", "admin_price_save", "admin_price_sync_retry", "admin_price_download",
                   "admin_finance_dashboard", "admin_finance_daily_summary",
                   "admin_finance_transaction", "admin_finance_budget",
                   "admin_finance_goal", "admin_finance_account", "admin_finance_category",
@@ -609,12 +623,21 @@ def webhook():
         if local_debug:
             logger.warning("Local admin debug request: %s (audit actor -1)", action)
         try:
-            if action in {"admin_price_overview", "admin_price_save"}:
+            if action == "admin_price_download":
+                from price_download import create
+                response = jsonify({"token": create(data.get("content"))})
+                response.headers["Cache-Control"] = "private, no-store"
+                return response
+            if action in {"admin_price_overview", "admin_price_save", "admin_price_sync_retry"}:
                 import price_management
                 from customer_records import RecordConflict
                 try:
-                    result = (price_management.overview(user["id"]) if action == "admin_price_overview"
-                              else price_management.save(data, user["id"]))
+                    if action == "admin_price_overview":
+                        result = price_management.overview(user["id"])
+                    elif action == "admin_price_sync_retry":
+                        result = price_management.retry_sync(data)
+                    else:
+                        result = price_management.save(data, user["id"])
                     response = jsonify(result)
                     response.headers["Cache-Control"] = "private, no-store"
                     return response
