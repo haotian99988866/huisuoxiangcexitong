@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 CODE_PATTERN = re.compile(
-    r"(?<!\d)(\d{2,3})(?!\d)"
+    r"(?<!\d)(\d{2,3})(?!\d)(?!\s*小时)"
     r"(?:\s*(?:🇻🇳|🇨🇳|🇰🇭|🇹🇭|🇱🇦|🇲🇲|🇵🇭|🇺🇸|🇬🇧|[（(]男[）)]))?"
 )
 CODE_EXCLUDED_LINE = re.compile(

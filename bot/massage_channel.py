@@ -24,6 +24,7 @@ EDIT_INTERVAL = 3.5
 _timers = {}
 _timers_lock = threading.Lock()
 _edit_lock = threading.Lock()
+_attendance_lock = threading.Lock()
 _last_edit_at = 0.0
 
 
@@ -535,27 +536,42 @@ def publish_attendance(bot, attendance, source_message):
         "照片/视频技师资料已收录到频道技师档案目录。",
     ]
     text = "\n".join(lines).strip()
-    old_id = _state_message_id("attendance")
-    if old_id:
-        _edit_text(bot, old_id, text, _directory_markup())
-        sent_id = old_id
-    else:
-        sent = bot.send_message(
-            int(CHANNEL_ID),
-            text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=_directory_markup(),
-            disable_notification=True,
-        )
-        sent_id = sent.message_id
-        _set_state_message_id("attendance", sent_id)
-    if source_message:
-        bot.delete_message(
-            source_message.chat.id,
-            source_message.message_id,
-            timeout=20,
-        )
+    with _attendance_lock:
+        old_id = _state_message_id("attendance")
+        if old_id == -1:
+            raise RuntimeError("按摩出勤完整版发送结果未确认，请核对频道并修复消息编号后再发布")
+        sent_id = None
+        if old_id:
+            try:
+                _edit_text(bot, old_id, text, _directory_markup())
+                sent_id = old_id
+            except telebot.apihelper.ApiTelegramException as exc:
+                description = str(exc.description).lower()
+                if exc.error_code == 400 and "message is not modified" in description:
+                    sent_id = old_id
+                elif exc.error_code == 400 and "message to edit not found" in description:
+                    logger.warning("按摩出勤旧消息 %s 不存在，将发布新完整版", old_id)
+                else:
+                    raise
+        if sent_id is None:
+            _set_state_message_id("attendance", -1)
+            _wait_for_edit_slot()
+            sent = bot.send_message(
+                int(CHANNEL_ID),
+                text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=_directory_markup(),
+                disable_notification=True,
+            )
+            sent_id = sent.message_id
+            _set_state_message_id("attendance", sent_id)
+        if source_message:
+            bot.delete_message(
+                source_message.chat.id,
+                source_message.message_id,
+                timeout=20,
+            )
     schedule_directory_refresh(bot)
     return sent_id
 

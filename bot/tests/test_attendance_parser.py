@@ -51,6 +51,14 @@ SAMPLE_ANNOUNCEMENT = """\
 
 
 class ParseAttendanceTextTests(unittest.TestCase):
+    def test_hour_duration_is_not_a_technician_code(self):
+        result = parse_attendance_text(
+            SAMPLE_ANNOUNCEMENT + "\n24小时随时待命加班：113🇻🇳\n"
+        )
+        self.assertNotIn("24", result["codes"])
+        self.assertNotIn("24", result["service_codes"]["pedicure"])
+        self.assertIn("113", result["codes"])
+
     def test_extracts_daily_roster_and_service_category_rosters(self):
         result = parse_attendance_text(SAMPLE_ANNOUNCEMENT)
 

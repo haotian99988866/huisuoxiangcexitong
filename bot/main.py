@@ -828,6 +828,16 @@ def monitor_edited_venue_post(message):
         return ContinueHandling()
 
 
+@bot.edited_channel_post_handler(content_types=["photo", "video"])
+def handle_navigation_album_edit(message):
+    try:
+        post_navigation.capture_album_edit(message)
+    except pymysql.MySQLError:
+        logger.exception("Cannot update album caption for chat %s message %s",
+                         message.chat.id, message.message_id)
+    return ContinueHandling()
+
+
 @bot.message_handler(func=post_navigation.accepts, content_types=["text", "photo", "video"],
                      chat_types=["group", "supergroup"])
 @bot.channel_post_handler(func=post_navigation.accepts, content_types=["text", "photo", "video"])

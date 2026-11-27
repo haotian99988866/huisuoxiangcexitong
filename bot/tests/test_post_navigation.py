@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import json
 import unittest
 from unittest.mock import Mock, patch
 import uuid
@@ -72,7 +73,8 @@ class NavigationTests(unittest.TestCase):
                 options = bot.edit_message_reply_markup.call_args.kwargs
                 self.assertEqual(options["message_id"], 1)
                 self.assertNotIn("reply_parameters", options)
-        row = {"chat_id": navigation.CHANNEL_ID, "post_key": "album:12", "first_message_id": 1}
+        row = {"chat_id": navigation.CHANNEL_ID, "post_key": "album:12", "first_message_id": 1,
+               "album_captions": json.dumps({"1": {"text": "", "entities": []}})}
         with patch("post_navigation.update") as update:
             navigation.deliver(bot, row)
             update.assert_called_once_with(row, "sent", result_id=9)
@@ -95,7 +97,8 @@ class NavigationTests(unittest.TestCase):
 
     def test_rate_limit_and_unknown_send_do_not_duplicate(self):
         bot = Mock()
-        row = {"chat_id": navigation.CHANNEL_ID, "post_key": "album:1", "first_message_id": 1}
+        row = {"chat_id": navigation.CHANNEL_ID, "post_key": "album:1", "first_message_id": 1,
+               "album_captions": json.dumps({"1": {"text": "", "entities": []}})}
         cases = (
             (apihelper.ApiTelegramException("sendMessage", None, {
                 "error_code": 429, "description": "limited", "parameters": {"retry_after": 45}}),
@@ -122,6 +125,52 @@ class NavigationTests(unittest.TestCase):
         update.assert_called_once_with(row, "sent", result_id=1)
         bot.send_message.assert_not_called()
         self.assertNotIn("text", bot.edit_message_reply_markup.call_args.kwargs)
+
+    def test_album_captions_move_to_button_message_after_confirmed_send(self):
+        bot = Mock()
+        bot.send_message.return_value = SimpleNamespace(message_id=9)
+        row = {"chat_id": navigation.CHANNEL_ID, "post_key": "album:1", "first_message_id": 1,
+               "album_captions": json.dumps({
+                   "1": {"text": "😀介绍", "entities": [{"type": "bold", "offset": 2, "length": 2}]},
+                   "2": {"text": "详情", "entities": [{"type": "italic", "offset": 0, "length": 2}]},
+               })}
+        with patch("post_navigation.update") as update, patch("post_navigation._album_unchanged", return_value=True), \
+                patch("post_navigation.time.sleep") as sleep:
+            navigation.deliver(bot, row)
+        self.assertEqual(bot.send_message.call_args.args[1], "😀介绍\n\n详情")
+        self.assertEqual([entity.offset for entity in bot.send_message.call_args.kwargs["entities"]], [2, 6])
+        self.assertEqual([call.kwargs["message_id"] for call in bot.edit_message_caption.call_args_list], [1, 2])
+        sleep.assert_called_once_with(5)
+        self.assertEqual(update.call_args.args[1], "sent")
+
+    def test_caption_is_never_removed_on_send_failure_or_edit_during_send(self):
+        row = {"chat_id": navigation.CHANNEL_ID, "post_key": "album:1", "first_message_id": 1,
+               "album_captions": json.dumps({"1": {"text": "介绍", "entities": []}})}
+        bot = Mock()
+        bot.send_message.side_effect = ConnectionError("unknown")
+        with patch("post_navigation.update") as update, self.assertLogs("post_navigation"):
+            navigation.deliver(bot, row)
+        self.assertEqual(update.call_args.args[1], "uncertain")
+        bot.edit_message_caption.assert_not_called()
+        bot.reset_mock()
+        bot.send_message.side_effect = None
+        bot.send_message.return_value = SimpleNamespace(message_id=9)
+        with patch("post_navigation.update") as update, patch("post_navigation._album_unchanged", return_value=False), \
+                self.assertLogs("post_navigation"):
+            navigation.deliver(bot, row)
+        bot.edit_message_caption.assert_not_called()
+        self.assertEqual(update.call_args.args[1], "uncertain")
+        self.assertEqual(update.call_args.kwargs["result_id"], 9)
+
+    def test_excess_album_caption_is_not_sent_or_removed(self):
+        bot = Mock()
+        row = {"chat_id": navigation.CHANNEL_ID, "post_key": "album:1", "first_message_id": 1,
+               "album_captions": json.dumps({"1": {"text": "😀" * 2049, "entities": []}})}
+        with patch("post_navigation.update") as update, self.assertLogs("post_navigation"):
+            navigation.deliver(bot, row)
+        self.assertEqual(update.call_args.args[1], "failed")
+        bot.send_message.assert_not_called()
+        bot.edit_message_caption.assert_not_called()
 
 
 class NavigationQueueTests(unittest.TestCase):
@@ -237,6 +286,43 @@ class NavigationQueueTests(unittest.TestCase):
         self.assertIsNone(navigation.claim())
         self.assertEqual(self.sql("SELECT status,result_id FROM post_navigation_jobs"),
                          [{"status": "sent", "result_id": 100}])
+
+    def test_album_captions_and_edits_are_saved_until_delivery(self):
+        first = message(ident=1, album="album1")
+        first.caption = "原说明"
+        navigation.enqueue(first)
+        navigation.enqueue(message(ident=2, album="album1"))
+        first.caption = "修改后的说明"
+        first.edit_date = 100
+        navigation.capture_album_edit(first)
+        first.caption = "过期的原说明"
+        first.edit_date = None
+        navigation.enqueue(first)
+        row = self.sql("SELECT album_captions FROM post_navigation_jobs")[0]
+        captions = json.loads(row["album_captions"])
+        self.assertEqual(captions["1"]["text"], "修改后的说明")
+        self.assertEqual(captions["2"]["text"], "")
+        self.sql("UPDATE post_navigation_jobs SET status='sending'")
+        first.caption = "发送期间修改"
+        first.edit_date = 101
+        navigation.capture_album_edit(first)
+        self.assertEqual(self.sql("SELECT caption_changed FROM post_navigation_jobs")[0]["caption_changed"], 1)
+
+    def test_album_delivery_clears_captured_caption_only_after_success(self):
+        first = message(ident=1, album="album1")
+        first.caption = "频道原说明"
+        navigation.enqueue(first)
+        navigation.enqueue(message(ident=2, album="album1"))
+        self.sql("UPDATE post_navigation_jobs SET due_at=UTC_TIMESTAMP()")
+        row = navigation.claim()
+        bot = Mock()
+        bot.send_message.return_value = SimpleNamespace(message_id=3)
+        navigation.deliver(bot, row)
+        self.assertEqual(bot.send_message.call_args.args[1], "频道原说明")
+        bot.edit_message_caption.assert_called_once_with(
+            "", chat_id=navigation.CHANNEL_ID, message_id=1, timeout=20)
+        result = self.sql("SELECT status,result_id,album_captions FROM post_navigation_jobs")
+        self.assertEqual(result, [{"status": "sent", "result_id": 3, "album_captions": None}])
 
     def test_independent_posts_chats_and_restart_safety(self):
         navigation.enqueue(message(ident=1))

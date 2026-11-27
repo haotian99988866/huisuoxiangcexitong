@@ -4,6 +4,13 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import massage_channel
+from telebot.apihelper import ApiTelegramException
+
+
+def telegram_error(code, description):
+    return ApiTelegramException("editMessageText", None, {
+        "error_code": code, "description": description,
+    })
 
 
 class MassageChannelTests(unittest.TestCase):
@@ -113,6 +120,102 @@ class MassageChannelTests(unittest.TestCase):
         self.assertIn("https://t.me/c/2324026180/4909?single", text)
         self.assertIn(">002</a>", text)
         self.assertTrue(text.endswith("unknown"))
+
+    @patch.object(massage_channel, "schedule_directory_refresh")
+    @patch.object(massage_channel, "_set_state_message_id")
+    @patch.object(massage_channel, "_directory_markup", return_value=MagicMock())
+    @patch.object(massage_channel, "_edit_text")
+    @patch.object(massage_channel, "_state_message_id", return_value=5000)
+    @patch.object(massage_channel, "get_conn")
+    @patch.object(massage_channel, "_post_message_ids", return_value={})
+    def test_missing_attendance_post_is_replaced_only_after_confirmed_send(
+        self, posts, get_conn, state, edit, markup, set_state, schedule
+    ):
+        get_conn.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+        edit.side_effect = telegram_error(400, "Bad Request: message to edit not found")
+        bot = MagicMock()
+        bot.send_message.return_value.message_id = 6000
+        draft = SimpleNamespace(chat=SimpleNamespace(id=-1002324026180), message_id=7000)
+
+        result = massage_channel.publish_attendance(
+            bot, {"duty_date": date(2026, 11, 27), "duty_shift": "晚班"}, draft
+        )
+
+        self.assertEqual(result, 6000)
+        self.assertEqual([call.args for call in set_state.call_args_list],
+                         [("attendance", -1), ("attendance", 6000)])
+        bot.send_message.assert_called_once()
+        bot.delete_message.assert_called_once_with(draft.chat.id, 7000, timeout=20)
+
+    @patch.object(massage_channel, "schedule_directory_refresh")
+    @patch.object(massage_channel, "_set_state_message_id")
+    @patch.object(massage_channel, "_edit_text")
+    @patch.object(massage_channel, "_state_message_id", return_value=5000)
+    @patch.object(massage_channel, "get_conn")
+    @patch.object(massage_channel, "_post_message_ids", return_value={})
+    def test_other_edit_failures_do_not_repost_or_delete_draft(
+        self, posts, get_conn, state, edit, set_state, schedule
+    ):
+        get_conn.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+        edit.side_effect = telegram_error(403, "Forbidden")
+        bot = MagicMock()
+        draft = SimpleNamespace(chat=SimpleNamespace(id=-1002324026180), message_id=7000)
+        with self.assertRaises(ApiTelegramException):
+            massage_channel.publish_attendance(
+                bot, {"duty_date": date(2026, 11, 27), "duty_shift": "晚班"}, draft
+            )
+        bot.send_message.assert_not_called()
+        bot.delete_message.assert_not_called()
+        set_state.assert_not_called()
+
+    @patch.object(massage_channel, "_state_message_id", return_value=-1)
+    @patch.object(massage_channel, "get_conn")
+    @patch.object(massage_channel, "_post_message_ids", return_value={})
+    def test_uncertain_send_does_not_send_or_delete_again(self, posts, get_conn, state):
+        get_conn.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+        bot = MagicMock()
+        with self.assertRaisesRegex(RuntimeError, "发送结果未确认"):
+            massage_channel.publish_attendance(
+                bot, {"duty_date": date(2026, 11, 27), "duty_shift": "晚班"}, None
+            )
+        bot.send_message.assert_not_called()
+        bot.delete_message.assert_not_called()
+
+    @patch.object(massage_channel, "schedule_directory_refresh")
+    @patch.object(massage_channel, "_set_state_message_id")
+    @patch.object(massage_channel, "_edit_text")
+    @patch.object(massage_channel, "_state_message_id", return_value=5000)
+    @patch.object(massage_channel, "get_conn")
+    @patch.object(massage_channel, "_post_message_ids", return_value={})
+    def test_unchanged_attendance_does_not_repost(self, posts, get_conn, state, edit, set_state, schedule):
+        get_conn.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+        edit.side_effect = telegram_error(400, "Bad Request: message is not modified")
+        bot = MagicMock()
+        draft = SimpleNamespace(chat=SimpleNamespace(id=-1002324026180), message_id=7000)
+        result = massage_channel.publish_attendance(
+            bot, {"duty_date": date(2026, 11, 27), "duty_shift": "晚班"}, draft
+        )
+        self.assertEqual(result, 5000)
+        bot.send_message.assert_not_called()
+        bot.delete_message.assert_called_once_with(draft.chat.id, 7000, timeout=20)
+        set_state.assert_not_called()
+
+    @patch.object(massage_channel, "_wait_for_edit_slot")
+    @patch.object(massage_channel, "_set_state_message_id")
+    @patch.object(massage_channel, "_state_message_id", return_value=None)
+    @patch.object(massage_channel, "get_conn")
+    @patch.object(massage_channel, "_post_message_ids", return_value={})
+    def test_send_timeout_preserves_uncertain_state_and_draft(self, posts, get_conn, state, set_state, wait):
+        get_conn.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+        bot = MagicMock()
+        bot.send_message.side_effect = TimeoutError("send result unknown")
+        draft = SimpleNamespace(chat=SimpleNamespace(id=-1002324026180), message_id=7000)
+        with self.assertRaises(TimeoutError):
+            massage_channel.publish_attendance(
+                bot, {"duty_date": date(2026, 11, 27), "duty_shift": "晚班"}, draft
+            )
+        set_state.assert_called_once_with("attendance", -1)
+        bot.delete_message.assert_not_called()
 
     @patch.object(massage_channel, "get_conn")
     def test_seed_existing_posts_does_not_send(self, get_conn):

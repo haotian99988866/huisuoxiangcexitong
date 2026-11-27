@@ -117,6 +117,12 @@ def ensure_tables():
             if not cur.fetchone():
                 cur.execute("ALTER TABLE post_navigation_jobs ADD COLUMN allow_companion"
                             " TINYINT NOT NULL DEFAULT 0")
+            cur.execute("SHOW COLUMNS FROM post_navigation_jobs LIKE 'album_captions'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE post_navigation_jobs ADD COLUMN album_captions JSON NULL")
+            cur.execute("SHOW COLUMNS FROM post_navigation_jobs LIKE 'caption_changed'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE post_navigation_jobs ADD COLUMN caption_changed BOOLEAN NOT NULL DEFAULT FALSE")
             cur.execute("CREATE TABLE IF NOT EXISTS post_navigation_policy"
                         " (id INT PRIMARY KEY,enabled_at DATETIME NOT NULL)")
             cur.execute("INSERT IGNORE INTO post_navigation_policy VALUES (1,UTC_TIMESTAMP())")
@@ -143,7 +149,84 @@ def enqueue(message):
                 " last_message_id=GREATEST(last_message_id,VALUES(last_message_id))",
                 (message.chat.id, key, message.message_id, message.message_id, delay),
             )
+            if album and message.chat.id == CHANNEL_ID:
+                _capture_album_caption(cur, message, key)
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _capture_album_caption(cur, message, key):
+    cur.execute("SELECT status,album_captions FROM post_navigation_jobs"
+                " WHERE chat_id=%s AND post_key=%s FOR UPDATE", (message.chat.id, key))
+    row = cur.fetchone()
+    if not row:
+        return
+    caption = message.caption or ""
+    if row["status"] == "sending":
+        if caption:
+            cur.execute("UPDATE post_navigation_jobs SET caption_changed=TRUE"
+                        " WHERE chat_id=%s AND post_key=%s", (message.chat.id, key))
+        return
+    if row["status"] != "queued":
+        return
+    captions = json.loads(row["album_captions"]) if row["album_captions"] else {}
+    version = getattr(message, "edit_date", None) or 0
+    previous = captions.get(str(message.message_id))
+    if previous and previous.get("version", 0) > version:
+        return
+    captions[str(message.message_id)] = {
+        "text": caption,
+        "entities": [entity.to_dict() for entity in (getattr(message, "caption_entities", None) or [])],
+        "version": version,
+    }
+    cur.execute("UPDATE post_navigation_jobs SET album_captions=%s"
+                " WHERE chat_id=%s AND post_key=%s",
+                (json.dumps(captions, ensure_ascii=False), message.chat.id, key))
+
+
+def capture_album_edit(message):
+    album = getattr(message, "media_group_id", None)
+    if message.chat.id != CHANNEL_ID or not album:
+        return
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            key = f"album:{album}"
+            _capture_album_caption(cur, message, key)
+            cur.execute("UPDATE post_navigation_jobs SET due_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL %s SECOND)"
+                        " WHERE chat_id=%s AND post_key=%s AND status='queued'",
+                        (ALBUM_QUIET_SECONDS, message.chat.id, key))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _album_text(captions):
+    parts = []
+    entities = []
+    offset = 0
+    for message_id, item in sorted(captions.items(), key=lambda entry: int(entry[0])):
+        text = item["text"]
+        if not text:
+            continue
+        if parts:
+            offset += 2
+        parts.append(text)
+        for entity in item["entities"]:
+            entities.append(types.MessageEntity.de_json({**entity, "offset": entity["offset"] + offset}))
+        offset += len(text.encode("utf-16-le")) // 2
+    return "\n\n".join(parts), entities
+
+
+def _album_unchanged(row):
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT caption_changed FROM post_navigation_jobs"
+                        " WHERE chat_id=%s AND post_key=%s", (row["chat_id"], row["post_key"]))
+            current = cur.fetchone()
+            return bool(current and not current["caption_changed"])
     finally:
         conn.close()
 
@@ -169,9 +252,10 @@ def update(row, status, error=None, result_id=None, retry_seconds=0):
     try:
         with conn.cursor() as cur:
             cur.execute("UPDATE post_navigation_jobs SET status=%s,error=%s,result_id=%s,"
+                        " album_captions=IF(%s='sent',NULL,album_captions),"
                         " due_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL %s SECOND)"
                         " WHERE chat_id=%s AND post_key=%s",
-                        (status, error, result_id, retry_seconds, row["chat_id"], row["post_key"]))
+                        (status, error, result_id, status, retry_seconds, row["chat_id"], row["post_key"]))
         conn.commit()
     finally:
         conn.close()
@@ -201,6 +285,27 @@ def deliver(bot, row):
     if row["chat_id"] == GROUP_ID or companion:
         options["reply_parameters"] = types.ReplyParameters(
             message_id=row["first_message_id"], allow_sending_without_reply=False)
+    album = row["chat_id"] == CHANNEL_ID and row["post_key"].startswith("album:")
+    captions = None
+    text = NEWS_TEXT if news else NAVIGATION_TEXT
+    if album:
+        if row.get("caption_changed"):
+            update(row, "failed", "Album caption changed during previous attempt; inspect before publishing")
+            logger.error("Album caption changed for %s", row["post_key"])
+            return 1
+        if not row.get("album_captions"):
+            update(row, "failed", "Album captions unavailable; inspect before publishing")
+            logger.error("Album captions unavailable for %s", row["post_key"])
+            return 1
+        captions = json.loads(row["album_captions"]) if isinstance(row["album_captions"], str) else row["album_captions"]
+        caption_text, entities = _album_text(captions)
+        if caption_text:
+            if len(caption_text.encode("utf-16-le")) // 2 > 4096:
+                update(row, "failed", "Album captions exceed Telegram text limit")
+                logger.error("Album captions exceed text limit for %s", row["post_key"])
+                return 1
+            text = caption_text
+            options["entities"] = entities
     try:
         if ((row["chat_id"] == CHANNEL_ID and row["post_key"].startswith("message:"))
                 or (news and not companion)):
@@ -208,7 +313,7 @@ def deliver(bot, row):
                                                  message_id=row["first_message_id"],
                                                  reply_markup=markup, timeout=20)
         else:
-            sent = bot.send_message(row["chat_id"], NEWS_TEXT if news else NAVIGATION_TEXT, reply_markup=markup,
+            sent = bot.send_message(row["chat_id"], text, reply_markup=markup,
                                     disable_notification=True, disable_web_page_preview=True,
                                     timeout=20, **options)
     except apihelper.ApiTelegramException as error:
@@ -229,7 +334,26 @@ def deliver(bot, row):
         logger.exception("Navigation send outcome unknown for %s:%s; not resent",
                          row["chat_id"], row["post_key"])
     else:
-        update(row, "sent", result_id=sent.message_id if sent is not True else row["first_message_id"])
+        result_id = sent.message_id if sent is not True else row["first_message_id"]
+        if album and caption_text:
+            update(row, "sending", result_id=result_id)
+            try:
+                removed = 0
+                for message_id, item in sorted(captions.items(), key=lambda entry: int(entry[0])):
+                    if not item["text"]:
+                        continue
+                    if removed:
+                        time.sleep(5)
+                    if not _album_unchanged(row):
+                        raise RuntimeError("Album caption changed during publishing")
+                    bot.edit_message_caption("", chat_id=row["chat_id"], message_id=int(message_id), timeout=20)
+                    removed += 1
+            except Exception:
+                update(row, "uncertain", "Caption removal failed or changed; inspect original and navigation",
+                       result_id=result_id)
+                logger.exception("Album caption removal requires inspection for %s", row["post_key"])
+                return 1
+        update(row, "sent", result_id=result_id)
         logger.info("Navigation sent for %s:%s", row["chat_id"], row["post_key"])
     return 1
 
