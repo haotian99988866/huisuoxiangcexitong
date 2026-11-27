@@ -3,7 +3,7 @@ import { requestAdmin } from '../utils/admin'
 import { newMemberOrderId } from '../utils/membership'
 import { money } from '../utils/commerce'
 import { hasTelegramBackButton, registerBackOverlay } from '../utils/twa'
-import { consumptionDate } from '../utils/customerRecords'
+import { consumptionCommission, consumptionDate, consumptionProjects } from '../utils/customerRecords'
 import StaffGallery from './StaffGallery'
 import DeliveryPersonPicker from './DeliveryPersonPicker'
 import MusicDialog from './MusicDialog'
@@ -71,6 +71,7 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
   const [tab, setTab] = useState('overview')
   const [profileExtras, setProfileExtras] = useState(false)
   const [consumptionExtras, setConsumptionExtras] = useState(false)
+  const [customService, setCustomService] = useState(false)
   const [startConsumption, setStartConsumption] = useState(false)
   const writing = useRef(false)
   const mounted = useRef(true)
@@ -136,6 +137,7 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
     setError('')
     setNotice('')
     setConsumptionExtras(Boolean(row?.note || Number(row?.refunded)))
+    setCustomService(false)
     setEditor({
       action: 'admin_consumption_save', revision: row?.revision || 0, record_id: row?.id,
       service_kind: row?.service_kind || 'venue',
@@ -171,20 +173,24 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
   }))
   const chooseConsumptionSource = value => {
     setStaffSearch('')
+    setCustomService(false)
     if (value.startsWith('delivery:')) {
       setEditor(current => ({
         ...current, service_kind: 'delivery', venue_id: value.slice('delivery:'.length),
         staff_id: '', delivery_person_id: '',
+        service: String(current.venue_id) === value.slice('delivery:'.length) ? current.service : '',
       }))
     } else {
       setEditor(current => ({
         ...current, service_kind: 'venue', venue_id: value.replace(/^venue:/, ''),
         staff_id: '', delivery_person_id: '',
+        service: String(current.venue_id) === value.replace(/^venue:/, '') ? current.service : '',
       }))
     }
   }
   const chooseConsumptionKind = service_kind => {
     setStaffSearch('')
+    setCustomService(false)
     setEditor(current => ({
       ...current, service_kind, venue_id: '', staff_id: '', delivery_person_id: '', service: '',
     }))
@@ -456,21 +462,40 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
               : <p className="admin-hint">先选择外送来源，再从对应人员相册中关联档案。</p>}
           </fieldset>}
           <label>消费时间（柬埔寨时间）<input required type="datetime-local" value={editor.occurred_at} onChange={e => field('occurred_at', e.target.value)} /></label>
-          <label>消费项目<input required maxLength={128} list={`commission-items-${editor.venue_id}`}
-            value={editor.service} onChange={e => field('service', e.target.value)} />
-            <datalist id={`commission-items-${editor.venue_id}`}>
-              {(data?.commission_items || []).filter(row => row.venue_id === Number(editor.venue_id))
-                .map(row => <option key={row.service_key} value={row.service_name}>
-                  固定提成 ${money(row.commission_amount)}
-                </option>)}
-            </datalist>
-          </label>
           {(() => {
-            const selected = (data?.commission_items || []).find(row =>
-                row.venue_id === Number(editor.venue_id) && row.service_name === editor.service)
-            return <p className="admin-hint">{selected
-                ? `本项目固定提成 $${money(selected.commission_amount)}；已退金额将从提成中扣减，最低为 $0。`
-                : '未匹配固定提成价目项目时，本笔客人提成按 $0 计。请尽量从项目建议中选择。'}</p>
+            const { options, selected } = consumptionProjects(data?.commission_items || [], editor.venue_id, editor.service)
+            const other = customService || Boolean(editor.service && !selected)
+            return <>
+              <label>消费项目
+                <select required disabled={!editor.venue_id}
+                  value={other ? 'other' : selected ? `item:${selected.service_key}` : ''}
+                  onChange={event => {
+                    if (event.target.value === 'other') {
+                      setCustomService(true)
+                      field('service', '')
+                    } else {
+                      setCustomService(false)
+                      const choice = options.find(item => `item:${item.service_key}` === event.target.value)
+                      field('service', choice?.service_name || '')
+                    }
+                  }}>
+                  <option value="">{editor.venue_id ? '请选择消费项目' : '请先选择会所或外送'}</option>
+                  {options.map(item => <option key={item.service_key} value={`item:${item.service_key}`}>
+                    {item.service_name}
+                  </option>)}
+                  <option value="other">其他项目（手动填写）</option>
+                </select>
+              </label>
+              {other && <label>其他项目名称
+                <input required maxLength={128} value={editor.service}
+                  onChange={event => field('service', event.target.value)} />
+              </label>}
+              <p className="admin-hint">{selected
+                ? '按个人财务对应项目计算提成；已退金额从提成中扣减，最低为 $0。'
+                : editor.service_kind === 'delivery'
+                  ? '其他外送项目按对应来源的默认提成处理。'
+                  : '其他项目未匹配固定提成时，本笔提成按 $0 计。'}</p>
+            </>
           })()}
           <label>{editor.revision ? '实际付款' : '消费原价'} USD<input required inputMode="decimal" pattern="\d{1,10}(\.\d{1,2})?" value={editor.amount} onChange={e => field('amount', e.target.value)} /></label>
           {!editor.revision && <p className="admin-hint">下一步自动核对可用代金券并显示折后实付；每笔最多使用一张。</p>}
@@ -501,16 +526,11 @@ function CustomerRecordDetail({ userId, onClose, createOnOpen = false }) {
             : `${data?.venues.find(row => row.id === Number(confirmation.venue_id))?.name || '未选择会所'} · ${confirmation.staff_id
               ? `工号 ${data?.staff.find(row => row.id === Number(confirmation.staff_id))?.code}` : '未关联技师'}`}<br />
           实付 ${money(confirmation.amount)} · 已退 ${money(confirmation.refunded)} · 固定提成
-          ${money(Math.max(0, Number((() => {
+          {(() => {
             const prior = data?.records.find(row => row.id === confirmation.record_id)
-            if (prior && prior.service === confirmation.service &&
-                prior.venue_id === Number(confirmation.venue_id) && prior.commission_service_key) {
-              return prior.commission_base_amount
-            }
-            return data?.commission_items.find(row =>
-              row.venue_id === Number(confirmation.venue_id) && row.service_name === confirmation.service)
-              ?.commission_amount || 0
-          })()) - Number(confirmation.refunded)))}
+            const base = consumptionCommission(data?.commission_items || [], confirmation, prior)
+            return base == null ? ' 保存后按个人财务设置计算' : ` $${money(Math.max(0, Number(base) - Number(confirmation.refunded)))}`
+          })()}
         </p>}
         {confirmation.action === 'admin_consumption_save' && confirmation.coupon_previewed && <p>
           原价 ${money(confirmation.original_amount)} · {confirmation.coupon_expected_id
