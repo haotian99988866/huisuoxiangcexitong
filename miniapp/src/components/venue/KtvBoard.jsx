@@ -2,7 +2,7 @@ import ModuleIcon from '../ModuleIcon'
 import CopyBooking from '../CopyBooking'
 import LazyMedia from '../media/LazyMedia'
 import ContactButton from '../media/ContactButton'
-import { mediaUrl } from '../../utils/tenant'
+import { contactName, mediaUrl } from '../../utils/tenant'
 import { API_BASE_URL, hasTelegramBackButton } from '../../utils/twa'
 import {
   attendanceHeadingRowStyle,
@@ -15,6 +15,7 @@ import {
   ktvVideoInfo,
   recentUpdateStyle,
 } from '../../utils/venueHome'
+import './KtvBoard.css'
 
 export default function KtvBoard({
   selectedVenue,
@@ -23,7 +24,7 @@ export default function KtvBoard({
   closeKtvVideo,
 }) {
   return (
-    <div style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
+    <div className="ktv-board" style={{ ...attendancePanelStyle, marginBottom: '24px' }}>
       <div style={{ ...attendanceHeadingRowStyle, marginBottom: '12px' }}>
         <h3 style={attendanceInlineHeadingStyle}><ModuleIcon name="movies" />KTV包房视频</h3>
         <span style={recentUpdateStyle}>
@@ -31,21 +32,12 @@ export default function KtvBoard({
         </span>
       </div>
       {(selectedVenue.ktv_videos || []).length > 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+        <div className="ktv-room-grid">
           {selectedVenue.ktv_videos.map(video => {
             const info = ktvVideoInfo(video)
             return (
-            <div key={video.id} style={{
-              background: 'var(--home-surface)', borderRadius: '14px', overflow: 'hidden',
-              border: '1px solid var(--ink-line)', boxShadow: 'var(--shadow)'
-            }}>
-              <div
-                onClick={() => setKtvVideo(video)}
-                style={{
-                  position: 'relative', aspectRatio: '16 / 10',
-                  background: '#2b2b2b', cursor: 'pointer', overflow: 'hidden'
-                }}
-              >
+            <div key={video.id} className="ktv-room-card">
+              <div className="ktv-room-cover">
                 <LazyMedia
                   as="video"
                   preload="metadata"
@@ -54,46 +46,19 @@ export default function KtvBoard({
                   src={mediaUrl(`${API_BASE_URL}/ktv-videos/${video.id}#t=0.5`)}
                   style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
                 />
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  background: 'linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0) 55%)'
-                }} />
-                {video.room_number && (
-                  <span style={{
-                    position: 'absolute', top: '8px', left: '8px', padding: '2px 9px',
-                    borderRadius: '10px', background: 'rgba(128, 100, 60, 0.92)',
-                    color: '#fff', fontSize: '12px', fontWeight: 600
-                  }}>
-                    {video.room_number}
-                  </span>
-                )}
-                <span style={{
-                  position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
-                  width: '44px', height: '44px', borderRadius: '50%',
-                  background: 'var(--ink-reading)', color: 'var(--ink-accent)', fontSize: '16px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  paddingLeft: '3px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
-                }}>▶</span>
-                {info.type && (
-                  <span style={{
-                    position: 'absolute', left: '8px', bottom: '8px',
-                    color: '#fff', fontSize: '12px', textShadow: '0 1px 3px rgba(0,0,0,0.6)'
-                  }}>
-                    {info.type}
-                  </span>
-                )}
+                <button type="button" className="ktv-room-play"
+                  aria-label={`播放${info.hall}${video.room_number ? ` ${video.room_number}` : ''}视频`}
+                  onClick={() => setKtvVideo(video)}>
+                  {video.room_number && <span className="ktv-room-number">{video.room_number}</span>}
+                  <span className="ktv-room-play-icon" aria-hidden="true">▶</span>
+                  {info.type && <span className="ktv-room-type">{info.type}</span>}
+                </button>
               </div>
-              <div style={{
-                display: 'grid',
-                gap: '6px', padding: '10px'
-              }}>
-                <div style={{
-                  fontSize: '13px', fontWeight: 600, color: 'var(--ink-text)', minWidth: 0,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                }}>
+              <div className="ktv-room-details">
+                <div className="ktv-room-title">
                   {info.hall}{video.room_number ? ` ${video.room_number}` : ''}
                 </div>
-                <CopyBooking url={ktvBookingUrl(video)} compact />
+                <CopyBooking url={ktvBookingUrl(video)} compact label={`复制并联系${contactName()}`} />
               </div>
             </div>
             )

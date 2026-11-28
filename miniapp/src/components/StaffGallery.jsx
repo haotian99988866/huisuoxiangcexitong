@@ -14,7 +14,9 @@ import {
 } from './CustomerDutyControls'
 import LazyMedia from './media/LazyMedia'
 import PhotoSkeleton from './media/PhotoSkeleton'
-import { CLUB_STYLE_VENUE_IDS, ROSTER_DUTY_VENUE_IDS, isMingxiVenue } from '../utils/venueHome'
+import NoticeCard from './media/NoticeCard'
+import { staffAttendanceNotice } from '../utils/attendanceNotice'
+import { CLUB_STYLE_VENUE_IDS, ROSTER_DUTY_VENUE_IDS, formatChannelMessageTime, isMingxiVenue } from '../utils/venueHome'
 import {
   buildCategoryCodeMap,
   buildCodeBoardMap,
@@ -357,6 +359,11 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
   ].filter(Boolean).join(' ')
   const filterEmptyText = '当前筛选没有可展示人员。'
   const groupLabel = isMingxiVenue(venue.id) ? '牌' : '类别'
+  const attendanceNotice = data && staffAttendanceNotice({
+    photoFirst, attendanceOnly, visibleCount: visibleMembers.length, searchTerm, boardFilter,
+    rosterAvailable: data.roster_available, hasDutyCodes: attendanceCodes.size > 0,
+    shiftName,
+  })
 
   return <section className={galleryClass} aria-label={`${venue.name}${photoFirst ? attendanceOnly ? '出勤照片' : '技师档案' : '人员档案'}`}>
     {!photoFirst && <div className="staff-heading">
@@ -418,6 +425,12 @@ export default function StaffGallery({ venue, admin = false, onSelect, search = 
           searchTerm,
           rosterDutyOnly,
         })
+        if (attendanceNotice) return (
+          <NoticeCard icon="waiting" title={attendanceNotice.title} contactOnly
+            updatedAt={formatChannelMessageTime(venue.last_channel_message_at)}>
+            {emptyText}<br />如需了解详情请直接联系{contactName()}。
+          </NoticeCard>
+        )
         return attendanceOnly && onBrowseAlbum && !searchTerm ? (
           <div className="staff-empty-cta" role="status">
             <p>{boardFilter !== '全部' ? filterEmptyText : emptyText}</p>

@@ -363,6 +363,7 @@ export default function TechnicianBoard({
         <NoticeCard
           icon="waiting"
           title={`${dutyLabel}尚未发布`}
+          contactOnly
           updatedAt={formatChannelMessageTime(selectedVenue.last_channel_message_at)}
         >
           {currentShift === '白班'

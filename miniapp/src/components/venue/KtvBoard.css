@@ -1,0 +1,100 @@
+.ktv-room-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ktv-room-card {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--home-surface);
+  border: 1px solid var(--ink-line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.ktv-room-cover {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: #2b2b2b;
+}
+
+.ktv-room-play {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, .6), transparent 55%);
+  color: #fff;
+  cursor: pointer;
+}
+
+.ktv-room-play:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: -4px;
+}
+
+.ktv-room-number {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 9px;
+  border-radius: 10px;
+  background: rgba(128, 100, 60, .92);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ktv-room-play-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding-left: 3px;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--ink-reading);
+  color: var(--ink-accent);
+  font-size: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+}
+
+.ktv-room-type {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .6);
+}
+
+.ktv-room-details {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.ktv-room-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ink-app .ktv-board .ktv-room-card .copy-contact-button {
+  padding: 8px 6px;
+  font-size: 12px;
+}

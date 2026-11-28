@@ -38,7 +38,7 @@ export default function DeliveryBoard({
 
   if (isDeliveryDayShift) {
     return (
-      <NoticeCard icon="daylight" title="西港外送只展示晚班出勤">
+      <NoticeCard icon="daylight" title="西港外送只展示晚班出勤" contactOnly>
         当前为白班时间（06:00–18:00），白班外送请单独联系{contactName()}，<br />
         晚班（18:00 起）内容将在此展示。
       </NoticeCard>

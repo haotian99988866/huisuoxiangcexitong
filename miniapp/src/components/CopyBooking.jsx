@@ -3,7 +3,7 @@ import { contactName } from '../utils/tenant'
 import { openTelegramLink } from '../utils/twa'
 import './CopyBooking.css'
 
-export default function CopyBooking({ url, compact = false, label = null }) {
+export default function CopyBooking({ url, compact = false, label = null, showCopySuccess = true }) {
   const [status, setStatus] = useState('')
   const [failed, setFailed] = useState(false)
   const message = new URL(url).searchParams.get('text') || ''
@@ -12,7 +12,7 @@ export default function CopyBooking({ url, compact = false, label = null }) {
     try {
       await navigator.clipboard.writeText(message)
       setFailed(false)
-      setStatus('已复制，去聊天粘贴发送。')
+      setStatus(showCopySuccess ? '已复制，去聊天粘贴发送。' : '')
     } catch (error) {
       console.error('[Copy booking]', error)
       setFailed(true)

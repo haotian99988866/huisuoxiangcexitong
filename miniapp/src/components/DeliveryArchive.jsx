@@ -8,6 +8,9 @@ import useCustomerSubscriptions from '../utils/useCustomerSubscriptions'
 import { SubscriptionControl, SubscriptionFeedback } from './CustomerDutyControls'
 import LazyMedia from './media/LazyMedia'
 import PhotoSkeleton from './media/PhotoSkeleton'
+import NoticeCard from './media/NoticeCard'
+import { deliveryAttendanceNotice } from '../utils/attendanceNotice'
+import { formatChannelMessageTime } from '../utils/venueHome'
 import './StaffGallery.css'
 
 export default function DeliveryArchive({ venue, photoFirst = false, attendanceOnly = false, onBrowseAlbum }) {
@@ -77,6 +80,9 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
       ? `西港外送仅展示晚班出勤。白班请联系${contactName()}，或先浏览技师档案。`
       : '当前没有可展示的晚班出勤档案，可先浏览技师档案。'
     : '暂无可展示的人员档案。'
+  const attendanceNotice = data && deliveryAttendanceNotice({
+    photoFirst, attendanceOnly, visibleCount: people.length, shift: data.shift,
+  })
   return <section className={`staff-gallery${photoFirst ? ' mingxi-photo-gallery' : ''}`} aria-label={photoFirst ? attendanceOnly ? '外送出勤照片' : '外送人员相册' : '外送人员档案'}>
     <div className="staff-heading">
       <h2>{photoFirst ? <>{attendanceOnly ? data?.shift || venue.current_shift || '晚班' : '相册'}
@@ -95,7 +101,12 @@ export default function DeliveryArchive({ venue, photoFirst = false, attendanceO
         : '请从 Telegram 主入口打开，才能订阅出勤提醒。'}</p>
       <SubscriptionFeedback subscription={subscription} />
       </>}
-      {!people.length && (attendanceOnly && onBrowseAlbum ? (
+      {!people.length && (attendanceNotice ? (
+        <NoticeCard icon={data.shift === '白班' ? 'daylight' : 'waiting'} title={attendanceNotice.title} contactOnly
+          updatedAt={formatChannelMessageTime(venue.last_channel_message_at)}>
+          {attendanceNotice.description}<br />如需了解详情请直接联系{contactName()}。
+        </NoticeCard>
+      ) : attendanceOnly && onBrowseAlbum ? (
         <div className="staff-empty-cta" role="status">
           <p>{emptyMessage}</p>
           <button type="button" onClick={onBrowseAlbum}>查看技师档案</button>

@@ -1,7 +1,7 @@
 import ModuleIcon from '../ModuleIcon'
 import ContactButton from './ContactButton'
 
-export default function NoticeCard({ icon, title, updatedAt, children }) {
+export default function NoticeCard({ icon, title, updatedAt, contactOnly = false, children }) {
   return (
     <div style={{
       marginBottom: '24px',
@@ -18,7 +18,7 @@ export default function NoticeCard({ icon, title, updatedAt, children }) {
       <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.7, color: 'var(--ink-muted)' }}>
         {children}
       </p>
-      <ContactButton title={title} />
+      <ContactButton title={title} contactOnly={contactOnly} />
       {updatedAt && (
         <div style={{ marginTop: '14px', fontSize: '11px', color: 'var(--ink-muted)' }}>
           最近更新：{updatedAt}
